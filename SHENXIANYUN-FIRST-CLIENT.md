@@ -56,3 +56,7 @@ xcodebuild -project apple/ClashClient/ClashClient.xcodeproj \
 
 保留 `codex/shenxianyun-ios-20261025@a3d3cc3` 与旧 `shenxianyun-apple@e1575b5`。对业务提交正常 revert 即可回到纯上游准备状态，无生产数据迁移。
 同步时先获取 upstream，审查 API、工程与依赖锁变化后合并业务分支，运行服务测试/品牌检查/无签名编译并再做真机回归。绝不 force 覆盖神仙云业务分支，也不把内核 main 自动替换为客户端 pin。
+
+## 远端验证回执（2026-10-26）
+
+业务提交 `2883f074cef0a1c579ac3b2457e0fc20680e5ac9` 已推送，GitHub [run 40209436084](https://github.com/abxian/Clash-Client/actions/runs/40209436084) 结论 success：服务层 40 项测试和品牌检查成功，远端 unsigned-ios 是手动可选任务，本次跳过；双架构无签名编译证据来自本机。远端 CI 不代表签名、安装或运行验收。开发记录、验证 JSON、品牌脚本、CI 配置已从 GitHub 按业务提交下载并核对 SHA-256；后续回执修改按新提交再次核验。

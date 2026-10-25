@@ -46,5 +46,13 @@
     "signed device and isolated end-to-end verification",
     "iOS update and access-code deep link",
     "durable recovery of final unreported traffic after OS kill"
-  ]
+  ],
+  "source_commit": "2883f074cef0a1c579ac3b2457e0fc20680e5ac9",
+  "ci": {
+    "run_url": "https://github.com/abxian/Clash-Client/actions/runs/40209436084",
+    "conclusion": "success",
+    "service_tests": "success",
+    "brand_check": "success",
+    "unsigned_ios": "skipped; optional manual job, local build passed"
+  }
 }
