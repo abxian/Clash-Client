@@ -4,6 +4,8 @@
 
 # Clash Client for Apple Platforms
 
+> This fork develops **神仙云 iOS** on a separate branch. Start with [Shenxianyun development](SHENXIANYUN-FIRST-CLIENT.md) for its own branding, access-code integration, build instructions and verification limits. The upstream documentation and links below describe ProjectClash, not a released Shenxianyun app.
+
 English · [简体中文](README.zh-CN.md)
 
 [![Website](https://img.shields.io/badge/Website-Official-2563EB)](https://clash.md/)

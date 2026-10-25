@@ -2989,14 +2989,14 @@ final class ProfilesViewModel: ObservableObject {
      
      
     @discardableResult
-    func quickCreate(_ input: ProfileQuickAddInput, nodesOnly: Bool = false) async throws -> ProfileQuickAddOutcome {
+    func quickCreate(_ input: ProfileQuickAddInput, nodesOnly: Bool = false, preservingRouting: Bool = false) async throws -> ProfileQuickAddOutcome {
 
 
          
          
          
          
-        let created = try await quickCreateConfiguration(input, nodesOnly: nodesOnly)
+        let created = try await quickCreateConfiguration(input, nodesOnly: nodesOnly, preservingRouting: preservingRouting)
 
 
          
@@ -3024,7 +3024,7 @@ final class ProfilesViewModel: ObservableObject {
     }
 
      
-    private func quickCreateConfiguration(_ input: ProfileQuickAddInput, nodesOnly: Bool) async throws -> QuickCreated {
+    private func quickCreateConfiguration(_ input: ProfileQuickAddInput, nodesOnly: Bool, preservingRouting: Bool) async throws -> QuickCreated {
         guard let library = configurationLibraryStore else {
             throw PipelineError.sourceUnavailable("The configuration store is unavailable.")
         }
@@ -3053,9 +3053,17 @@ final class ProfilesViewModel: ObservableObject {
 
         let isDocument: Bool = { if case .document = input { return true }; return false }()
         let suppliesOwnRouting = await Task.detached(priority: .userInitiated) { payload.suppliesOwnRouting }.value
-        let routed = isDocument && suppliesOwnRouting
+        let routed = (isDocument || preservingRouting) && suppliesOwnRouting
         var draft = ConfigurationCreationDraft()
-        if !routed, let buildsOn {
+        if preservingRouting {
+            // Official subscriptions own their policy groups, DNS and rules.
+            // acceptNewImport intentionally selects original mode only for local files.
+            guard payload.record.suppliesNodes,
+                  payload.record.nodeCount > 0 || payload.record.providerCount > 0 else {
+                throw ConfigurationLibraryError.missingNodes
+            }
+            draft.useOriginal(payload)
+        } else if !routed, let buildsOn {
              
              
             draft.selectedSourceIDs = [buildsOn]

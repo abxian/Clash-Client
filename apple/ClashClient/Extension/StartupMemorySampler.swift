@@ -23,7 +23,7 @@ struct StartupSamplingDependencies: Sendable {
     var readPage: StartupPhasePager.Reader = StartupPhaseBindingReader.read
     var makeChannel: @Sendable (URL, DispatchQueue) -> StartupLogChannel = { StartupLogChannel(url: $0, queue: $1) }
     var reportTermination: @Sendable (String) -> Void = { text in
-        Logger(subsystem: "org.example.clash.demo.extension", category: "memsample").info("\(text, privacy: .public)")
+        Logger(subsystem: "de.sxnn.shenxianyun.demo.extension", category: "memsample").info("\(text, privacy: .public)")
     }
 }
 

@@ -1,3 +1,4 @@
+import ShenxianyunKit
 import Combine
 import ClashClientUI
 import SwiftUI
@@ -188,6 +189,10 @@ struct AppShellView: View {
      
     @StateObject private var profiles: ProfilesViewModel
     @StateObject private var command = ClashCommandClient()
+    @State private var showsShenxianyunSettings = false
+    private let shenxianyunClient = ShenxianyunClient(
+        store: AppGroupStore(suiteName: ShenxianyunProfile.appGroup) ?? InMemoryStore())
+
     @StateObject private var stats = StatsModel()
     @StateObject private var nodes = NodesModel()
     @StateObject private var networkQuality = NetworkQualityModel()
@@ -431,7 +436,7 @@ struct AppShellView: View {
         .transformEnvironment(\.locale) { locale in
             if let override = preferences.language.localeOverride { locale = override }
         }
-        .preferredColorScheme(preferences.themeMode.colorScheme)
+        .preferredColorScheme(.light)
         .tint(preferences.accent.color)
          
         .clashRuleRunFeedbackRelay(profiles, locale: preferences.language.localeOverride)
@@ -988,7 +993,27 @@ struct AppShellView: View {
     }
 
     private var debugGateShell: some View {
-        goldenFlowShell
+        Group {
+            if showsShenxianyunSettings {
+                goldenFlowShell.safeAreaInset(edge: .top) {
+                    Button { showsShenxianyunSettings = false } label: {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                            Text("神仙云")
+                            Spacer()
+                        }.padding(12).foregroundStyle(SXYTheme.purple).background(SXYTheme.surface)
+                    }.buttonStyle(.plain)
+                }
+            } else {
+                ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command,
+                    client: shenxianyunClient,
+                    openUpstream: { showsShenxianyunSettings = true },
+                    openNodes: {
+                        showsShenxianyunSettings = true
+                        pendingSessionPage = .proxies
+                    })
+            }
+        }
     }
 
 

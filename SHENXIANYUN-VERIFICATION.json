@@ -1,0 +1,50 @@
+{
+  "task": 210,
+  "date": "2026-10-25",
+  "version": "0.1.0 (1)",
+  "unsigned_ios_build": "passed",
+  "architectures": "x86_64 arm64",
+  "service_tests": 40,
+  "failures": 0,
+  "brand_check": "passed",
+  "products": [
+    {
+      "CFBundleDisplayName": "神仙云",
+      "CFBundleIdentifier": "de.sxnn.shenxianyun",
+      "CFBundleShortVersionString": "0.1.0",
+      "CFBundleVersion": "1"
+    },
+    {
+      "CFBundleDisplayName": "神仙云 控制",
+      "CFBundleIdentifier": "de.sxnn.shenxianyun.controls",
+      "CFBundleShortVersionString": "0.1.0",
+      "CFBundleVersion": "1"
+    },
+    {
+      "CFBundleDisplayName": "导入到神仙云",
+      "CFBundleIdentifier": "de.sxnn.shenxianyun.share",
+      "CFBundleShortVersionString": "0.1.0",
+      "CFBundleVersion": "1"
+    },
+    {
+      "CFBundleDisplayName": "神仙云 内核",
+      "CFBundleIdentifier": "de.sxnn.shenxianyun.extension",
+      "CFBundleShortVersionString": "0.1.0",
+      "CFBundleVersion": "1"
+    }
+  ],
+  "url_schemes": [
+    "shenxianyun"
+  ],
+  "production_requests_in_tests": 0,
+  "signed": false,
+  "simulator_launched": false,
+  "device_verified": false,
+  "released": false,
+  "remaining": [
+    "CoreSimulator/CoreDevice component mismatch",
+    "signed device and isolated end-to-end verification",
+    "iOS update and access-code deep link",
+    "durable recovery of final unreported traffic after OS kill"
+  ]
+}

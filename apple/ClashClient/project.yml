@@ -1,20 +1,20 @@
 name: ClashClient
 options:
-  bundleIdPrefix: org.example.clash
+  bundleIdPrefix: de.sxnn.shenxianyun
   deploymentTarget:
     iOS: '15.0'
     macOS: '13.0'
     tvOS: '17.0'
 settings:
   base:
-    CLASH_BUNDLE_BASE: org.example.clash
+    CLASH_BUNDLE_BASE: de.sxnn.shenxianyun
     CLASH_APP_GROUP: group.$(CLASH_BUNDLE_BASE)
     CLASH_ICLOUD_CONTAINER: iCloud.$(CLASH_BUNDLE_BASE)
     CLASH_DEVELOPMENT_TEAM: ''
     SWIFT_VERSION: '5.9'
     GENERATE_INFOPLIST_FILE: true
     CURRENT_PROJECT_VERSION: 1
-    MARKETING_VERSION: 1.0.9
+    MARKETING_VERSION: 0.1.0
     CLASH_SOURCE_REVISION: source-build
     OTHER_LDFLAGS:
     - -lresolv
@@ -34,6 +34,8 @@ packages:
   swift-asn1:
     url: https://github.com/apple/swift-asn1.git
     exactVersion: 1.7.3
+  ShenxianyunKit:
+    path: ../ShenxianyunKit
 targets:
   ClashiOS:
     type: application
@@ -87,7 +89,7 @@ targets:
     info:
       path: Info.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云
         CFBundleShortVersionString: $(MARKETING_VERSION)
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
@@ -106,10 +108,7 @@ targets:
         CFBundleURLTypes:
         - CFBundleTypeRole: Editor
           CFBundleURLSchemes:
-          - clash
-          - clashmeta
-          - flclash
-          - clash
+          - shenxianyun
         CFBundleDocumentTypes:
         - CFBundleTypeName: YAML Configuration
           CFBundleTypeRole: Viewer
@@ -123,9 +122,9 @@ targets:
         - fetch
         - processing
         NSUbiquitousContainers:
-          iCloud.org.example.clash:
+          iCloud.de.sxnn.shenxianyun:
             NSUbiquitousContainerIsDocumentScopePublic: true
-            NSUbiquitousContainerName: Clash
+            NSUbiquitousContainerName: 神仙云
             NSUbiquitousContainerSupportedFolderLevels: Any
     entitlements:
       path: ClashClient.entitlements
@@ -160,6 +159,7 @@ targets:
       embed: true
     - target: ClashShareExtension
       embed: true
+    - package: ShenxianyunKit
   Clash:
     type: framework
     platform: iOS
@@ -248,7 +248,7 @@ targets:
     info:
       path: Extension/Info.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云 内核
         CFBundleShortVersionString: '1.0'
         CFBundleVersion: '1'
         NSExtension:
@@ -266,6 +266,7 @@ targets:
       product: _CryptoExtras
     - package: swift-asn1
       product: SwiftASN1
+    - package: ShenxianyunKit
   ClashControlsExtension:
     type: app-extension
     platform: iOS
@@ -320,7 +321,7 @@ targets:
     info:
       path: ControlsExtension/Info.plist
       properties:
-        CFBundleDisplayName: Clash Controls
+        CFBundleDisplayName: 神仙云 控制
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -358,7 +359,7 @@ targets:
     info:
       path: ShareExtension/Info.plist
       properties:
-        CFBundleDisplayName: Import to Clash
+        CFBundleDisplayName: 导入到神仙云
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSExtension:
@@ -472,7 +473,7 @@ targets:
     info:
       path: Resources/macOS/ClashMacInfo.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         CFBundleIconName: AppIcon
@@ -481,10 +482,7 @@ targets:
         - CFBundleTypeRole: Editor
           CFBundleURLName: $(PRODUCT_BUNDLE_IDENTIFIER).install-config
           CFBundleURLSchemes:
-          - clash
-          - clashmeta
-          - flclash
-          - clash
+          - shenxianyun
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ClashSourceRevision: $(CLASH_SOURCE_REVISION)
@@ -529,6 +527,7 @@ targets:
     - target: ClashmacOSWidgets
       embed: true
     - sdk: NetworkExtension.framework
+    - package: ShenxianyunKit
     postBuildScripts:
     - name: Embed the terminal helper
       shell: /bin/sh
@@ -594,7 +593,7 @@ targets:
     info:
       path: MacWidgets/Info.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云
         ClashSourceRevision: $(CLASH_SOURCE_REVISION)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
@@ -656,7 +655,7 @@ targets:
     info:
       path: Resources/macOS/ClashMacExtensionInfo.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云 内核
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         ClashSourceRevision: $(CLASH_SOURCE_REVISION)
@@ -675,6 +674,7 @@ targets:
       product: _CryptoExtras
     - package: swift-asn1
       product: SwiftASN1
+    - package: ShenxianyunKit
   ClashtvOS:
     type: application
     platform: tvOS
@@ -806,7 +806,7 @@ targets:
     info:
       path: Resources/tvOS/ClashTVInfo.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云
         NSLocalNetworkUsageDescription: Let other devices on your network use this
           Apple TV's proxy.
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -839,6 +839,7 @@ targets:
     - target: ClashtvOSExtension
       embed: true
     - sdk: NetworkExtension.framework
+    - package: ShenxianyunKit
   ClashtvOSExtension:
     type: app-extension
     platform: tvOS
@@ -874,7 +875,7 @@ targets:
     info:
       path: Resources/tvOS/ClashTVExtensionInfo.plist
       properties:
-        CFBundleDisplayName: Clash
+        CFBundleDisplayName: 神仙云 内核
         UIRequiredDeviceCapabilities:
         - arm64
         CFBundleShortVersionString: $(MARKETING_VERSION)
@@ -889,6 +890,7 @@ targets:
     - framework: ../../Clash.xcframework
       embed: false
     - sdk: NetworkExtension.framework
+    - package: ShenxianyunKit
 schemes:
   ClashiOS:
     build:

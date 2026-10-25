@@ -71,7 +71,7 @@ final class ClashMacSocketOwners: @unchecked Sendable {
      
      
      
-    private static let log = Logger(subsystem: "org.example.clash", category: "process-owner")
+    private static let log = Logger(subsystem: "de.sxnn.shenxianyun", category: "process-owner")
 
     func owner(
         proto: UInt8,

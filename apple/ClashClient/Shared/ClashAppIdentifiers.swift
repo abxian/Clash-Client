@@ -10,31 +10,31 @@ import Foundation
 
 enum ClashAppIdentifiers {
      
-    static let base = "org.example.clash"
+    static let base = "de.sxnn.shenxianyun"
 
      
-    static let appBundleID = "org.example.clash"
+    static let appBundleID = "de.sxnn.shenxianyun"
 
      
-    static let macAppBundleID = "org.example.clash"
+    static let macAppBundleID = "de.sxnn.shenxianyun"
 
      
-    static let tvAppBundleID = "org.example.clash"
+    static let tvAppBundleID = "de.sxnn.shenxianyun"
 
      
-    static let packetTunnelExtensionBundleID = "org.example.clash.extension"
+    static let packetTunnelExtensionBundleID = "de.sxnn.shenxianyun.extension"
 
      
-    static let macPacketTunnelExtensionBundleID = "org.example.clash.packet-tunnel"
+    static let macPacketTunnelExtensionBundleID = "de.sxnn.shenxianyun.packet-tunnel"
 
      
-    static let controlsExtensionBundleID = "org.example.clash.controls"
+    static let controlsExtensionBundleID = "de.sxnn.shenxianyun.controls"
 
      
-    static let shareExtensionBundleID = "org.example.clash.share"
+    static let shareExtensionBundleID = "de.sxnn.shenxianyun.share"
 
      
-    static let tvPacketTunnelExtensionBundleID = "org.example.clash.tvextension"
+    static let tvPacketTunnelExtensionBundleID = "de.sxnn.shenxianyun.tvextension"
 
      
      
@@ -47,15 +47,15 @@ enum ClashAppIdentifiers {
     static var appGroup: String {
 
 
-        return "group.org.example.clash"
+        return "group.de.sxnn.shenxianyun"
     }
 
      
-    static let iCloudContainer = "iCloud.org.example.clash"
+    static let iCloudContainer = "iCloud.de.sxnn.shenxianyun"
 
      
-    static let backgroundRefreshTask = "org.example.clash.refresh"
+    static let backgroundRefreshTask = "de.sxnn.shenxianyun.refresh"
 
      
-    static let keychainService = "org.example.clash.credentials"
+    static let keychainService = "de.sxnn.shenxianyun.credentials"
 }

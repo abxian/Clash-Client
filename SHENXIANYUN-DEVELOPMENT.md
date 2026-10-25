@@ -1,6 +1,6 @@
 # 神仙云 iOS 开发入口
 
-2026-10-25 · Codex · 工作区任务 #209。此分支完成新上游与依赖准备，尚未移植神仙云业务、签名或发布。
+2026-10-25 · Codex。#209 完成上游准备，#210 已开始首版业务迁移，当前开发分支为 `codex/ios-first-client-20261025`。实现范围、验证边界与后续见 [首版开发记录](SHENXIANYUN-FIRST-CLIENT.md)；未签名或发布。
 
 ## 仓库分类
 
@@ -59,7 +59,7 @@ configure 生成工程，同时编译 macOS CLI，即使目标只做 iOS。生�
 其 fork parent 已变为 `ProjectClash/Clash-Client-Legacy`，不是当前新客户端。
 原 `Hako`、`Hako-Adapter` 两个目录同样只留作历史参考，不删除、不重置、不移动。
 
-按以下顺序移植，每步独立验证：
+以下是 #209 制定的迁移顺序；当前实际实现以首版开发记录和源码为准：
 
 1. 迁入旧 `apple/ShenxianyunKit`，先以隔离 mock 跑 `swift test`；检查现行后端协议，保留 ticket、exchange、受管订阅、稳定 client_id 和失败退避。
 2. 移植 `site-profile.properties` 和品牌注入，针对新 `apple/ClashClient/project.yml`、标识常量和扩展逐项调整，不能直接运行旧脚本。

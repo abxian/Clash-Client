@@ -1528,10 +1528,10 @@ struct ModulePortRedraws: Codable, Equatable, Sendable {
  
 enum ModuleEngineSignal {
      
-    static let statusChanged = "org.example.clash.adblock.engine-status"
+    static let statusChanged = "de.sxnn.shenxianyun.adblock.engine-status"
      
      
-    static let modulesChanged = "org.example.clash.adblock.modules-changed"
+    static let modulesChanged = "de.sxnn.shenxianyun.adblock.modules-changed"
 
     static func post() {
         CFNotificationCenterPostNotification(

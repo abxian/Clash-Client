@@ -19,9 +19,9 @@ public enum ClashWidgetMailbox {
      
      
     public static let modeFile = "widgets/mode.json"
-    public static let requestNotification = "org.example.clash.widget.request"
+    public static let requestNotification = "de.sxnn.shenxianyun.widget.request"
      
-    public static let updatedNotification = "org.example.clash.widget.updated"
+    public static let updatedNotification = "de.sxnn.shenxianyun.widget.updated"
      
      
     public static let waitForSnapshot: TimeInterval = 1.5
@@ -39,7 +39,7 @@ public enum ClashWidgetMailbox {
      
      
     public enum Kind {
-        public static let main = "org.example.clash.widget.main"
+        public static let main = "de.sxnn.shenxianyun.widget.main"
         public static let all = [main]
     }
 }

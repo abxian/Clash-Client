@@ -1,0 +1,66 @@
+name: Shenxianyun development
+on:
+  push:
+    branches: ["codex/**"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      compile_ios:
+        description: "Build unsigned iOS (requires an installed Xcode 27+)"
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  service-tests:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Isolated service contract tests
+        run: |
+          set -o pipefail
+          swift test --package-path apple/ShenxianyunKit 2>&1 | tee service-tests.log
+          python3 - <<'PYTEST'
+          import re
+          from pathlib import Path
+          counts = [int(x) for x in re.findall(r'Executed (\d+) tests?, with 0 failures', Path('service-tests.log').read_text())]
+          assert counts and max(counts) >= 40, 'Missing expected service tests'
+          PYTEST
+  brand-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m venv .build/python-env && .build/python-env/bin/python -m pip install PyYAML==6.0.3
+      - run: .build/python-env/bin/python scripts/brand-apply.py --check
+      - run: git diff --exit-code
+  unsigned-ios:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.compile_ios }}
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.9'
+      - name: Select installed Xcode 27 or newer
+        run: |
+          python3 - <<'PYXCODE'
+          import glob, os, re, subprocess
+          choices = []
+          for path in glob.glob('/Applications/Xcode*.app'):
+              env = dict(os.environ, DEVELOPER_DIR=path + '/Contents/Developer')
+              try:
+                  text = subprocess.check_output(['xcodebuild', '-version'], env=env, text=True)
+                  version = tuple(map(int, re.search(r'Xcode ([0-9.]+)', text)[1].split('.')))
+                  if version[0] >= 27: choices.append((version, env['DEVELOPER_DIR']))
+              except Exception: continue
+          assert choices, 'Runner has no Xcode 27+. Local build is separate evidence; use a compatible runner.'
+          with open(os.environ['GITHUB_ENV'], 'a') as out:
+              out.write('DEVELOPER_DIR=' + max(choices)[1] + '\n')
+          PYXCODE
+      - run: brew install xcodegen
+      - run: python3 -m venv .build/python-env && .build/python-env/bin/python -m pip install PyYAML==6.0.3
+      - run: .build/python-env/bin/python scripts/bootstrap.py
+      - run: .build/python-env/bin/python scripts/brand-apply.py
+      - name: Unsigned simulator compilation
+        run: |
+          xcodebuild -project apple/ClashClient/ClashClient.xcodeproj -scheme ClashiOS -configuration Release -destination 'generic/platform=iOS Simulator' -derivedDataPath .build/DerivedData CODE_SIGNING_ALLOWED=NO build

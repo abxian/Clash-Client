@@ -90,7 +90,7 @@ extension Notification.Name {
  
 struct ClashSystemHandoff {
     static let appGroupIdentifier = ClashAppIdentifiers.appGroup
-    static let controlKind = "org.example.clash.vpn-control"
+    static let controlKind = "de.sxnn.shenxianyun.vpn-control"
 
      
      

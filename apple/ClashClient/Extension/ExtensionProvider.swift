@@ -1,3 +1,4 @@
+import ShenxianyunKit
 @preconcurrency import Clash
 import Network
 import NetworkExtension
@@ -172,7 +173,7 @@ final class ExtensionProvider: NSObject {
     private let reloadEnvelope = ProviderReloadEnvelope()
 
 
-    private let log = Logger(subsystem: "org.example.clash.demo.extension", category: "core")
+    private let log = Logger(subsystem: "de.sxnn.shenxianyun.demo.extension", category: "core")
 
      
      
@@ -182,7 +183,7 @@ final class ExtensionProvider: NSObject {
     private let physicalPathMonitorSession = PhysicalPathMonitorSession()
     private let pathQueueKey = DispatchSpecificKey<Void>()
     private lazy var pathQueue: DispatchQueue = {
-        let queue = DispatchQueue(label: "org.example.clash.pathmonitor")
+        let queue = DispatchQueue(label: "de.sxnn.shenxianyun.pathmonitor")
         queue.setSpecific(key: pathQueueKey, value: ())
         return queue
     }()
@@ -760,6 +761,15 @@ final class ExtensionProvider: NSObject {
             try lifecycle.beginStart()
             try await start0(samplingToken: &samplingToken, userInitiated: userInitiated)
             try lifecycle.didStart()
+            await ShenxianyunTelemetryReporter.shared.tunnelDidStart(isCurrent: { [weak self] in
+                guard let self else { return false }
+                let wanted = UserDefaults(suiteName: ShenxianyunProfile.appGroup)?
+                    .string(forKey: "shenxianyun.profile_id")
+                return wanted != nil && self.withStateLock { self.runningConfiguration?.profileID == wanted }
+            }, stopDenied: { [weak self] in
+                self?.tunnelProvider.cancelTunnelWithError(NSError(domain: "de.sxnn.shenxianyun", code: 403,
+                    userInfo: [NSLocalizedDescriptionKey: "神仙云设备授权失效或已受限"]))
+            })
             startupMemorySampler.mark("tunnel-up", token: samplingToken)
             await operationGate.leave()
         } catch {
@@ -1432,6 +1442,7 @@ final class ExtensionProvider: NSObject {
             await operationGate.leave()
             return
         }
+        await ShenxianyunTelemetryReporter.shared.tunnelWillStop()
         markStopped()
          
          
@@ -3008,7 +3019,7 @@ final class ClashConnectionOwnerBridge: NSObject, ClashConnectionOwnerResolverPr
     private let tally = NSLock()
     private var asked = 0
     private var named = 0
-    private static let log = Logger(subsystem: "org.example.clash.demo.extension", category: "process-owner")
+    private static let log = Logger(subsystem: "de.sxnn.shenxianyun.demo.extension", category: "process-owner")
 
     private init(client: ClashConnectionOwnerClient) {
         self.client = client
