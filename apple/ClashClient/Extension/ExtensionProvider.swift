@@ -88,7 +88,12 @@ final class ExtensionProvider: NSObject {
 #endif
     private var service: ClashBoxService?
      
-    private var runningConfiguration: ClashStartupOutcomeRecord.Revision?
+    private var telemetryScopeEpoch: UInt64 = 0
+    private var runningConfiguration: ClashStartupOutcomeRecord.Revision? {
+        didSet {
+            if oldValue?.profileID != runningConfiguration?.profileID { telemetryScopeEpoch &+= 1 }
+        }
+    }
      
      
     private var startRecorded = false
@@ -761,11 +766,11 @@ final class ExtensionProvider: NSObject {
             try lifecycle.beginStart()
             try await start0(samplingToken: &samplingToken, userInitiated: userInitiated)
             try lifecycle.didStart()
-            await ShenxianyunTelemetryReporter.shared.tunnelDidStart(isCurrent: { [weak self] in
-                guard let self else { return false }
+            await ShenxianyunTelemetryReporter.shared.tunnelDidStart(scope: { [weak self] in
+                guard let self else { return .init(isCurrent: false, epoch: 0) }
                 let wanted = UserDefaults(suiteName: ShenxianyunProfile.appGroup)?
                     .string(forKey: "shenxianyun.profile_id")
-                return wanted != nil && self.withStateLock { self.runningConfiguration?.profileID == wanted }
+                return self.withStateLock { .init(isCurrent: wanted != nil && self.runningConfiguration?.profileID == wanted, epoch: self.telemetryScopeEpoch) }
             }, stopDenied: { [weak self] in
                 self?.tunnelProvider.cancelTunnelWithError(NSError(domain: "de.sxnn.shenxianyun", code: 403,
                     userInfo: [NSLocalizedDescriptionKey: "神仙云设备授权失效或已受限"]))

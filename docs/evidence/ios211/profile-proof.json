@@ -1,0 +1,13 @@
+{
+  "task": 211,
+  "isolated_fixture_only": true,
+  "active_profile_matches_subscription": true,
+  "active_profile_id": "ec967f22-c988-430c-8d5b-d39d847b1fd5",
+  "revision": "a961b0c7-0c9a-4c9a-8aee-f2fffa095fbb",
+  "source_sha256": "e511d50143a8d7e5dc73b4dad0397e522d942581b291273835d2321f49bdebaf",
+  "published_rules_sha256": "960afe9d2925a89af847bb0959830ff94b753a5cdd19cc328df6dc38676beea5",
+  "dns_preserved": true,
+  "proxy-groups_preserved": true,
+  "published_rules_order_preserved": true,
+  "note": "Rules use upstream x-clash-rule-index; active YAML intentionally has no inline rules. Published rules retain fixture order. No VPN runtime tested."
+}

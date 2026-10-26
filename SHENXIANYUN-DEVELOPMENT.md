@@ -1,6 +1,6 @@
 # 神仙云 iOS 开发入口
 
-2026-10-25 · Codex。#209 完成上游准备，#210 已开始首版业务迁移，当前开发分支为 `codex/ios-first-client-20261025`。实现范围、验证边界与后续见 [首版开发记录](SHENXIANYUN-FIRST-CLIENT.md)；未签名或发布。
+2026-10-26 · Codex。#209 上游准备、#210 首版业务迁移已提交；当前继续开发分支为 `codex/ios-isolated-validation-20261026`。本轮生命周期修复、隔离联调和模拟器证据见 [隔离验证记录](SHENXIANYUN-ISOLATED-QA.md)，上一轮实现见 [首版开发记录](SHENXIANYUN-FIRST-CLIENT.md)。仍未进行开发者签名、真机 VPN 验证或发布。
 
 ## 仓库分类
 

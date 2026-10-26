@@ -44,7 +44,7 @@ xcodebuild -project apple/ClashClient/ClashClient.xcodeproj \
 
 以下仍需要后续验证或实现，不能据此说第一版已经可交付：
 
-1. 当前 Mac 的 CoreSimulator/CoreDevice 组件与 Xcode 不匹配；generic 编译不代表模拟器启动或 UI 验收成功。修复环境后检查小屏、iPad 分屏、深色系统和错误场景。
+1. #210 当时 CoreSimulator/CoreDevice 组件不匹配，未启动 UI；#211 已通过 Xcode 官方组件维护并启动隔离模拟器首页，详见 [后续验证](SHENXIANYUN-ISOLATED-QA.md)。小屏、iPad 分屏、深色系统和真实操作回归仍需后续覆盖。
 2. 需自己的 Apple 开发者签名才能进行 iPhone VPN 实测；包括 DNS/出口、节点切换、前后台/重启、断网恢复、大订阅内存和模块兼容。
 3. 实际提取码链路必须用专用测试数据，在授权的隔离后端或专门测试环境验证。准备授权的 ticket/exchange 本身可能在服务端绑定/轮换凭据；本地安装失败不代表服务器能撤销该副作用，不应宣称跨服务端事务回滚。
 4. 正常停止时的最终上报是尽力而为；进程被系统强杀时最后一个上报间隔可能缺失，需要真机验证与后续持久化补报设计。不能把已有客户端的所有计量策略都写成 iOS 已对齐。

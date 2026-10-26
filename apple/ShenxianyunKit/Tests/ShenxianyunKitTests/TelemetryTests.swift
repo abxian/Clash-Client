@@ -165,6 +165,7 @@ final class TelemetryRequestTests: XCTestCase {
 
         let body = try XCTUnwrap(http.request(forPath: "/api/v2/client/traffic")?.httpBody)
         let json = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(json["platform"] as? String, "ios")
         XCTAssertEqual(json["app_name"] as? String, "神仙云 iOS")
         XCTAssertEqual(json["app_version"] as? String, "0.1.0")
         XCTAssertEqual(json["counter_id"] as? String, "c-1")

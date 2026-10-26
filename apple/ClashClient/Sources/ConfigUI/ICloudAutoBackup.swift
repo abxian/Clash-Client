@@ -1,3 +1,4 @@
+import ShenxianyunKit
 import CryptoKit
 import Foundation
 #if os(macOS)
@@ -128,6 +129,11 @@ final class ICloudAutoBackup: ObservableObject {
      
      
     static var processHasICloudEntitlement: Bool {
+        #if DEBUG
+        // Isolated simulator QA has no Apple account or iCloud signing entitlement.
+        // Use the existing unavailable sink instead of constructing CKContainer (which aborts).
+        if DevelopmentBootstrap.isolated { return false }
+        #endif
         #if os(macOS)
         guard let task = SecTaskCreateFromSelf(nil) else { return false }
         func strings(_ key: String) -> [String] {

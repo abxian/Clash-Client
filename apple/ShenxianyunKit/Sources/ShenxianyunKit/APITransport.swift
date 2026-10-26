@@ -22,10 +22,12 @@ struct APITransport: Sendable {
     let http: ShenxianyunHTTPClient
     /// 后端限流较紧（ticket 12/60s、verify 15/60s、exchange 20/60s），超时给短一点更快失败转移。
     let timeout: TimeInterval
+    let platform: String
 
-    init(http: ShenxianyunHTTPClient, timeout: TimeInterval = 15) {
+    init(http: ShenxianyunHTTPClient, timeout: TimeInterval = 15, platform: String = ShenxianyunProfile.platform) {
         self.http = http
         self.timeout = timeout
+        self.platform = platform
     }
 
     // MARK: - 单个地址
@@ -36,6 +38,9 @@ struct APITransport: Sendable {
     ) async throws -> RawResponse {
         guard let url = URL(string: path, relativeTo: base)?.absoluteURL else {
             throw ShenxianyunError.invalidResponse("无法拼接 URL：\(base) + \(path)")
+        }
+        guard !DevelopmentBootstrap.isolated || DevelopmentBootstrap.permits(url) else {
+            throw ShenxianyunError.invalidResponse("isolated test blocked a non-loopback endpoint")
         }
         var request = URLRequest(url: url, timeoutInterval: timeout)
         request.httpMethod = method
@@ -49,7 +54,7 @@ struct APITransport: Sendable {
             if deviceToken != nil {
                 body["app_name"] = ShenxianyunProfile.appName + " iOS"
                 body["app_version"] = ShenxianyunProfile.appVersion
-                body["platform"] = ShenxianyunProfile.platform
+                body["platform"] = platform
             }
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

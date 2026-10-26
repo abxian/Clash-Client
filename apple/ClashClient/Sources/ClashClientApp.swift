@@ -438,6 +438,16 @@ struct AppShellView: View {
         }
         .preferredColorScheme(.light)
         .tint(preferences.accent.color)
+        .task {
+            #if DEBUG
+            if DevelopmentBootstrap.isolated,
+               let screen = ProcessInfo.processInfo.environment["SXY_TEST_SCREEN"],
+               ["settings", "nodes"].contains(screen) {
+                showsShenxianyunSettings = true
+                if screen == "nodes" { pendingSessionPage = .proxies }
+            }
+            #endif
+        }
          
         .clashRuleRunFeedbackRelay(profiles, locale: preferences.language.localeOverride)
          
@@ -995,7 +1005,7 @@ struct AppShellView: View {
     private var debugGateShell: some View {
         Group {
             if showsShenxianyunSettings {
-                goldenFlowShell.safeAreaInset(edge: .top) {
+                VStack(spacing: 0) {
                     Button { showsShenxianyunSettings = false } label: {
                         HStack {
                             Image(systemName: "chevron.left")
@@ -1003,6 +1013,7 @@ struct AppShellView: View {
                             Spacer()
                         }.padding(12).foregroundStyle(SXYTheme.purple).background(SXYTheme.surface)
                     }.buttonStyle(.plain)
+                    goldenFlowShell
                 }
             } else {
                 ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command,

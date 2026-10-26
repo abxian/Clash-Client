@@ -16,10 +16,10 @@ public actor ShenxianyunClient {
     public init(
         http: ShenxianyunHTTPClient = URLSession.shared,
         store: ShenxianyunStore,
-        bootstrapAPI: URL = ShenxianyunProfile.bootstrapAPI,
+        bootstrapAPI: URL = DevelopmentBootstrap.api,
         platform: String = ShenxianyunProfile.platform
     ) {
-        self.transport = APITransport(http: http)
+        self.transport = APITransport(http: http, platform: platform)
         self.state = ShenxianyunState(store: store)
         self.bootstrapAPI = bootstrapAPI
         self.platform = platform
@@ -145,10 +145,13 @@ public actor ShenxianyunClient {
     public var canReportTelemetry: Bool { state.activation != nil }
 
     @discardableResult
-    public func heartbeat() async throws -> String? {
+    public func heartbeat(expectedDeviceToken: String? = nil) async throws -> String? {
         guard let activation = state.activation else { throw ShenxianyunError.notActivated }
+        try checkCredential(activation, expected: expectedDeviceToken)
         let expires = try await transport.heartbeat(
             deviceToken: activation.deviceToken, bases: currentBases())
+        try Task.checkCancellation()
+        guard state.activation?.deviceToken == activation.deviceToken else { throw CancellationError() }
         if let expires, !expires.isEmpty {
             state.activation = ShenxianyunActivation(code: activation.code, expiresAt: expires,
                 deviceToken: activation.deviceToken, subscriptionURL: activation.subscriptionURL,
@@ -157,17 +160,24 @@ public actor ShenxianyunClient {
         return expires
     }
 
-    public func reportTraffic(_ counter: TrafficCounter, final: Bool = false) async throws {
+    public func reportTraffic(_ counter: TrafficCounter, final: Bool = false, expectedDeviceToken: String? = nil) async throws {
         guard let activation = state.activation else { throw ShenxianyunError.notActivated }
-        let sender = final ? APITransport(http: transport.http, timeout: 2) : transport
+        try checkCredential(activation, expected: expectedDeviceToken)
+        let sender = final ? APITransport(http: transport.http, timeout: 2, platform: platform) : transport
         try await sender.reportTraffic(counter: counter, deviceToken: activation.deviceToken,
             bases: final ? Array(currentBases().prefix(1)) : currentBases())
     }
 
-    public func reportOffline() async throws {
+    public func reportOffline(expectedDeviceToken: String? = nil) async throws {
         guard let activation = state.activation else { throw ShenxianyunError.notActivated }
-        try await APITransport(http: transport.http, timeout: 2).reportOffline(
+        try checkCredential(activation, expected: expectedDeviceToken)
+        try await APITransport(http: transport.http, timeout: 2, platform: platform).reportOffline(
             deviceToken: activation.deviceToken, bases: Array(currentBases().prefix(1)))
+    }
+
+    private func checkCredential(_ activation: ShenxianyunActivation, expected: String?) throws {
+        try Task.checkCancellation()
+        if let expected, activation.deviceToken != expected { throw CancellationError() }
     }
 
     // MARK: - 契约 F：续费

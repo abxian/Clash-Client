@@ -189,6 +189,11 @@ public struct TunnelTrafficAccumulator: Sendable {
         previousDownload = max(0, initialDownload)
     }
 
+    public mutating func rebase(upload: Int64, download: Int64) {
+        previousUpload = max(0, upload)
+        previousDownload = max(0, download)
+    }
+
     public mutating func observe(upload: Int64, download: Int64) {
         guard upload >= 0, download >= 0 else { return }
         let up = upload >= previousUpload ? upload - previousUpload : upload
@@ -197,5 +202,35 @@ public struct TunnelTrafficAccumulator: Sendable {
         self.download += min(down, Int64.max - self.download)
         previousUpload = upload
         previousDownload = download
+    }
+}
+
+public struct TelemetryScope: Equatable, Sendable {
+    public let isCurrent: Bool
+    public let epoch: UInt64
+    public init(isCurrent: Bool, epoch: UInt64) { self.isCurrent = isCurrent; self.epoch = epoch }
+}
+
+/// Epoch changes are latched at every configuration identity change, including away-and-back
+/// between samples. Discard the unobserved boundary interval rather than charge another profile.
+public struct ScopedTunnelTrafficAccumulator: Sendable {
+    private var usage: TunnelTrafficAccumulator
+    private var scope: TelemetryScope
+    public var upload: Int64 { usage.upload }
+    public var download: Int64 { usage.download }
+
+    public init(upload: Int64, download: Int64, scope: TelemetryScope) {
+        usage = TunnelTrafficAccumulator(initialUpload: upload, initialDownload: download)
+        self.scope = scope
+    }
+
+    public mutating func observe(upload: Int64, download: Int64, scope: TelemetryScope) {
+        guard upload >= 0, download >= 0 else { return }
+        if scope.isCurrent && self.scope.isCurrent && scope.epoch == self.scope.epoch {
+            usage.observe(upload: upload, download: download)
+        } else {
+            usage.rebase(upload: upload, download: download)
+        }
+        self.scope = scope
     }
 }

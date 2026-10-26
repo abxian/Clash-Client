@@ -23,9 +23,11 @@ jobs:
           python3 - <<'PYTEST'
           import re
           from pathlib import Path
-          counts = [int(x) for x in re.findall(r'Executed (\d+) tests?, with 0 failures', Path('service-tests.log').read_text())]
-          assert counts and max(counts) >= 40, 'Missing expected service tests'
+          counts = [int(x) for x in re.findall(r'Executed (\d+) tests?, with (?:\d+ tests? skipped and )?0 failures', Path('service-tests.log').read_text())]
+          assert counts and max(counts) >= 48, 'Missing expected service tests'
           PYTEST
+      - name: Loopback API integration (no production traffic)
+        run: python3 scripts/isolated-api-fixture.py --state .build/ci-loopback-state.json --run-tests
   brand-check:
     runs-on: ubuntu-latest
     steps:

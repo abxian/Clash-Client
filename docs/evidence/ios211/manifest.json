@@ -1,0 +1,40 @@
+{
+  "task": 211,
+  "date": "2026-10-26 Asia/Shanghai",
+  "source": "simctl screenshot; iPhone 17 Pro, iOS 26.5 (23F77), Xcode 27.1 (27A9275)",
+  "version": "0.1.0 (1), codex/ios-isolated-validation-20261026",
+  "redaction": "仅全新隔离设备与人工fixture；原始截图已检查，不含真实提取码、订阅、个人账号或签名材料；无需模糊处理",
+  "invalidation": "对应UI、导入行为或配置编译流程变更后重新生成；不能作为真机/网络出口验收",
+  "artifacts": [
+    {
+      "path": "advanced.png",
+      "focus": "高级界面：返回栏布局及1代理/1组/2规则",
+      "sha256": "696dd054012c6ccff2ef4ff6c53b9f5bb081e1d3aae7d6cd75ee25d492ebf0ea",
+      "bytes": 515911
+    },
+    {
+      "path": "home-imported.png",
+      "focus": "首页：提取码绑定、测试到期日期与导入成功提示",
+      "sha256": "52e2163058fbd519e7b1acdfba91cdfaee05b2e9fbaa58dfa642e4814a043796",
+      "bytes": 2305120
+    },
+    {
+      "path": "invalid-code.png",
+      "focus": "错误回归：无效提取码提示与原绑定保留",
+      "sha256": "b3e7965baa9e725146d1d5c4d636df8f7639e566b0277fd7600963bf08065297",
+      "bytes": 2306548
+    },
+    {
+      "path": "nodes.png",
+      "focus": "节点页：神仙云节点 / 隔离测试节点 / DIRECT",
+      "sha256": "63196db2f306ba0d459bfb5a70ddb2961cba80f846d303735e44ca7021f9c76e",
+      "bytes": 176184
+    },
+    {
+      "path": "profile-proof.json",
+      "focus": "隔离沙箱 active profile 与DNS/组/发布规则顺序检查",
+      "sha256": "f66fd91b8f5c2ac3091ecd1608323894c181581f805a63bf8e19a204a6bc62ad",
+      "bytes": 660
+    }
+  ]
+}

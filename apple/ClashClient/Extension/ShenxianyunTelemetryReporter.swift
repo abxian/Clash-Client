@@ -30,11 +30,12 @@ actor ShenxianyunTelemetryReporter {
     private let client: ShenxianyunClient
     private var scheduler = TelemetryScheduler()
     private var counter = TrafficCounter()
-    private var usage = TunnelTrafficAccumulator(initialUpload: 0, initialDownload: 0)
+    private var usage = ScopedTunnelTrafficAccumulator(upload: 0, download: 0, scope: .init(isCurrent: false, epoch: 0))
     private var loop: Task<Void, Never>?
     private var generation = UUID()
     private var stopDenied: (@Sendable () -> Void)?
-    private var isCurrent: (@Sendable () -> Bool)?
+    private var scope: (@Sendable () -> TelemetryScope)?
+    private var credentialToken: String?
 
 
     private init() {
@@ -50,17 +51,20 @@ actor ShenxianyunTelemetryReporter {
     /// 隧道起来了。每次都换一个新的 counterID：后端靠
     /// counter_id + sequence 识别客户端重启导致的计数器归零，
     /// 沿用旧 ID 会让它把重启当成流量暴涨。
-    func tunnelDidStart(isCurrent: @escaping @Sendable () -> Bool,
-                        stopDenied: @escaping @Sendable () -> Void) {
+    func tunnelDidStart(scope: @escaping @Sendable () -> TelemetryScope,
+                        stopDenied: @escaping @Sendable () -> Void) async {
         self.stopDenied = stopDenied
         scheduler = TelemetryScheduler()
-        self.isCurrent = isCurrent
+        self.scope = scope
         generation = UUID()
         let currentGeneration = generation
         loop?.cancel()
         counter = TrafficCounter()
         let totals = Self.readTrafficTotals()
-        usage = TunnelTrafficAccumulator(initialUpload: totals?.up ?? 0, initialDownload: totals?.down ?? 0)
+        usage = ScopedTunnelTrafficAccumulator(upload: totals?.up ?? 0, download: totals?.down ?? 0, scope: scope())
+        let activationToken = await client.savedActivation()?.deviceToken
+        guard generation == currentGeneration else { return }
+        credentialToken = activationToken
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.tickIfDue(generation: currentGeneration)
@@ -76,16 +80,17 @@ actor ShenxianyunTelemetryReporter {
         loop?.cancel()
         loop = nil
         await scheduler.cancelInFlight()
-        guard isCurrent?() == true, await client.canReportTelemetry else { return }
-        isCurrent = nil
+        guard let currentScope = scope?(), currentScope.isCurrent, let token = credentialToken else { return }
+        scope = nil
+        credentialToken = nil
         // Best effort final cumulative snapshot; each shutdown request is bounded to two seconds.
         if let totals = Self.readTrafficTotals() {
-            usage.observe(upload: totals.up, download: totals.down)
+            usage.observe(upload: totals.up, download: totals.down, scope: currentScope)
             counter.advance(uploadTotal: usage.upload, downloadTotal: usage.download)
-            try? await client.reportTraffic(counter, final: true)
+            try? await client.reportTraffic(counter, final: true, expectedDeviceToken: token)
         }
         do {
-            try await client.reportOffline()
+            try await client.reportOffline(expectedDeviceToken: token)
         } catch {
             log.debug("offline report unavailable")
         }
@@ -94,25 +99,28 @@ actor ShenxianyunTelemetryReporter {
     // MARK: - 一次上报
 
     private func tickIfDue(generation expected: UUID) async {
-        guard generation == expected, isCurrent?() == true else { return }
+        guard generation == expected, let startedScope = scope?(), startedScope.isCurrent,
+              let token = credentialToken else { return }
         guard await client.canReportTelemetry else { return }
         let scheduler = self.scheduler
         guard await scheduler.beginIfDue() else { return }
 
         do {
-            try await client.heartbeat()
-            guard generation == expected, !Task.isCancelled, isCurrent?() == true else {
+            try await client.heartbeat(expectedDeviceToken: token)
+            guard generation == expected, !Task.isCancelled, scope?().isCurrent == true else {
                 await scheduler.cancelInFlight()
                 return
             }
-            if let totals = Self.readTrafficTotals() {
-                usage.observe(upload: totals.up, download: totals.down)
+            if let totals = Self.readTrafficTotals(), let currentScope = scope?(), currentScope.isCurrent {
+                usage.observe(upload: totals.up, download: totals.down, scope: currentScope)
                 counter.advance(uploadTotal: usage.upload, downloadTotal: usage.download)
-                try await client.reportTraffic(counter)
+                try await client.reportTraffic(counter, expectedDeviceToken: token)
             }
             await scheduler.finishSuccess()
+        } catch is CancellationError {
+            await scheduler.cancelInFlight()
         } catch let error as ShenxianyunError {
-            guard generation == expected, !Task.isCancelled else {
+            guard generation == expected, !Task.isCancelled, scope?() == startedScope else {
                 await scheduler.cancelInFlight()
                 return
             }

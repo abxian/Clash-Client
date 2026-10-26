@@ -1,0 +1,50 @@
+{
+  "task": 211,
+  "date": "2026-10-26",
+  "version": "0.1.0 (1)",
+  "branch": "codex/ios-isolated-validation-20261026",
+  "baseline": "e87026fdaffe14eceb21ffb0e6e78f971252a651",
+  "service_tests": {
+    "discovered": 48,
+    "default_debug_passed": 46,
+    "default_debug_skipped": 2,
+    "failures": 0,
+    "loopback_integration_passed": 1,
+    "release_override_guard_passed": 1
+  },
+  "brand_check": "passed",
+  "unsigned_debug_build": "passed; arm64+x86_64",
+  "unsigned_release_build": "passed; arm64+x86_64; final incremental recheck passed",
+  "simulator": {
+    "device": "iPhone 17 Pro",
+    "runtime": "iOS 26.5 (23F77)",
+    "udid": "F2846F82-673C-4528-924D-363A5EEE21CA",
+    "app_launched": true,
+    "fixture_import_installed_and_selected": true,
+    "invalid_code_preserved_binding": true,
+    "dns_groups_published_rule_order_preserved": true,
+    "pages_presented": [
+      "home",
+      "import form",
+      "advanced shell",
+      "nodes"
+    ],
+    "manual_navigation_tested": false,
+    "storage": "DEBUG Simulator process sandbox substitute; not actual cross-process App Group",
+    "evidence": "docs/evidence/ios211/manifest.json"
+  },
+  "production_business_api_requests_in_fixture_tests": 0,
+  "developer_signed": false,
+  "real_device_verified": false,
+  "vpn_runtime_verified": false,
+  "released": false,
+  "remaining": [
+    "signed real-device VPN/App Group/background lifecycle verification",
+    "small screen/iPad/dark system/navigation regression",
+    "iOS update discovery and access-code deep links",
+    "bootstrap rescue proxy/DNS routing parity",
+    "persistent recovery of unreported traffic after OS kill",
+    "real iCloud backup verification"
+  ],
+  "ci": "pending push"
+}

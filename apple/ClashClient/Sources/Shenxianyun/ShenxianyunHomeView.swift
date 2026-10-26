@@ -226,6 +226,22 @@ struct ShenxianyunHomeView: View {
         expiresAt = await client.savedActivation()?.expiresAt
         // 地址表刷新是纯优化，失败也不提示——用户不需要知道。
         await client.refreshEndpoints()
+        #if DEBUG
+        // Reproducible headless Simulator QA; enabled only with the loopback guard active.
+        if DevelopmentBootstrap.isolated {
+            let environment = ProcessInfo.processInfo.environment
+            if environment["SXY_TEST_PRESENT_IMPORT"] == "1" { showsImport = true }
+            if let code = environment["SXY_TEST_IMPORT_CODE"] {
+                do {
+                    let prepared = try await client.prepareImport(code)
+                    try await handleImported(prepared, code)
+                } catch {
+                    notice = (error as? ShenxianyunError)?.userMessage
+                        ?? (error as? LocalizedError)?.errorDescription ?? "隔离导入失败"
+                }
+            }
+        }
+        #endif
     }
 
     private func togglePower() {
