@@ -1,0 +1,77 @@
+{
+  "task": 211,
+  "source_commit": "f1fdeff77fd5b80dd6b0e51ae40233e307333646",
+  "method": "Downloaded GitHub raw content at exact commit and compared bytes plus SHA-256",
+  "verified": [
+    {
+      "path": "scripts/isolated-api-fixture.py",
+      "sha256": "f8fe45a01f4b25bfd82e1426ade9b7fff5632b0cb2010223d77e131cb755fd5f",
+      "bytes": 5791
+    },
+    {
+      "path": ".github/workflows/shenxianyun-development.yml",
+      "sha256": "1940430b0e55d05e3462c4113d50b57d30cd9e0763001b1ca4f906f29bed3f8a",
+      "bytes": 3059
+    },
+    {
+      "path": "SHENXIANYUN-ISOLATED-QA.md",
+      "sha256": "b8003c0991d35564d2e948745e74358264f66d9ba0c5ec65a868950cb3181c7a",
+      "bytes": 8825
+    },
+    {
+      "path": "SHENXIANYUN-ISOLATED-VERIFICATION.json",
+      "sha256": "c31a031580384c9c0917e91951df59440f8894573e8d8bdb7847b5bb3b95df07",
+      "bytes": 1719
+    },
+    {
+      "path": "docs/evidence/ios211/profile-proof.json",
+      "sha256": "f66fd91b8f5c2ac3091ecd1608323894c181581f805a63bf8e19a204a6bc62ad",
+      "bytes": 660
+    },
+    {
+      "path": "docs/evidence/ios211/home-imported.png",
+      "sha256": "52e2163058fbd519e7b1acdfba91cdfaee05b2e9fbaa58dfa642e4814a043796",
+      "bytes": 2305120
+    },
+    {
+      "path": "docs/evidence/ios211/invalid-code.png",
+      "sha256": "b3e7965baa9e725146d1d5c4d636df8f7639e566b0277fd7600963bf08065297",
+      "bytes": 2306548
+    },
+    {
+      "path": "docs/evidence/ios211/README.md",
+      "sha256": "c9e0c5917e0db40e5fa0d2b290f8470f5a63cc370428bc91f3222977eda61c23",
+      "bytes": 1424
+    },
+    {
+      "path": "docs/evidence/ios211/manifest.json",
+      "sha256": "ed665ad92d77e752ca8b1674eb4cedad495d65cc1f988f32d587de4be9b05233",
+      "bytes": 1666
+    },
+    {
+      "path": "docs/evidence/ios211/advanced.png",
+      "sha256": "696dd054012c6ccff2ef4ff6c53b9f5bb081e1d3aae7d6cd75ee25d492ebf0ea",
+      "bytes": 515911
+    },
+    {
+      "path": "docs/evidence/ios211/nodes.png",
+      "sha256": "63196db2f306ba0d459bfb5a70ddb2961cba80f846d303735e44ca7021f9c76e",
+      "bytes": 176184
+    },
+    {
+      "path": "apple/ShenxianyunKit/Tests/ShenxianyunKitTests/LifecycleBoundaryTests.swift",
+      "sha256": "a86035361b80778008fc72b8c718bde91674f7216685bfab4a94a440d84ae862",
+      "bytes": 4905
+    },
+    {
+      "path": "apple/ShenxianyunKit/Tests/ShenxianyunKitTests/LoopbackIntegrationTests.swift",
+      "sha256": "b3b95aecafcb5ab1cc07726492bcdf7678e9aa8c4aea2b5389439ac375ebe77f",
+      "bytes": 2270
+    },
+    {
+      "path": "apple/ShenxianyunKit/Tests/ShenxianyunKitTests/ReleaseBootstrapTests.swift",
+      "sha256": "24547ca1825282004a8c994d7b6f2db8b41127154862af2659324d50529c9d8e",
+      "bytes": 629
+    }
+  ]
+}

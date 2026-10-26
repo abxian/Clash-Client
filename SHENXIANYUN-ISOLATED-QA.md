@@ -74,3 +74,12 @@ xcrun simctl io F2846F82-673C-4528-924D-363A5EEE21CA screenshot .build/isolated-
 本轮使用 `ClashiOS` / `generic/platform=iOS Simulator` / `CODE_SIGNING_ALLOWED=NO`；Debug 缓存 `.build/DerivedData`、Release 最终缓存 `.build/DerivedData211Release`。Debug 和 Release 双架构均编译成功；布局最后调整的 Release 增量复查也已通过，结果写 [本轮机器可读清单](SHENXIANYUN-ISOLATED-VERIFICATION.json)。#210 的验证 JSON 保留为历史，不覆盖其当时尚未运行 UI 的事实。
 
 Runbook 的 NAS 备份、部署、线上验收序列本轮按范围不执行：只修改客户端开发分支和新建隔离模拟器，没有 NAS 服务/生产数据变更。替代保障为保留 e87026f Git 恢复点、提交与远端推送、fixture 回归和 Simulator 证据；未引入开发者证书或发版。残余风险为真实权限、VPN/后台和 iCloud 未验；转入签名/真机/发布工作时恢复相应门禁并重新评估。无备份裁剪。
+
+
+## GitHub 与工件最终回执
+
+业务提交 `f1fdeff77fd5b80dd6b0e51ae40233e307333646` 已推送至自有开发分支。GitHub [run 40285859454](https://github.com/abxian/Clash-Client/actions/runs/40285859454) 完成 success：service-tests（默认回归、回环联调及 Release 环境门禁）与 brand-check 成功，unsigned-ios 按设计跳过；最终双架构编译证据来自本机。
+
+14 个基线工件已按业务提交从 GitHub 下载，逐字节与 SHA-256 一致；见 [下载回执](docs/evidence/ios211/artifact-receipt.json)。回执中的哈希对应所列 source_commit，当后续文档增加 CI 回执时不修改历史哈希。大截图通过 gh 原始内容下载曾失败，改用精确提交的 GitHub raw 下载后校验成功。fork 目录中 gh 查询必须明确 `--repo abxian/Clash-Client`，避免默认查到 ProjectClash 上游。
+
+测试结束已停止本轮 fixture 并关闭专用 Simulator，设备本身保留；后续复现先用 simctl boot 启动它。原有设备和生产服务未改。

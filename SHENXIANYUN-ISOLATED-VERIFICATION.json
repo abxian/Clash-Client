@@ -46,5 +46,13 @@
     "persistent recovery of unreported traffic after OS kill",
     "real iCloud backup verification"
   ],
-  "ci": "pending push"
+  "ci": {
+    "run_url": "https://github.com/abxian/Clash-Client/actions/runs/40285859454",
+    "conclusion": "success",
+    "service_tests": "success (default + loopback integration + Release override guard)",
+    "brand_check": "success",
+    "unsigned_ios": "skipped; optional manual job, local final Debug/Release dual-architecture builds passed"
+  },
+  "source_commit": "f1fdeff77fd5b80dd6b0e51ae40233e307333646",
+  "artifact_verification": "14 baseline artifacts downloaded at source_commit; byte/SHA-256 matched, docs/evidence/ios211/artifact-receipt.json"
 }

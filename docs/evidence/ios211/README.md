@@ -11,3 +11,5 @@
 - [配置核对](profile-proof.json)：active profile 指向fixture订阅，DNS/策略组和发布规则顺序一致。上游规则索引保留规则，active YAML 无 inline rules 不等于丢失。
 
 完整前提、步骤、风险与回退见 [隔离验证记录](../../../SHENXIANYUN-ISOLATED-QA.md)。四图仅辅助检索，文字结果与测试是验收依据；不能证明 VPN 已启动、后台长期存活或共享容器跨进程有效。
+
+[远端下载回执](artifact-receipt.json) 按业务提交固定14个基线工件哈希；后续文档回执不覆盖历史哈希。
