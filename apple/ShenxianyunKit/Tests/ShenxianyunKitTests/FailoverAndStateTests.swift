@@ -3,6 +3,20 @@ import XCTest
 @testable import ShenxianyunKit
 
 final class FailoverTests: XCTestCase {
+    func testDeadCachedEndpointFallsBackToBootstrap() async throws {
+        let http = StubHTTPClient()
+        let store = InMemoryStore()
+        let dead = URL(string: "https://old.invalid")!
+        ShenxianyunState(store: store).cachedEndpoints = .bootstrap(dead)
+        http.failHost("old.invalid")
+        http.stub("/api/endpoints", .init(json: StubHTTPClient.productionEndpointsJSON))
+        let client = ShenxianyunClient(http: http, store: store,
+            bootstrapAPI: URL(string: "https://api.sxnn.de:5443")!)
+        let endpoints = await client.refreshEndpoints()
+        XCTAssertNotNil(endpoints)
+        XCTAssertTrue(http.recordedHosts().contains("api.sxnn.de"))
+    }
+
     /// 第一个 API 地址连不上时自动换第二个——这正是内置地址表的意义。
     func testFailsOverToSecondBaseOnTransportError() async throws {
         let http = StubHTTPClient()

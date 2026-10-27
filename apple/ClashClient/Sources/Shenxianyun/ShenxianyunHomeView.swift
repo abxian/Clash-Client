@@ -1,28 +1,41 @@
 import ShenxianyunKit
 import SwiftUI
 
-/// 神仙云主界面。信息架构逐项对齐安卓 `design_main.xml`：
-/// 标志 → 应用名 → 副标题 → 线路 → 电源键 → 状态行 → 模式切换 → 五个大按钮。
-///
-/// 安卓上「外部资源」「日志」两项是 `visibility=GONE`，这里同样不放。
+/// AppShell 持有，页面切换不会重复消费启动刷新，也不会丢失断开刷新。
+@MainActor
+final class SXYHomeSession: ObservableObject {
+    @Published var refreshGeneration = 0
+    var refreshedGeneration: Int?
+    private var wasConnected = false
+    var isolatedImportAttempted = false
+
+    func observe(_ status: String) {
+        if status == "connected" { wasConnected = true }
+        else if status != "connecting" && status != "disconnecting" && wasConnected {
+            wasConnected = false
+            refreshGeneration += 1
+        }
+    }
+}
+
+/// 未连接时只展示提取码和启动；配置选项跟随实际隧道状态。
 struct ShenxianyunHomeView: View {
     @ObservedObject var vpn: VPNController
     @ObservedObject var profiles: ProfilesViewModel
     @ObservedObject var command: ClashCommandClient
     let client: ShenxianyunClient
+    @ObservedObject var session: SXYHomeSession
     /// 进入上游那套完整界面（节点选择、设置都在里面）。
     let openUpstream: () -> Void
     let openNodes: () -> Void
     @AppStorage("shenxianyun.profile_id", store: UserDefaults(suiteName: ShenxianyunProfile.appGroup))
     private var installedProfileID = ""
 
-    /// 上游 AppShellView 也是用 horizontalSizeClass 判断布局的，这里沿用同一套，
-    /// 免得两层界面在 iPad 分屏时对宽度的理解不一致。
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
-    private var isRegularWidth: Bool { horizontalSizeClass == .regular }
-
     @State private var showsImport = false
     @State private var isWorking = false
+    @State private var isStarting = false
+    @State private var inputCode = ""
+    @State private var isEditingCode = false
     @State private var notice: String?
     @State private var accessCode: String?
     @State private var expiresAt: String?
@@ -44,13 +57,14 @@ struct ShenxianyunHomeView: View {
     var body: some View {
         ZStack {
             SXYTheme.canvas
-            if isRegularWidth { regularLayout } else { compactLayout }
+            compactLayout
         }
         .sheet(isPresented: $showsImport) {
             ShenxianyunImportView(client: client, onImported: handleImported)
                 .shenxianyunLight()
         }
-        .task { await loadState() }
+        .task(id: session.refreshGeneration) { await loadState() }
+        .task { await client.refreshEndpoints() }
         .onChange(of: vpn.status) { _ in
             if let failure = UserDefaults(suiteName: ShenxianyunProfile.appGroup)?
                 .string(forKey: "shenxianyun.connection_error") { notice = failure }
@@ -65,7 +79,7 @@ struct ShenxianyunHomeView: View {
         ScrollView {
             VStack(spacing: 0) {
                 brandColumn
-                controlColumn.padding(.top, 18)
+                if isConnected { controlColumn.padding(.top, 18) }
             }
             .frame(maxWidth: 520)
             .frame(maxWidth: .infinity)
@@ -73,38 +87,30 @@ struct ShenxianyunHomeView: View {
         }
     }
 
-    /// iPad 全屏。单列拉到 iPad 上会变成一条细带，中间大片空白。
-    /// 拆成左右两栏：左边是「状态与开关」，右边是「能做什么」——
-    /// 这也和用户的注意力顺序一致，先看连没连上，再决定要不要动它。
-    ///
-    /// 两个坑，都是实机截图才看出来的：
-    /// 1. 右栏原本单独套了 ScrollView。**ScrollView 会贪心占满可用高度**，
-    ///    于是右栏顶到天花板、左栏浮在中间，两栏完全不在一条线上。
-    ///    改成整体一个 ScrollView，两栏都是自然高度，`alignment: .center` 才生效。
-    /// 2. 光套 ScrollView 内容会顶到顶部。用 GeometryReader 量出视口高度再
-    ///    `minHeight:`，内容比屏幕矮时垂直居中、比屏幕高时照常滚动。
-    private var regularLayout: some View {
-        GeometryReader { geometry in
-            ScrollView {
-                HStack(alignment: .center, spacing: 56) {
-                    brandColumn.frame(width: 380)
-                    controlColumn.frame(width: 440)
-                }
-                .padding(.horizontal, 40)
-                .padding(.vertical, 32)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: geometry.size.height)
-            }
-        }
-    }
-
     /// 左栏 / 上半：品牌、电源键、状态。
     private var brandColumn: some View {
         VStack(spacing: 0) {
             header
+            if !isConnected {
+                if accessCode != nil && !isEditingCode {
+                    Button("切换提取码") { isEditingCode = true; inputCode = "" }
+                        .disabled(isWorking || isStarting || isTransitioning)
+                        .padding(.top, 24)
+                } else {
+                TextField(accessCode == nil ? "输入提取码" : "切换提取码", text: $inputCode)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.go)
+                    .onSubmit(togglePower)
+                    .textFieldStyle(.roundedBorder)
+                    .accessibilityLabel(accessCode == nil ? "输入提取码" : "切换提取码")
+                    .disabled(isWorking || isStarting || isTransitioning)
+                    .padding(.horizontal, 28).padding(.top, 24)
+                }
+            }
             SXYPowerButton(
                 isOn: isConnected,
-                isBusy: isTransitioning || isWorking,
+                isBusy: isTransitioning || isWorking || isStarting,
                 action: togglePower)
                 .padding(.top, 18)
 
@@ -113,7 +119,12 @@ struct ShenxianyunHomeView: View {
                 .foregroundStyle(SXYTheme.textMuted)
                 .padding(.top, 14)
 
-            statusRow.padding(.top, 10)
+            if isConnected { statusRow.padding(.top, 10) }
+            if !isConnected {
+                Text("连接时发送设备状态与累计流量，用于设备和套餐额度校验。")
+                    .font(.caption).foregroundStyle(SXYTheme.textMuted)
+                    .multilineTextAlignment(.center).padding(.horizontal, 28).padding(.top, 12)
+            }
 
             if let notice {
                 Text(notice)
@@ -224,14 +235,14 @@ struct ShenxianyunHomeView: View {
     private func loadState() async {
         accessCode = await client.savedAccessCode()
         expiresAt = await client.savedActivation()?.expiresAt
-        // 地址表刷新是纯优化，失败也不提示——用户不需要知道。
-        await client.refreshEndpoints()
+        if inputCode.isEmpty { inputCode = accessCode ?? "" }
         #if DEBUG
         // Reproducible headless Simulator QA; enabled only with the loopback guard active.
         if DevelopmentBootstrap.isolated {
             let environment = ProcessInfo.processInfo.environment
             if environment["SXY_TEST_PRESENT_IMPORT"] == "1" { showsImport = true }
-            if let code = environment["SXY_TEST_IMPORT_CODE"] {
+            if let code = environment["SXY_TEST_IMPORT_CODE"], !session.isolatedImportAttempted {
+                session.isolatedImportAttempted = true
                 do {
                     let prepared = try await client.prepareImport(code)
                     try await handleImported(prepared, code)
@@ -242,26 +253,45 @@ struct ShenxianyunHomeView: View {
             }
         }
         #endif
+        let generation = session.refreshGeneration
+        if accessCode != nil, session.refreshedGeneration != generation {
+            // Profile loading is asynchronous. Wait without tying this import task's
+            // lifetime to a changing profile array (which would cancel the commit).
+            for _ in 0..<30 {
+                if Task.isCancelled { return }
+                if !isWorking, !isStarting, profiles.busyProfileID == nil,
+                   profiles.profiles.contains(where: { $0.id == installedProfileID }) {
+                    if await refreshNodes() { session.refreshedGeneration = generation }
+                    return
+                }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
+        }
     }
 
     private func togglePower() {
-        Task {
+        guard !isWorking, !isStarting, !isTransitioning else { return }
+        isStarting = true
+        Task { @MainActor in
+            defer { isStarting = false }
             notice = nil
-            if isConnected {
-                await vpn.stop()
-            } else {
-                guard await client.activeSubscriptionURL() != nil else {
-                    notice = "请先用提取码导入订阅"
-                    showsImport = true
-                    return
+            if isConnected { await vpn.stop(); return }
+            let code = inputCode.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !code.isEmpty else { notice = "请输入提取码"; return }
+            do {
+                if code != accessCode || !profiles.profiles.contains(where: { $0.id == installedProfileID }) {
+                    let prepared = try await client.prepareImport(code)
+                    try await handleImported(prepared, code)
                 }
                 guard let profile = profiles.profiles.first(where: { $0.id == installedProfileID }) else {
-                    notice = "当前订阅配置不可用，请重新导入提取码"
-                    return
+                    notice = "订阅配置不可用，请重新输入提取码"; return
                 }
                 if !(await profiles.connectFromHome(profile)) {
-                    notice = "连接未成功，请到设置查看配置或 VPN 错误"
+                    notice = "连接未成功，请检查网络或系统 VPN 授权后重试"
                 }
+            } catch {
+                notice = (error as? ShenxianyunError)?.userMessage
+                    ?? (error as? LocalizedError)?.errorDescription ?? "启动失败，请重试"
             }
         }
     }
@@ -281,6 +311,9 @@ struct ShenxianyunHomeView: View {
         await client.commitImport(outcome, code: code)
         installedProfileID = created.id
         accessCode = await client.savedAccessCode()
+        inputCode = accessCode ?? ""
+        isEditingCode = false
+        session.refreshedGeneration = session.refreshGeneration
         switch outcome {
         case let .managed(activation): expiresAt = activation.expiresAt
         case let .plain(_, status): expiresAt = status.expireTime
@@ -290,23 +323,23 @@ struct ShenxianyunHomeView: View {
     }
 
     private func updateNodes() {
-        Task { @MainActor in
-            guard !isWorking, profiles.busyProfileID == nil else { return }
-            isWorking = true
-            defer { isWorking = false }
-            guard let profile = profiles.profiles.first(where: { $0.id == installedProfileID }) else {
-                notice = "请先用提取码导入订阅"
-                return
-            }
-            guard let outcome = await profiles.syncAwaitingLibrary(profile) else {
-                notice = "更新尚未完成，请到设置查看处理状态"
-                return
-            }
-            switch outcome {
-            case .changed: notice = "节点已更新"
-            case .unchanged: notice = "当前节点已是最新"
-            case .failed: notice = "更新失败，已保留原配置；请到设置查看原因"
-            }
+        Task { @MainActor in _ = await refreshNodes() }
+    }
+
+    @MainActor
+    private func refreshNodes() async -> Bool {
+        guard !isWorking, !isStarting, profiles.busyProfileID == nil,
+              let profile = profiles.profiles.first(where: { $0.id == installedProfileID }) else { return false }
+        isWorking = true
+        defer { isWorking = false }
+        notice = "正在更新节点…"
+        guard let outcome = await profiles.syncAwaitingLibrary(profile) else {
+            notice = "更新尚未完成，已保留当前配置"; return false
+        }
+        switch outcome {
+        case .changed: notice = "节点已更新"; return true
+        case .unchanged: notice = "当前节点已是最新"; return true
+        case .failed: notice = "更新失败，已保留原配置，请稍后重试"; return false
         }
     }
 

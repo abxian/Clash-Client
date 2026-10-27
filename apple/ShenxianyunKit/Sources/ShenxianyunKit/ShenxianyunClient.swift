@@ -29,10 +29,12 @@ public actor ShenxianyunClient {
 
     /// 当前该用哪些 API 地址。顺序：缓存 > 引导地址。
     private func currentBases() -> [URL] {
-        if let cached = state.cachedEndpoints, !cached.apiBases.isEmpty {
-            return cached.apiBases
-        }
-        return [bootstrapAPI]
+        // Keep the compiled bootstrap as a recovery path when all cached endpoints die.
+        // Isolated QA must never consume a production cache or an earlier fixture port.
+        if DevelopmentBootstrap.isolated { return [bootstrapAPI] }
+        var bases = state.cachedEndpoints?.apiBases ?? []
+        if !bases.contains(bootstrapAPI) { bases.append(bootstrapAPI) }
+        return bases
     }
 
     /// 拉一次 `/api/endpoints` 并缓存。**失败不抛**——地址发现只是优化，

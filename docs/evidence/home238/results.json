@@ -1,0 +1,17 @@
+{
+  "task": 238,
+  "date": "2026-10-27",
+  "device": "iPad mini A17 Pro / iOS 26.5",
+  "fixture_only": true,
+  "real_vpn_started": false,
+  "profile_commit_matches_active": true,
+  "downloads_on_relaunch": 0,
+  "default_swift_tests": {
+    "discovered": 49,
+    "passed": 47,
+    "skipped": 2
+  },
+  "loopback_integration": "passed",
+  "release_bootstrap_gate": "passed",
+  "iOS_Debug_arm64": "BUILD SUCCEEDED"
+}

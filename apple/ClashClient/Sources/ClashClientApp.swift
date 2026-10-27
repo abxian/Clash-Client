@@ -190,6 +190,7 @@ struct AppShellView: View {
     @StateObject private var profiles: ProfilesViewModel
     @StateObject private var command = ClashCommandClient()
     @State private var showsShenxianyunSettings = false
+    @StateObject private var shenxianyunHomeSession = SXYHomeSession()
     private let shenxianyunClient = ShenxianyunClient(
         store: AppGroupStore(suiteName: ShenxianyunProfile.appGroup) ?? InMemoryStore())
 
@@ -1004,7 +1005,7 @@ struct AppShellView: View {
 
     private var debugGateShell: some View {
         Group {
-            if showsShenxianyunSettings {
+            if showsShenxianyunSettings && vpn.status == "connected" {
                 VStack(spacing: 0) {
                     Button { showsShenxianyunSettings = false } label: {
                         HStack {
@@ -1017,7 +1018,7 @@ struct AppShellView: View {
                 }
             } else {
                 ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command,
-                    client: shenxianyunClient,
+                    client: shenxianyunClient, session: shenxianyunHomeSession,
                     openUpstream: { showsShenxianyunSettings = true },
                     openNodes: {
                         showsShenxianyunSettings = true
@@ -1025,6 +1026,11 @@ struct AppShellView: View {
                     })
             }
         }
+        .onChange(of: vpn.status) { status in
+            shenxianyunHomeSession.observe(status)
+            if status != "connected" { showsShenxianyunSettings = false }
+        }
+        .onAppear { shenxianyunHomeSession.observe(vpn.status) }
     }
 
 
