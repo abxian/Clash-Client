@@ -65,6 +65,12 @@ struct ShenxianyunHomeView: View {
         }
         .task(id: session.refreshGeneration) { await loadState() }
         .task { await client.refreshEndpoints() }
+        .onChange(of: profiles.profiles.map(\.id)) { _ in
+            Task { await refreshWhenReady() }
+        }
+        .onChange(of: profiles.busyProfileID) { value in
+            if value == nil { Task { await refreshWhenReady() } }
+        }
         .onChange(of: vpn.status) { _ in
             if let failure = UserDefaults(suiteName: ShenxianyunProfile.appGroup)?
                 .string(forKey: "shenxianyun.connection_error") { notice = failure }
@@ -233,6 +239,9 @@ struct ShenxianyunHomeView: View {
     // MARK: - 动作
 
     private func loadState() async {
+        // The upstream settings shell normally loads profiles on appearance; this
+        // standalone home must load its own model before refresh or reconnect.
+        profiles.load()
         accessCode = await client.savedAccessCode()
         expiresAt = await client.savedActivation()?.expiresAt
         if inputCode.isEmpty { inputCode = accessCode ?? "" }
@@ -253,20 +262,19 @@ struct ShenxianyunHomeView: View {
             }
         }
         #endif
+        await refreshWhenReady()
+    }
+
+    @MainActor
+    private func refreshWhenReady() async {
         let generation = session.refreshGeneration
-        if accessCode != nil, session.refreshedGeneration != generation {
-            // Profile loading is asynchronous. Wait without tying this import task's
-            // lifetime to a changing profile array (which would cancel the commit).
-            for _ in 0..<30 {
-                if Task.isCancelled { return }
-                if !isWorking, !isStarting, profiles.busyProfileID == nil,
-                   profiles.profiles.contains(where: { $0.id == installedProfileID }) {
-                    if await refreshNodes() { session.refreshedGeneration = generation }
-                    return
-                }
-                try? await Task.sleep(nanoseconds: 500_000_000)
-            }
-        }
+        guard !Task.isCancelled, !isWorking, !isStarting,
+              session.refreshedGeneration != generation,
+              await client.savedAccessCode() != nil else { return }
+        guard profiles.busyProfileID == nil,
+              profiles.profiles.contains(where: { $0.id == installedProfileID }) else { return }
+        session.refreshedGeneration = generation
+        _ = await refreshNodes()
     }
 
     private func togglePower() {

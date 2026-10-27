@@ -5,7 +5,7 @@
   "fixture_only": true,
   "real_vpn_started": false,
   "profile_commit_matches_active": true,
-  "downloads_on_relaunch": 0,
+  "downloads_on_relaunch": 1,
   "default_swift_tests": {
     "discovered": 49,
     "passed": 47,
@@ -13,5 +13,7 @@
   },
   "loopback_integration": "passed",
   "release_bootstrap_gate": "passed",
-  "iOS_Debug_arm64": "BUILD SUCCEEDED"
+  "iOS_Debug_arm64": "BUILD SUCCEEDED",
+  "failed_refresh_keeps_active_and_config": true,
+  "iOS_Release_arm64": "BUILD SUCCEEDED"
 }
