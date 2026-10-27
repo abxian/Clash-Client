@@ -267,10 +267,11 @@ struct ShenxianyunHomeView: View {
 
     @MainActor
     private func refreshWhenReady() async {
+        let savedCode = await client.savedAccessCode()
         let generation = session.refreshGeneration
         guard !Task.isCancelled, !isWorking, !isStarting,
               session.refreshedGeneration != generation,
-              await client.savedAccessCode() != nil else { return }
+              savedCode != nil else { return }
         guard profiles.busyProfileID == nil,
               profiles.profiles.contains(where: { $0.id == installedProfileID }) else { return }
         session.refreshedGeneration = generation

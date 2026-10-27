@@ -28,3 +28,5 @@ Xcode27.1、ClashiOS、Debug/Release无签名arm64 Simulator构建；Swift包49�
 正常revert任务提交回退，源码3020d78和现有发布包保留；无数据迁移，不裁剪旧备份。正式发布与真机门禁保留给后续发布任务，当前仅开发分支和临时构建。Trilium计划65kZMQlSK4yu、AI记忆AveSJISKqcvH同步最终事实，PC/Android计划HyOJQ4yf7QkD。
 
 2026-10-28收尾：iPhone 17 Pro/iOS26.5专用全新模拟器首次首页核对通过；iPad重启下载一次，停止回环服务后页面显示更新失败，active与配置SHA保持不变。证据为2026-10-27采集；所有模拟器检查未启动真实VPN。
+
+并发收尾：savedAccessCode异步读取后再检查会话代次和忙状态，检查与代次标记之间不再挂起，避免并发通知在极快更新完成后重复刷新。
