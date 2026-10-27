@@ -1,0 +1,63 @@
+{
+  "task": 236,
+  "date": "2026-10-27",
+  "source_commit": "2798e59e3beb66899832d5c8adb3bc283a2055d3",
+  "macOS": {
+    "configuration": "Debug unsigned arm64",
+    "result": "BUILD FAILED",
+    "errors": [
+      "apple/ClashClient/Sources/Shenxianyun/ShenxianyunHomeView.swift:332:19: error: cannot find 'UIApplication' in scope",
+      "apple/ClashClient/Sources/Shenxianyun/ShenxianyunImportView.swift:92:38: error: cannot find 'UIApplication' in scope"
+    ],
+    "project_version": "1.0.14 (59)"
+  },
+  "tvOS": {
+    "configuration": "Debug unsigned arm64 simulator",
+    "result": "BUILD SUCCEEDED",
+    "artifact_version": "1.0.11 (31)",
+    "runtime_tested": false
+  },
+  "iPad": {
+    "device": "iPad mini (A17 Pro)",
+    "runtime": "iOS 26.5",
+    "app": "existing #211 Debug build, source unchanged",
+    "profile_id_committed": true,
+    "fixture_requests": [
+      {
+        "method": "GET",
+        "path": "/api/endpoints"
+      },
+      {
+        "method": "GET",
+        "path": "/api/endpoints"
+      },
+      {
+        "method": "POST",
+        "path": "/api/verify"
+      },
+      {
+        "method": "POST",
+        "path": "/api/import/ticket"
+      },
+      {
+        "method": "POST",
+        "path": "/api/import/exchange"
+      },
+      {
+        "method": "GET",
+        "path": "/managed-sub/fixture-config"
+      }
+    ],
+    "screen_pixels": [
+      1488,
+      2266
+    ],
+    "logical_width_points": 744,
+    "minimum_regular_layout_width_points": 956,
+    "result": "Imported fixture; right-hand controls clipped in portrait",
+    "vpn_started": false,
+    "active_profile_matches_committed": true
+  },
+  "production_access": false,
+  "source_modified": false
+}
