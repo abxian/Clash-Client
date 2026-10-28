@@ -45,7 +45,7 @@ struct ProfileRoutePresetView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ProfileRoutePresetDraft
      
      
@@ -56,6 +56,9 @@ struct ProfileRoutePresetView: View {
      
      
     @State private var deviations: ConfigDeviationReport?
+     
+     
+    @State private var modules: ModuleGlobalManifest?
 
     init(
         profile: Profile,
@@ -71,6 +74,18 @@ struct ProfileRoutePresetView: View {
         let seed = ProfileRoutePresetDraft(profile: profile, sourceYAML: sourceYAML)
         _draft = State(initialValue: seed)
         _openedWith = State(initialValue: seed)
+    }
+
+     
+     
+    private var routeModule: String? {
+        guard let modules else { return nil }
+        for key in ["route-exclude-address", "route-address", "inet6-address", "route-address-set", "route-exclude-address-set"] {
+            if let note = modules.settingNote(at: ["tun", key], in: .object([("tun", .object([(key, .array([]))]))])) {
+                return note.module
+            }
+        }
+        return nil
     }
 
     var body: some View {
@@ -189,7 +204,13 @@ struct ProfileRoutePresetView: View {
             } header: {
                 Text("Advanced")
             } footer: {
-                Text("These overrides apply to the generated runtime only. The imported profile remains unchanged.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("These overrides apply to the generated runtime only. The imported profile remains unchanged.")
+                    if let module = routeModule {
+                        Text(clash: .format("Module “%@” changes settings in here.", [module]))
+                            .accessibilityIdentifier("profile-route-preset.module-note")
+                    }
+                }
             }
 
             Section {
@@ -217,6 +238,7 @@ struct ProfileRoutePresetView: View {
                 }
             }
         }
+        .task { modules = await ModuleGlobalManifest.published() }
         .task(id: RunningCoreDeviations.taskKey(for: profile)) {
             let profile = profile
             let locale = locale
@@ -785,7 +807,7 @@ struct ProfileProxyChainsView: View {
     let measure: ((String) async -> Int?)?
 
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ProfileProxyChainDraft
     @State private var error = ""
      

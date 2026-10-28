@@ -103,7 +103,7 @@ struct LogSettingsView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation) private var insideProductModal
     private let defaults: UserDefaults
     @State private var recording: Bool

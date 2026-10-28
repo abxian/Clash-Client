@@ -70,6 +70,10 @@ public struct ClashMacOriginalProvidersPage: View {
     @State private var adding = false
      
     @State private var library: [ClashMacLibrarySource]?
+     
+     
+     
+    @State private var pressedSources: [ClashMacLibrarySource.ID: Bool] = [:]
     @State private var libraryFailure: String?
     @State private var deleting: ClashMacOriginalNode?
     @Environment(\.configurationFieldCopy) private var copy
@@ -224,11 +228,19 @@ public struct ClashMacOriginalProvidersPage: View {
             if !offered.isEmpty {
                 Section {
                     ForEach(offered) { source in
-                        Toggle(isOn: Binding(get: { source.addedSetName != nil }, set: { on in
+                        Toggle(isOn: Binding(get: { pressedSources[source.id] ?? (source.addedSetName != nil) }, set: { on in
                             if on, source.addedSetName == nil {
-                                Task { await perform { say(try await actions.addFromLibrary(source)) } }
+                                pressedSources[source.id] = on
+                                Task {
+                                    await perform { say(try await actions.addFromLibrary(source)) }
+                                    pressedSources[source.id] = nil
+                                }
                             } else if !on, let name = source.addedSetName {
-                                Task { await perform { try await actions.delete(name) } }
+                                pressedSources[source.id] = on
+                                Task {
+                                    await perform { try await actions.delete(name) }
+                                    pressedSources[source.id] = nil
+                                }
                             }
                         })) {
                             Text(verbatim: Self.title(source)).lineLimit(1)

@@ -1,5 +1,6 @@
 #if os(iOS) || os(macOS)
 import Foundation
+import os
 
  
  
@@ -70,16 +71,6 @@ enum ModuleScriptKind: Equatable, Sendable {
 }
 
  
- 
-enum ModuleScriptSyntax: String, Codable, Equatable, Sendable {
-     
-     
-    case classic
-     
-    case loon351
-}
-
- 
 enum ModuleScriptDefaults {
      
      
@@ -91,19 +82,85 @@ enum ModuleScriptDefaults {
      
      
      
-    static func timeoutSeconds(family: ModuleScriptFamily, kind: ModuleScriptKind, syntax: ModuleScriptSyntax) -> Double {
-        if family == .quantumultX { return kind.phase != nil ? quantumultXHTTPSeconds : 300 }
-        guard family == .loon else { return 5 }
-        guard kind.phase != nil else { return 300 }
-        switch syntax {
-        case .classic: return 10
-        case .loon351: return 20
+     
+    static func timeoutSeconds(family: ModuleScriptFamily, kind: ModuleScriptKind) -> Double {
+        switch family {
+        case .surge, .stash: return 5
+        case .shadowrocket: return 10
+        case .loon: return kind.phase != nil ? 20 : 300
+        case .quantumultX: return kind.phase != nil ? quantumultXHTTPSeconds : 300
         }
     }
 
      
      
     static let quantumultXHTTPSeconds: Double = 10
+
+     
+     
+     
+     
+    static let neverSeconds: Double = 1e9
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+struct ModuleScriptMemory: Equatable, Sendable {
+     
+     
+    static let floorBytes: Int64 = 8 << 20
+     
+     
+    static let bytesPerSourceByte = 4
+     
+     
+    static let bytesPerPageByte = 40
+     
+    static let bytesPerReceivedByte = 3
+
+    enum Source: Equatable, Sendable {
+         
+        case process
+         
+        case figure(Int64?)
+    }
+
+    var source: Source
+
+    static let process = ModuleScriptMemory(source: .process)
+     
+    static let unjudged = ModuleScriptMemory(source: .figure(nil))
+
+     
+     
+    var headroom: Int64? {
+        switch source {
+        case .figure(let left): return left
+        case .process:
+#if os(iOS)
+            let left = Int64(os_proc_available_memory())
+            return left > 0 ? left : nil
+#else
+            return nil
+#endif
+        }
+    }
+
+     
+    var spareBytes: Int? {
+        headroom.map { Int(clamping: max(0, $0 - Self.floorBytes)) }
+    }
+
+     
+    func allows(_ bytes: Int) -> Bool {
+        guard let spare = spareBytes else { return true }
+        return bytes <= spare
+    }
 }
 
  
@@ -146,111 +203,52 @@ enum ModuleScriptArgument: Equatable, Sendable, ExpressibleByStringLiteral {
  
  
  
- 
- 
- 
- 
 struct ModuleScriptLimitsTable: Equatable, Sendable {
-     
      
     struct Host: Equatable, Sendable {
          
-        var maximumRunning: Int
-        var maximumWaiting: Int
-        var maximumHTTPTimeout: Double
-         
-        var maximumAppTimeout: Double
-         
         var idleTrimAfter: Double
+         
         var sourceCacheBytes: Int
-        var maximumSourceBytes: Int
-         
-         
-         
-         
-        var footprintAllowanceBytes: Int64?
-         
-         
-         
-        var maximumNetworkBytesInFlight: Int
     }
 
      
     struct Run: Equatable, Sendable {
          
-        var maximumTimers: Int
-        var maximumNotifications: Int
          
-        var ungzipOutputBytes: Int
+         
          
         var maximumPendingRequests: Int
-         
-         
-        var maximumWaitingRequests: Int
-         
-        var maximumRequestBodyBytes: Int
-         
-         
-        var maximumResponseBodyBytes: Int
-         
-        var maximumRedirects = 5
-         
-         
-         
-        var maximumDOMSourceBytes: Int? = nil
     }
 
     var tunnel: Host
     var app: Host
     var tunnelRun: Run
     var appRun: Run
-     
-    var storeValueBytes: Int
-    var storeTotalBytes: Int
 
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
     static let iOS = ModuleScriptLimitsTable(
-        tunnel: Host(maximumRunning: 2, maximumWaiting: 16, maximumHTTPTimeout: 30, maximumAppTimeout: 600,
-                     idleTrimAfter: 30, sourceCacheBytes: 1 << 20, maximumSourceBytes: 1 << 20,
-                     footprintAllowanceBytes: nil, maximumNetworkBytesInFlight: 4 << 20),
+        tunnel: Host(idleTrimAfter: 30, sourceCacheBytes: 1 << 20),
         app: appHost,
-        tunnelRun: Run(maximumTimers: 64, maximumNotifications: 8, ungzipOutputBytes: 1 << 20,
-                       maximumPendingRequests: 4, maximumWaitingRequests: 8, maximumRequestBodyBytes: 256 << 10,
-                       maximumResponseBodyBytes: 1 << 20, maximumDOMSourceBytes: 128 << 10),
-        appRun: Run(maximumTimers: 64, maximumNotifications: 8, ungzipOutputBytes: 1 << 20,
-                    maximumPendingRequests: 16, maximumWaitingRequests: 32, maximumRequestBodyBytes: 4 << 20,
-                    maximumResponseBodyBytes: 8 << 20),
-        storeValueBytes: 256 << 10, storeTotalBytes: 1 << 20)
+        tunnelRun: Run(maximumPendingRequests: 8),
+        appRun: Run(maximumPendingRequests: 8))
 
-     
     static let macOS = ModuleScriptLimitsTable(
-        tunnel: Host(maximumRunning: 2, maximumWaiting: 32, maximumHTTPTimeout: 30, maximumAppTimeout: 600,
-                     idleTrimAfter: 120, sourceCacheBytes: 8 << 20, maximumSourceBytes: 8 << 20,
-                     footprintAllowanceBytes: nil, maximumNetworkBytesInFlight: 64 << 20),
+        tunnel: Host(idleTrimAfter: 120, sourceCacheBytes: 8 << 20),
         app: appHost,
-        tunnelRun: Run(maximumTimers: 64, maximumNotifications: 8, ungzipOutputBytes: 16 << 20,
-                       maximumPendingRequests: 16, maximumWaitingRequests: 64, maximumRequestBodyBytes: 16 << 20,
-                       maximumResponseBodyBytes: 16 << 20),
-        appRun: Run(maximumTimers: 64, maximumNotifications: 8, ungzipOutputBytes: 16 << 20,
-                    maximumPendingRequests: 32, maximumWaitingRequests: 64, maximumRequestBodyBytes: 16 << 20,
-                    maximumResponseBodyBytes: 16 << 20),
-        storeValueBytes: 4 << 20, storeTotalBytes: 16 << 20)
+        tunnelRun: Run(maximumPendingRequests: macRequestsAtOnce),
+        appRun: Run(maximumPendingRequests: macRequestsAtOnce))
 
      
+    private static var macRequestsAtOnce: Int {
+#if arch(arm64)
+        return 64
+#else
+        return 8
+#endif
+    }
+
      
-     
-    private static let appHost = Host(maximumRunning: 2, maximumWaiting: 32, maximumHTTPTimeout: 30, maximumAppTimeout: 600,
-                                      idleTrimAfter: 60, sourceCacheBytes: 8 << 20, maximumSourceBytes: 8 << 20,
-                                      footprintAllowanceBytes: nil, maximumNetworkBytesInFlight: 64 << 20)
+    private static let appHost = Host(idleTrimAfter: 60, sourceCacheBytes: 8 << 20)
 
     static var current: ModuleScriptLimitsTable {
 #if os(macOS)
@@ -269,7 +267,6 @@ struct ModuleScriptDeclaration: Equatable, Sendable {
     var name: String
     var kind: ModuleScriptKind
     var family: ModuleScriptFamily
-    var syntax: ModuleScriptSyntax
      
      
      
@@ -303,7 +300,7 @@ struct ModuleScriptDeclaration: Equatable, Sendable {
 
      
     var timeoutSeconds: Double {
-        timeout ?? ModuleScriptDefaults.timeoutSeconds(family: family, kind: kind, syntax: syntax)
+        timeout ?? ModuleScriptDefaults.timeoutSeconds(family: family, kind: kind)
     }
 }
 
@@ -374,9 +371,6 @@ enum ModuleScriptStopReason: Equatable, Sendable {
     case javaScriptUnavailable(String)
      
      
-    case footprint(overBaselineBytes: Int64, allowanceBytes: Int64)
-     
-     
      
      
     case overran(scriptName: String, sha256: String, seconds: Double)
@@ -396,10 +390,9 @@ enum ModuleScriptSkipReason: Equatable, Sendable {
     case sourceMissing(String)
      
     case sourceMismatch(expected: String, actual: String)
-    case sourceTooLarge(Int)
      
      
-    case busy
+    case lowMemory(neededBytes: Int, spareBytes: Int)
      
     case cancelled
 }
@@ -444,6 +437,7 @@ protocol ModuleScriptHosting: AnyObject, Sendable {
     var availability: ModuleScriptAvailability { get }
      
     func stop(_ reason: ModuleScriptStopReason)
+     
      
     func trim()
      

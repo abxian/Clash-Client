@@ -15,18 +15,51 @@ import SwiftUI
 final class ConfigurationEditorSession: ObservableObject {
     let profileID: String
     let model: ProfilesViewModel
+     
+     
+     
+     
+     
+     
+     
+    let alertHosts = ConfigurationAlertHosts()
     @Published private(set) var page: ProfilesViewModel.ConfigurationEditorPage? {
         didSet {
             running = page.map { page in page.ownLayer.map { page.document.mergingAsTheCoreMerges($0) } ?? page.document }
-            layouts = [:]
+            showWaitingEdits()
+            showSavingOriginal()
         }
     }
      
      
     private var running: OrderedJSON?
+     
+     
+     
+     
+     
+     
+     
+     
+    private var shown: OrderedJSON?
+
+    private func showWaitingEdits() {
+        let waiting = savingEdits + queuedEdits + (pendingEdits ?? [])
+        shown = waiting.isEmpty ? running
+            : running.map { running in waiting.reduce(running) { document, edit in (try? document.applying(edit)) ?? document } }
+        layouts = [:]
+    }
     @Published private(set) var catalog: ProfilesViewModel.SyntaxCatalog? {
         didSet { layouts = [:] }
     }
+     
+     
+    @Published private(set) var modules: ModuleGlobalManifest?
+    private(set) var heldOverModules: Set<String> = []
+     
+     
+    @Published private(set) var scripted: ScriptedSettings?
+    private var scriptedGeneration = 0
      
      
      
@@ -46,7 +79,9 @@ final class ConfigurationEditorSession: ObservableObject {
      
      
      
-    @Published var pendingEdits: [ConfigurationPageEdit]?
+    @Published var pendingEdits: [ConfigurationPageEdit]? {
+        didSet { showWaitingEdits() }
+    }
      
      
      
@@ -83,21 +118,39 @@ final class ConfigurationEditorSession: ObservableObject {
          
         let loadingCatalog: Task<ProfilesViewModel.SyntaxCatalog?, Never>? = catalog == nil
             ? Task { [catalogSource] in try? await catalogSource() } : nil
+        let loadingModules = Task { [model] in await model.publishedModules() }
         let loaded: ProfilesViewModel.ConfigurationEditorPage?
         do {
             loaded = try await model.loadConfigurationEditorPage(profileID: profileID)
+            if loadFailure != nil { loadFailure = nil }
         } catch is CancellationError {
             loaded = nil
         } catch {
-            failure = error.localizedDescription
+             
+             
+            loadFailure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
             loaded = nil
         }
         if let loadingCatalog {
             catalog = await loadingCatalog.value
             catalogUnavailable = catalog == nil
         }
+        let published = await loadingModules.value
+        heldOverModules = model.keysHeldOverModules(profileID: profileID)
+        if published != modules { modules = published }
         if let loaded { page = loaded }
+        scriptedGeneration += 1
+        let generation = scriptedGeneration
+        Task { [model, profileID] in
+            let built = await model.scriptedSettings(profileID: profileID)
+            guard generation == self.scriptedGeneration, built != self.scripted else { return }
+            self.scripted = built
+        }
     }
+
+     
+     
+    @Published private(set) var loadFailure: String?
 
      
      
@@ -107,10 +160,49 @@ final class ConfigurationEditorSession: ObservableObject {
     var awaitsCatalog: Bool { catalog == nil && !catalogUnavailable }
 
      
-    private var queuedEdits: [ConfigurationPageEdit] = []
+    private var queuedEdits: [ConfigurationPageEdit] = [] {
+        didSet { waitingEditsChanged() }
+    }
      
      
-    private var savingEdits: [ConfigurationPageEdit] = []
+    private var savingEdits: [ConfigurationPageEdit] = [] {
+        didSet { waitingEditsChanged() }
+    }
+
+    private func waitingEditsChanged() {
+        showWaitingEdits()
+        objectWillChange.send()
+    }
+
+     
+     
+     
+     
+     
+     
+    private var savingOriginal: (steps: [ConfigurationTextStep], on: String?)? {
+        didSet {
+            showSavingOriginal()
+            objectWillChange.send()
+        }
+    }
+     
+     
+     
+    private var shownOriginal: OrderedJSON?
+
+    private func showSavingOriginal() {
+        guard let saving = savingOriginal, let page, page.readDigest == saving.on else { shownOriginal = nil; return }
+        shownOriginal = ConfigurationShownText.applying(saving.steps, to: page.document)
+    }
+
+     
+     
+    func handingOn(_ steps: [ConfigurationTextStep], _ save: () async -> Bool) async -> Bool {
+        savingOriginal = (steps, page?.readDigest)
+        defer { savingOriginal = nil }
+        return await save()
+    }
 
      
      
@@ -156,9 +248,37 @@ final class ConfigurationEditorSession: ObservableObject {
     }
 
      
+     
+     
+     
+    @Published private(set) var pressedSwitches = ClashPressedSwitches<String>()
+
+     
+    func shownSwitch(_ key: String, else read: Bool) -> Bool { pressedSwitches.shown(key, else: read) }
+
+     
+     
+    func pressSwitch(_ key: String, _ value: Bool, write: @escaping () async -> Void) {
+        let press = pressedSwitches.press(key, value)
+        Task {
+            await write()
+            pressedSwitches.settle(key, press: press)
+        }
+    }
+
+    var hasSwitchesInFlight: Bool { !pressedSwitches.isEmpty }
+
+    private static let ownDNSSwitchKey = "dns.custom"
+
+     
+    var shownOwnDNSSwitch: Bool? { page?.ownDNSSwitch.map { shownSwitch(Self.ownDNSSwitchKey, else: $0) } }
+
+     
     func setOwnDNSSwitch(_ on: Bool) {
         guard !isSaving else { return }
-        Task { await run { try self.model.updateOwnDNSSwitch(profileID: self.profileID, on: on) } }
+        pressSwitch(Self.ownDNSSwitchKey, on) {
+            await self.run { try self.model.updateOwnDNSSwitch(profileID: self.profileID, on: on) }
+        }
     }
 
     func switchScheme(to schemeID: String) async {
@@ -175,7 +295,9 @@ final class ConfigurationEditorSession: ObservableObject {
          
          
         let read = page?.readDigest
-        return await run { try await self.model.editOriginalConfiguration(self.profileID, at: path, edit, readDigest: read) }
+        return await handingOn([ConfigurationTextStep(path: path, edit: edit)]) {
+            await run { try await self.model.editOriginalConfiguration(self.profileID, at: path, edit, readDigest: read) }
+        }
     }
 
      
@@ -283,11 +405,13 @@ final class ConfigurationEditorSession: ObservableObject {
     }
 
      
-    func value(at path: [String]) -> OrderedJSON? { page?.document.node(at: path) }
+     
+    func value(at path: [String]) -> OrderedJSON? { (shownOriginal ?? page?.document)?.node(at: path) }
 
      
      
-    func settingsValue(at path: [String]) -> OrderedJSON? { running?.node(at: path) }
+     
+    func settingsValue(at path: [String]) -> OrderedJSON? { shown?.node(at: path) }
 
      
      
@@ -296,11 +420,7 @@ final class ConfigurationEditorSession: ObservableObject {
      
      
      
-    func expectedSettingsValue(at path: [String]) -> OrderedJSON? {
-        let waiting = savingEdits + queuedEdits + (pendingEdits ?? [])
-        guard !waiting.isEmpty, let running else { return settingsValue(at: path) }
-        return waiting.reduce(running) { document, edit in (try? document.applying(edit)) ?? document }.node(at: path)
-    }
+    func expectedSettingsValue(at path: [String]) -> OrderedJSON? { settingsValue(at: path) }
 
      
      
@@ -445,7 +565,7 @@ struct ConfigurationSchemeNameSheet: View {
     let initial: String
     let save: (String) -> Void
     @State private var name = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         ClashFeatureNavigationContainer {
@@ -477,7 +597,7 @@ struct ConfigurationSchemeNameSheet: View {
 
 struct ConfigurationCompileResultView: View {
     let answer: ConfigurationCompileAnswer
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         ClashFeatureNavigationContainer {
@@ -544,6 +664,7 @@ struct ConfigurationInboundListenersSection: View {
             ForEach(Array(items.prefix(Self.shownAtMost).enumerated()), id: \.offset) { index, item in
                 NavigationLink {
                     ConfigurationObjectItemView(session: session, location: location, index: index)
+                        .configurationPushedAlertHost(session)
                 } label: {
                     ConfigurationRowLabel(title: .verbatim(ConfigurationObjectList.title(of: item, index: index)),
                                           value: .verbatim(ConfigurationObjectListView.summary(of: item, typeNames: types)))
@@ -554,6 +675,7 @@ struct ConfigurationInboundListenersSection: View {
                 NavigationLink {
                     ConfigurationObjectListView(session: session, location: location,
                                                 title: ClashCopy.string("Inbound Listeners", locale: locale))
+                        .configurationPushedAlertHost(session)
                 } label: {
                     Text(clash: .format("All %@", [String(items.count)]))
                 }
@@ -567,7 +689,16 @@ struct ConfigurationInboundListenersSection: View {
              
              
              
-            Text(clash: .copy("Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share."))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(clash: .copy("Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share."))
+                 
+                 
+                if let note = session.modules?.settingNote(at: ["listeners"], in: session.settingsDocument),
+                   case .adds(let count) = note.effect {
+                    Text(clash: .format("Module “%@” adds %@ more.", [note.module, String(count)]))
+                        .accessibilityIdentifier("configuration-editor.inbound.listeners.module-note")
+                }
+            }
         }
     }
 }
@@ -652,6 +783,18 @@ struct ConfigurationSettingsSectionView: View {
 
      
      
+     
+     
+    private func caption(_ row: ConfigurationSectionLayout.Row) -> ClashDisplayText? {
+        ConfigurationRunsOverNote.words(path: row.path, field: row.field, opensPage: row.control == .drill,
+                                        document: session.settingsDocument, modules: session.modules,
+                                        held: session.heldOverModules, scripted: session.scripted,
+                                        locale: locale, copy: fieldCopy)
+            ?? conditionNote(row)
+    }
+
+     
+     
     private func conditionNote(_ row: ConfigurationSectionLayout.Row) -> ClashDisplayText? {
         guard row.conditionalEffective != nil, let field = row.field else { return nil }
         return ConfigurationValueWords.conditionalLine(for: field, conditions: session.model.platformConditionsHolding())
@@ -710,7 +853,7 @@ struct ConfigurationSettingsSectionView: View {
     private var content: some View {
         let (layout, listsListeners) = drawn
         return List {
-            if section == .dns, basePath == ConfigurationSectionLayout.base(of: .dns), let on = session.page?.ownDNSSwitch {
+            if section == .dns, basePath == ConfigurationSectionLayout.base(of: .dns), let on = session.shownOwnDNSSwitch {
                  
                  
                 Section {
@@ -834,7 +977,7 @@ struct ConfigurationSettingsSectionView: View {
                                             save: { session.edit([.set(path: row.path, to: $0)]) },
                                             isDefault: row.value == nil, defaultText: field.defaultText,
                                             useDefault: useDefault(of: row, draft: draft),
-                                            caption: conditionNote(row), field: field)
+                                            caption: caption(row), field: field)
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) { useDefault(row) }
             }
         case .page:
@@ -916,29 +1059,33 @@ struct ConfigurationSettingsSectionView: View {
             if entry {
                  
                  
-                Button(role: .destructive) { session.edit([.remove(path: row.path)]) } label: { Text(clash: .copy("Delete")) }
+                Button(role: .destructive) { session.edit([.remove(path: row.path)]) } label: { ClashSwipeLabel(.copy("Delete"), symbol: .trash) }
+                    .tint(.red)
                     .accessibilityIdentifier("configuration-editor.key.delete")
             } else {
-                Button { session.edit([.remove(path: row.path)]) } label: { Text(clash: .copy("Use Default")) }
+                Button { session.edit([.remove(path: row.path)]) } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
                     .tint(.orange)
                     .accessibilityIdentifier("configuration-editor.key.use-default")
             }
         case .fileText?:
             Button(role: .destructive) {
                 Task { await session.editOriginal(row.path.map(ConfigurationTextPathStep.key), .delete) }
-            } label: { Text(clash: .copy("Delete")) }
+            } label: { ClashSwipeLabel(.copy("Delete"), symbol: .trash) }
+            .tint(.red)
             .accessibilityIdentifier("configuration-editor.key.delete-in-text")
         case .sourceOnly?:
             Button(role: .destructive) {
                 session.refusal = .init(sentence: ClashCopy.string(for: .copy(Self.fromProfileURLSentence),
                                                                   locale: AppPreferences.language().locale),
                                         coreWords: nil, editTheSourceInstead: true)
-            } label: { Text(clash: .copy("Delete")) }
+            } label: { ClashSwipeLabel(.copy("Delete"), symbol: .trash) }
+            .tint(.red)
             .accessibilityIdentifier("configuration-editor.key.delete-in-source")
         case .layerAndFileText?:
             Button(role: .destructive) {
                 Task { await session.delete(row.path, .layerAndFileText) }
-            } label: { Text(clash: .copy("Delete")) }
+            } label: { ClashSwipeLabel(.copy("Delete"), symbol: .trash) }
+            .tint(.red)
             .accessibilityIdentifier("configuration-editor.key.delete-in-text")
         case nil:
             EmptyView()
@@ -969,9 +1116,13 @@ struct ConfigurationSettingsSectionView: View {
     @ViewBuilder
     private func ownedRow(_ row: ConfigurationSectionLayout.Row, _ owner: ConfigurationKeyOwner) -> some View {
         let caption = ClashDisplayText.formatCopy("Change in %@", [Self.pageTitle(of: owner)])
-        if let page = linkedPage?(.owner(owner)) {
+        if let linkedPage, linkedPage.open(.owner(owner)) != nil {
              
-            NavigationLink { page } label: { label(row, caption: caption) }
+             
+             
+            NavigationLink { ConfigurationLinkedPageView(pages: linkedPage, page: .owner(owner)).equatable() } label: {
+                label(row, caption: caption)
+            }
                 .accessibilityIdentifier("configuration-editor.key.owner.\(row.id)")
         } else {
             label(row, caption: caption)
@@ -1002,7 +1153,7 @@ struct ConfigurationSettingsSectionView: View {
 
     private func label(_ row: ConfigurationSectionLayout.Row, caption: ClashDisplayText? = nil) -> some View {
         ConfigurationRowLabel(title: .verbatim(title(of: row)),
-                              caption: caption ?? conditionNote(row),
+                              caption: caption ?? self.caption(row),
                               value: ConfigurationValueWords.summary(row.value, field: row.field, locale: locale, copy: fieldCopy),
                               isDefault: row.value == nil)
     }
@@ -1091,7 +1242,8 @@ extension ConfigurationLANShareStatus {
     static func words(for session: ConfigurationEditorSession) -> ClashDisplayText {
         let override = session.model.profiles.first { $0.id == session.profileID }
             .map { KernelLANShareOverride(patch: OverridePatch(patchJSON: $0.override.patchJSON)) }
-        return words(override: override ?? KernelLANShareOverride(), document: session.settingsDocument)
+        return words(override: override ?? KernelLANShareOverride(), document: session.settingsDocument,
+                     modules: session.modules?.listenerKeys ?? KernelLANShareOverride())
     }
 }
 
@@ -1103,12 +1255,45 @@ enum ConfigurationLinkedPage: Equatable {
 
  
  
+ 
+ 
+ 
+ 
+ 
+ 
+struct ConfigurationLinkedPages: Equatable {
+     
+    private let sources: [ObjectIdentifier]
+    let open: @MainActor (ConfigurationLinkedPage) -> AnyView?
+
+     
+     
+    init(from sources: [AnyObject], over shell: ConfigurationLinkedPages? = nil,
+         open: @escaping @MainActor (ConfigurationLinkedPage) -> AnyView?) {
+        self.sources = sources.map(ObjectIdentifier.init) + (shell?.sources ?? [])
+        self.open = open
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.sources == rhs.sources }
+}
+
+ 
+ 
+struct ConfigurationLinkedPageView: View, Equatable {
+    let pages: ConfigurationLinkedPages
+    let page: ConfigurationLinkedPage
+
+    var body: some View { pages.open(page) }
+}
+
+ 
+ 
 struct ConfigurationLinkedPageKey: EnvironmentKey {
-    static var defaultValue: (@MainActor (ConfigurationLinkedPage) -> AnyView?)? { nil }
+    static var defaultValue: ConfigurationLinkedPages? { nil }
 }
 
 extension EnvironmentValues {
-    var configurationLinkedPage: (@MainActor (ConfigurationLinkedPage) -> AnyView?)? {
+    var configurationLinkedPage: ConfigurationLinkedPages? {
         get { self[ConfigurationLinkedPageKey.self] }
         set { self[ConfigurationLinkedPageKey.self] = newValue }
     }
@@ -1128,7 +1313,7 @@ struct ConfigurationValueView: View {
     @State private var opened: ConfigurationDraft?
      
     @State private var usedDefault = false
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 
@@ -2407,7 +2592,7 @@ struct ConfigurationNewKeyForm: View {
      
     @State private var fieldDraft: ConfigurationFieldDraft?
     @State private var fieldDraftKey = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var name: String {
         guard policyKeys else { return key.trimmingCharacters(in: .whitespaces) }
@@ -2780,7 +2965,12 @@ struct ConfigurationOriginalEntriesView: View {
             }
             ForEach(shown) { entry in
                 NavigationLink {
+                     
+                     
+                     
+                     
                     ConfigurationOriginalEntryView(session: session, section: section, name: entry.name)
+                        .configurationPushedAlertHost(session)
                 } label: {
                     HStack(alignment: .firstTextBaseline) {
                         Text(verbatim: entry.name).lineLimit(1)
@@ -2983,6 +3173,7 @@ struct ConfigurationOriginalEntryView: View {
                     let json = OrderedJSON.array(chosen.map(OrderedJSON.string)).serialized()
                     return await session.editOriginal(path + [.key("proxies")], value == nil ? .insert(json: json) : .set(json: json))
                 }
+                .configurationPushedAlertHost(session)
             } label: {
                 Text(clash: .copy("Add Members…"))
             }
@@ -3164,7 +3355,7 @@ struct ConfigurationEntryFieldRows: View {
     @ViewBuilder
     private func useDefault(_ row: Row) -> some View {
         if row.value != nil {
-            Button { write(row.key, nil, true) } label: { Text(clash: .copy("Use Default")) }
+            Button { write(row.key, nil, true) } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
                 .tint(.orange)
                 .accessibilityIdentifier(identifiers.useDefaultIdentifier)
         }
@@ -3777,7 +3968,7 @@ struct ConfigurationEntryNewItemForm: View {
     let form: ConfigurationNewItem
     let add: (OrderedJSON) -> Void
     @State private var values: [String: ConfigurationNewItem.Value] = [:]
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var filled: [String: ConfigurationNewItem.Value] { ConfigurationNewItemFields.filled(form, values) }
 
@@ -3914,7 +4105,7 @@ struct ConfigurationOriginalValueView: View {
     var field: ConfigurationField? = nil
     let save: (String) async -> Void
     @State private var draft: ConfigurationDraft?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 
@@ -3972,7 +4163,7 @@ struct ConfigurationOriginalNewEntryForm: View {
     @State private var behavior = ""
     @State private var format = ""
     @State private var location = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 
@@ -4094,7 +4285,7 @@ struct ConfigurationRenameSheet: View {
     let taken: Set<String>
     let save: (String) -> Void
     @State private var name = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
 
@@ -4275,4 +4466,101 @@ extension ConfigurationEditorSession {
     }
 }
 
+ 
+ 
+struct ConfigurationPageLoadFailure: View {
+    @ObservedObject var session: ConfigurationEditorSession
+    let reason: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(clash: .copy("This configuration can't be opened."))
+                .font(.headline)
+            Text(verbatim: reason)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button { Task { await session.reload() } } label: { Text(clash: .copy("Try Again")) }
+                .accessibilityIdentifier("configuration-editor.load-failure.retry")
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("configuration-editor.load-failure")
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+enum ConfigurationShownText {
+    static func applying(_ steps: [ConfigurationTextStep], to document: OrderedJSON) -> OrderedJSON? {
+        var shown = document
+        for step in steps {
+            guard let next = applying(step, to: shown) else { break }
+            shown = next
+        }
+        return shown == document ? nil : shown
+    }
+
+    static func applying(_ step: ConfigurationTextStep, to document: OrderedJSON) -> OrderedJSON? {
+        let value: OrderedJSON?
+        switch step.edit {
+        case .set(let json), .insert(let json): value = try? OrderedJSON.parse(json)
+        case .delete: value = nil
+        case .insertBefore, .move, .rename: return nil
+        }
+        return document.edited(step.path[...]) { container, last in
+            switch (container, last, step.edit) {
+            case (.object(var pairs), .key(let key), .set):
+                guard let value, let at = pairs.firstIndex(where: { $0.key == key }) else { return nil }
+                pairs[at].value = value
+                return .object(pairs)
+            case (.object(var pairs), .key(let key), .insert):
+                guard let value, !pairs.contains(where: { $0.key == key }) else { return nil }
+                pairs.append((key: key, value: value))
+                return .object(pairs)
+            case (.object(var pairs), .key(let key), .delete):
+                guard let at = pairs.firstIndex(where: { $0.key == key }) else { return nil }
+                pairs.remove(at: at)
+                return .object(pairs)
+            case (.array(var items), .index(let at), .set) where items.indices.contains(at):
+                guard let value else { return nil }
+                items[at] = value
+                return .array(items)
+            case (.array(var items), .index(let at), .insert) where (0...items.count).contains(at):
+                guard let value else { return nil }
+                items.insert(value, at: at)
+                return .array(items)
+            case (.array(var items), .index(let at), .delete) where items.indices.contains(at):
+                items.remove(at: at)
+                return .array(items)
+            default:
+                return nil
+            }
+        }
+    }
+}
+
+private extension OrderedJSON {
+     
+     
+    func edited(_ path: ArraySlice<ConfigurationTextPathStep>,
+                _ leaf: (OrderedJSON, ConfigurationTextPathStep) -> OrderedJSON?) -> OrderedJSON? {
+        guard let step = path.first else { return nil }
+        if path.count == 1 { return leaf(self, step) }
+        switch (self, step) {
+        case (.object(var pairs), .key(let key)):
+            guard let at = pairs.firstIndex(where: { $0.key == key }),
+                  let child = pairs[at].value.edited(path.dropFirst(), leaf) else { return nil }
+            pairs[at].value = child
+            return .object(pairs)
+        case (.array(var items), .index(let at)) where items.indices.contains(at):
+            guard let child = items[at].edited(path.dropFirst(), leaf) else { return nil }
+            items[at] = child
+            return .array(items)
+        default:
+            return nil
+        }
+    }
+}
 #endif

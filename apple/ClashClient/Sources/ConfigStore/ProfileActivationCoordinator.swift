@@ -1157,6 +1157,19 @@ final class ProfileActivationCoordinator {
      
     nonisolated(unsafe) static var finalizeOrderReference = true
 
+     
+     
+     
+     
+     
+     
+     
+     
+    static func givesTheHeapBack(planReadAFile: Bool, finalizesThatFile: Bool,
+                                 givenBackAfterDownloads: Bool) -> Bool {
+        planReadAFile && !finalizesThatFile && !givenBackAfterDownloads
+    }
+
     private let store: ConfigResourceStore
     private let profileStore: ProfileStore
     private let credentials: CredentialStore
@@ -1279,6 +1292,10 @@ final class ProfileActivationCoordinator {
     private var activationReuseSource = "unset"
     private let globalOverride: () -> OverrideSpec
     private let runtimeOverride: () -> OverrideSpec
+     
+     
+     
+    private let downloadIdentity: () -> String
     private let profileScript: (String?, String, String) throws -> String
     private let configScript: (String, String) throws -> String
     private let postMergeScript: (String?, String, String) throws -> String
@@ -1351,6 +1368,7 @@ final class ProfileActivationCoordinator {
          runtimeOverride: @escaping () -> OverrideSpec = {
              FlClashRuntimeConfig.load()
          },
+         downloadIdentity: @escaping () -> String = { ClientUserAgent.downloadIdentity() },
           
           
           
@@ -1409,6 +1427,7 @@ final class ProfileActivationCoordinator {
         self.activationFetchBudget = activationFetchBudget
         self.globalOverride = globalOverride
         self.runtimeOverride = runtimeOverride
+        self.downloadIdentity = downloadIdentity
         self.logDefaults = logDefaults
         self.profileScript = profileScript
         self.configScript = configScript
@@ -2063,11 +2082,16 @@ final class ProfileActivationCoordinator {
     func providerRetryCatalog(profile given: Profile) throws -> ProviderCatalog {
         let profile = onDisk(given)
         let raw = try String(contentsOf: sidecarURL(profileID: profile.id), encoding: .utf8)
-        let merged = try prepareConfig(raw: raw, profile: profile)
+        let (merged, root) = try prepareConfigReading(raw: raw, profile: profile)
+         
+         
+        let ownUserAgent = ClientUserAgent.written(in: root)
         let plan = try ConfigTransforms.planResources(mergedYAML: merged)
+            .carrying(userAgent: ClientUserAgent.choice(ownUserAgent, identity: downloadIdentity()))
         guard plan.errors.isEmpty else { throw PipelineError.planRejected(plan.errors) }
         return ProviderCatalog.from(plan: plan,
-            routeSetProviders: try ConfigTransforms.routeSetProviderNames(mergedYAML: merged))
+            routeSetProviders: try ConfigTransforms.routeSetProviderNames(mergedYAML: merged),
+            userAgent: ownUserAgent ?? "")
     }
 
      
@@ -2254,6 +2278,9 @@ final class ProfileActivationCoordinator {
     private var lastLogLevelSetByApp = false
     private var lastModeSetByApp = false
      
+     
+    private var lastListenerKeysSetByApp: Set<String> = []
+     
     private let logDefaults: UserDefaults
 
     private func prepareConfig(raw: String, profile: Profile) throws -> String {
@@ -2309,6 +2336,8 @@ final class ProfileActivationCoordinator {
         lastProfileLogLevel = stages.profileLogLevel
         lastLogLevelSetByApp = stages.logLevelSetByApp
         lastModeSetByApp = stages.modeSetByApp
+        lastListenerKeysSetByApp = Set(OverridePatch(patchJSON: profile.override.patchJSON)
+            .retainingTopLevelKeys(OverridePatch.listenerKeys).topLevelKeys)
          
          
         AppCore.returnFreeMemoryNow(after: stages.beforeClientRuntimePolicy)
@@ -2519,8 +2548,8 @@ final class ProfileActivationCoordinator {
              
              
              
-            let (ageSecretKeys, routeSetProviders, userAgent) = try {
-                () throws -> ([String: String], Set<String>, String) in
+            let (ageSecretKeys, routeSetProviders, ownUserAgent) = try {
+                () throws -> ([String: String], Set<String>, String?) in
                 let root = mergedRoot ?? heldRoot?.value
                 let materializedRoot = (root != nil && materializedMerged == merged)
                     ? root : try ConfigTransforms.foundationRoot(ofYAML: materializedMerged)
@@ -2528,9 +2557,14 @@ final class ProfileActivationCoordinator {
                  
                 return (ConfigTransforms.providerAgeSecretKeys(root: materializedRoot),
                         ConfigTransforms.routeSetProviderNames(root: materializedRoot),
-                        ClientUserAgent.resolved(root: materializedRoot,
-                                                 fallback: ClientUserAgent.resolved(profile: profile)))
+                        ClientUserAgent.written(in: materializedRoot))
             }()
+             
+             
+             
+             
+            let identity = downloadIdentity()
+            let userAgent = ownUserAgent ?? identity
             heldRoot?.release()
              
              
@@ -2543,9 +2577,16 @@ final class ProfileActivationCoordinator {
                                                                      sourceAt: sidecarURL(profileID: profile.id))
 
 
-            let plan = try runtimeFile.map { try ConfigTransforms.planResources(atPath: $0.url) }
-                ?? ConfigTransforms.planResources(mergedYAML: materializedMerged)
-            AppCore.returnFreeMemoryNow(after: materializedMerged)
+             
+             
+             
+            let plan = try (runtimeFile.map { try ConfigTransforms.planResources(atPath: $0.url) }
+                ?? ConfigTransforms.planResources(mergedYAML: materializedMerged))
+                .carrying(userAgent: ClientUserAgent.choice(ownUserAgent, identity: identity))
+             
+             
+             
+             
             laps.mark("publish.plan")
             guard plan.errors.isEmpty else {
                 throw PipelineError.planRejected(plan.errors)
@@ -2629,7 +2670,7 @@ final class ProfileActivationCoordinator {
                 return (provider, URL(fileURLWithPath: path), materialized.entryCounts[provider.name] ?? 0,
                         materialized.subscriptionUserInfo[provider.name].flatMap { SubscriptionInfo.parse(header: $0) }
                             .map(ConfigurationCenterSourceBridge.subscriptionUsage))
-            }, workingDirectory: coreHomeDir)
+            }, userAgent: ownUserAgent, identity: identity, workingDirectory: coreHomeDir)
             firstLoadPending = materialized.firstLoadPending
             firstLoadPendingOfLastPublication = firstLoadPending
             publishedRouteNames = Set(plan.providers.filter {
@@ -2738,7 +2779,9 @@ final class ProfileActivationCoordinator {
                 acquiredAt: materialized.acquiredAt,
                 routeSetProviders: routeSetProviders,
                 coreRouteSeeds: materialized.coreRouteSeeds,
-                seedPaths: materialized.seedPaths
+                seedPaths: materialized.seedPaths,
+                 
+                userAgent: ownUserAgent ?? ""
             ).write(providersDir: candidate.stagingProvidersDirectory)
             stages.mark(
                 "providers",
@@ -2803,7 +2846,12 @@ final class ProfileActivationCoordinator {
                 ? runtimeFile : nil
              
              
-            AppCore.returnFreeMemoryNow(after: materializedMerged)
+             
+             
+            let heapGivenBack = !materialized.downloadedNames.isEmpty || !materialized.refreshedNames.isEmpty
+            if heapGivenBack {
+                AppCore.returnFreeMemoryNow(after: materializedMerged)
+            }
              
              
              
@@ -2820,10 +2868,16 @@ final class ProfileActivationCoordinator {
                 let prependRules = handover.prependRules
                 let ruleProviders = handover.ruleSets?.definitions
                 let file = ConfigTransforms.sameText(mergedYAML, runtimeYAML) ? finalizedFile : nil
-                let publication: ConfigTransforms.FinalizedPublication
+                 
+                 
+                if Self.givesTheHeapBack(planReadAFile: runtimeFile != nil, finalizesThatFile: file != nil,
+                                         givenBackAfterDownloads: heapGivenBack) {
+                    AppCore.returnFreeMemoryNow(after: mergedYAML)
+                }
+                var publication: ConfigTransforms.FinalizedPublication
                 var setUpRefused = false
                 if self.preflightIsCallers {
-                    let text = try file.map {
+                    var text = try file.map {
                         try ConfigTransforms.finalize(atPath: $0.url, providerPaths: providerPaths,
                                                       providerReadPaths: providerReadPaths, seeds: seedFacts,
                                                       nodeLibraryDirectory: nodeLibraryDirectory,
@@ -2838,6 +2892,8 @@ final class ProfileActivationCoordinator {
                         ruleIndexDirectory: ruleIndexDirectory,
                         prependRules: prependRules,
                         ruleProviders: ruleProviders)
+                    try ConfigTransforms.carryGlobalUA(identity, into: &text,
+                                                       beforeGrowing: { AppCore.returnFreeMemoryNow(after: mergedYAML) })
                     publication = .init(text: text, preflight: self.preflight(text), geodataMode: nil,
                                         listenerPorts: nil, listenerPortsAnswered: false, notices: nil)
                 } else {
@@ -2863,6 +2919,10 @@ final class ProfileActivationCoordinator {
                      
                      
                     setUpRefused = !publication.preflight.ok && !publication.listenerPortsAnswered
+                }
+                 
+                if !self.preflightIsCallers {
+                    try Self.carryGlobalUA(identity, into: &publication, givingBackAfter: mergedYAML)
                 }
                  
                  
@@ -2894,6 +2954,8 @@ final class ProfileActivationCoordinator {
             publishedModule = finalized.modules
             recordedCandidate = finalized.recordedFor
             rulesAsWritten = finalized.rulesAsWritten
+             
+             
             let finalYAML = publication.text
              
              
@@ -3125,7 +3187,7 @@ final class ProfileActivationCoordinator {
         ModulePublicationRecord.store(
             ModulePublicationRecord(profileID: published.profileID, revision: published.revision,
                                      manifestSHA256: composedFromModules, engine: publishedModule?.record,
-                                     heldEngine: heldEngine),
+                                     heldEngine: heldEngine, composition: ModuleInjection.composition),
             locations: modulesLocations)
          
          
@@ -3152,6 +3214,28 @@ final class ProfileActivationCoordinator {
      
      
      
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    private static func carryGlobalUA(_ identity: String, into publication: inout ConfigTransforms.FinalizedPublication,
+                                      givingBackAfter mergedYAML: String) throws {
+        let (preflight, geodataMode, ports, portsAnswered, notices) = (publication.preflight,
+            publication.geodataMode, publication.listenerPorts, publication.listenerPortsAnswered, publication.notices)
+        var text = publication.text
+        publication = .init(text: "", preflight: preflight, geodataMode: geodataMode, listenerPorts: ports,
+                            listenerPortsAnswered: portsAnswered, notices: notices)
+        try ConfigTransforms.carryGlobalUA(identity, into: &text,
+                                           beforeGrowing: { AppCore.returnFreeMemoryNow(after: mergedYAML) })
+        publication = .init(text: text, preflight: preflight, geodataMode: geodataMode, listenerPorts: ports,
+                            listenerPortsAnswered: portsAnswered, notices: notices)
+    }
+
     private struct FinalizedText {
         let publication: ConfigTransforms.FinalizedPublication
         let setUpRefused: Bool
@@ -3248,6 +3332,7 @@ final class ProfileActivationCoordinator {
         input.ruleIndexDirectory = ruleIndexDirectory
         input.logLevelSetByApp = lastLogLevelSetByApp
         input.modeSetByApp = lastModeSetByApp
+        input.listenerKeysSetByApp = lastListenerKeysSetByApp
         await stageModuleGeodata(for: input, runtimeYAML: runtimeYAML)
         let priority = modulesStepPriority
         var outcome = await ModuleActivationStep.prepare(runtimeYAML, input: input, priority: priority)

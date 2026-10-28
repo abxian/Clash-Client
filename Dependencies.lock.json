@@ -2,11 +2,11 @@
   "schemaVersion": 1,
   "kernel": {
     "repository": "https://github.com/ProjectClash/Clash.git",
-    "revision": "a5cb38dab6123ff1dded608b0d7fdceca9027421"
+    "revision": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33"
   },
   "adapter": {
     "repository": "https://github.com/ProjectClash/Clash-Adapter.git",
-    "revision": "821b6e40f13b423f6e5d3017611851ef6955ca94"
+    "revision": "09fbc0d7ec3a563758384fddef9c7cce94822b21"
   },
   "gomobile": "github.com/sagernet/gomobile/cmd/gomobile@v0.1.13",
   "gobind": "github.com/sagernet/gomobile/cmd/gobind@v0.1.13"

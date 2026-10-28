@@ -245,7 +245,7 @@ struct HomeConnectionIssueView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var confirmsVPNProfileReset = false
      
     @State private var wantsLogsOnDismiss = false

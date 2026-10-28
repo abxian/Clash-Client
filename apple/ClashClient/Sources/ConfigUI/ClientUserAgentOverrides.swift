@@ -20,7 +20,7 @@ extension ClientUserAgent {
             patchJSON: GlobalConfig.load(from: d).patchJSON
         )
         if let ua = sanitized(legacyPatch.globalUA) { return ua }
-        return preset(from: d).value
+        return downloadIdentity(from: d)
     }
 
      
@@ -56,6 +56,6 @@ extension ClientUserAgent {
             runtimeOverride: FlClashRuntimeConfig.load(from: d),
             legacyGlobalOverride: legacyGlobalOverride
         )
-            ?? preset(from: d).value
+            ?? downloadIdentity(from: d)
     }
 }

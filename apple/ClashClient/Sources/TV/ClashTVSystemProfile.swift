@@ -17,6 +17,9 @@ protocol ClashTVSystemProfile: AnyObject {
     var localizedDescription: String? { get set }
     var protocolConfiguration: NEVPNProtocol? { get set }
     var status: NEVPNStatus { get }
+     
+     
+    var connectedDate: Date? { get }
     var vpnConnection: NEVPNConnection? { get }
     func saveToPreferences() async throws
     func loadFromPreferences() async throws
@@ -34,6 +37,7 @@ protocol ClashTVSystemProfile: AnyObject {
 
 extension NETunnelProviderManager: ClashTVSystemProfile {
     var status: NEVPNStatus { connection.status }
+    var connectedDate: Date? { connection.connectedDate }
     var vpnConnection: NEVPNConnection? { connection }
     func startVPNTunnel(userInitiated: Bool) throws {
         try connection.startVPNTunnel(options: userInitiated ? [ClashTunnelStart.userInitiatedStartOption: NSNumber(value: true)] : nil)

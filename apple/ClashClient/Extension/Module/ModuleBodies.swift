@@ -248,6 +248,8 @@ struct ModuleBodyLimits: Equatable, Sendable {
      
      
      
+     
+     
     static let unlimitedDecodeCap = surgeRequestCap
      
      
@@ -316,8 +318,10 @@ struct ModuleBodyLimits: Equatable, Sendable {
  
  
  
+ 
+ 
+ 
 struct ModuleBodyMemoryGuard: Equatable, Sendable {
-     
      
      
      
@@ -325,7 +329,7 @@ struct ModuleBodyMemoryGuard: Equatable, Sendable {
      
     var margin: Int64
 
-    static let iOS = ModuleBodyMemoryGuard(margin: ModuleLadderThresholds.iOS.bodies)
+    static let iOS = ModuleBodyMemoryGuard(margin: ModuleLadderThresholds.iOS.floor)
 }
 
  
@@ -344,7 +348,16 @@ enum ModuleBodyWorkingSet {
      
      
     static let scriptPerByte = 1.05 * 1_048_576 / 927_000
+     
+     
+     
+     
+     
+     
+     
+    static let measuredOverrun = 1.7
 
+     
      
      
      
@@ -355,16 +368,23 @@ enum ModuleBodyWorkingSet {
             case .replace, .body, .nothing: return false
             }
         }
-        return copies + (json ? jsonPerByte : 0) + (script ? scriptPerByte : 0)
+        return (copies + (json ? jsonPerByte : 0) + (script ? scriptPerByte : 0)) * measuredOverrun
     }
 }
 
+ 
  
  
 struct ModuleBodyPlan: Equatable {
      
      
     let collect: Int?
+     
+     
+     
+     
+     
+    let decodeCap: Int?
      
     let steps: [Int?]
      
@@ -379,6 +399,9 @@ struct ModuleBodyPlan: Equatable {
         self.script = scriptLimit
         let all = self.steps + (reader == nil ? [] : [scriptLimit])
         collect = all.contains { $0 == nil } ? nil : all.compactMap { $0 }.max()
+        let families = steps.map(\.writtenFor) + (reader.map { [$0.writtenFor] } ?? [])
+        let onlySurge = zip(families, all).allSatisfy { family, limit in limit != nil || family == .surge || family == .stash }
+        decodeCap = collect ?? (onlySurge ? ModuleBodyLimits.unlimitedDecodeCap : nil)
         workingSet = ModuleBodyWorkingSet.multiplier(steps: steps, script: reader != nil)
     }
 
@@ -396,7 +419,6 @@ struct ModuleBodyPlan: Equatable {
 
  
 enum ModuleBodySkip: Error, Equatable, Sendable {
-    case tooManyAtOnce(Int)
     case declaredTooLarge(Int64, Int)
     case grewTooLarge(Int)
      
@@ -404,7 +426,6 @@ enum ModuleBodySkip: Error, Equatable, Sendable {
     case decodedTooLarge(Int)
     case notDecodable(String)
     case notText
-    case bodiesStopped
     case scriptsStopped
      
      
@@ -424,14 +445,12 @@ enum ModuleBodySkip: Error, Equatable, Sendable {
 
     var description: String {
         switch self {
-        case .tooManyAtOnce(let count): return "\(count) bodies are already held"
         case .declaredTooLarge(let length, let limit): return "Content-Length \(length) is over the \(limit)-byte limit"
         case .grewTooLarge(let limit): return "the body grew past the \(limit)-byte limit"
         case .spillFailed: return "the disk would not hold it while it was collected"
         case .decodedTooLarge(let limit): return "it decodes past the \(limit)-byte limit"
         case .notDecodable(let why): return "its encoding cannot be read here (\(why))"
         case .notText: return "it is not UTF-8 text"
-        case .bodiesStopped: return "body changes are paused for memory"
         case .scriptsStopped: return "scripts are paused"
         case .partialContent: return "it is a part of a body (206 or Content-Range), which is never rewritten"
         case .memory(let needed, let others, let available, let margin):
@@ -453,16 +472,21 @@ final class ModuleBodyBudget {
      
      
     private let availableMemory: () -> Int64?
+     
+     
+     
+    private let relieve: () -> Void
     private(set) var active = 0
      
     private(set) var reserved: Int64 = 0
 
     init(limits: ModuleBodyLimits, metrics: ModuleEngineMetrics, spillDirectory: URL?,
-         availableMemory: @escaping () -> Int64? = ModuleMemoryProbe.available) {
+         availableMemory: @escaping () -> Int64? = ModuleMemoryProbe.available, relieve: @escaping () -> Void = {}) {
         self.limits = limits
         self.metrics = metrics
         self.spillDirectory = spillDirectory
         self.availableMemory = availableMemory
+        self.relieve = relieve
     }
 
      
@@ -470,13 +494,11 @@ final class ModuleBodyBudget {
      
      
      
-     
-    func begin(declaredLength: Int64?, limit: Int?, workingSet: Double = ModuleBodyWorkingSet.copies,
-               atOnce: Int? = nil) -> Result<ModuleBodyCollection, ModuleBodySkip> {
+    func begin(declaredLength: Int64?, limit: Int?,
+               workingSet: Double = ModuleBodyWorkingSet.copies) -> Result<ModuleBodyCollection, ModuleBodySkip> {
         if let limit, let declaredLength, declaredLength > Int64(limit) {
             return .failure(metrics.skipped(.declaredTooLarge(declaredLength, limit)))
         }
-        if let atOnce, active >= atOnce { return .failure(metrics.skipped(.tooManyAtOnce(active))) }
         let slot = ModuleBodySlot(budget: self, workingSet: workingSet)
          
         if let why = memoryRefusal(slot, growingTo: max(0, declaredLength ?? 0)) { return .failure(metrics.skipped(why)) }
@@ -489,12 +511,15 @@ final class ModuleBodyBudget {
      
      
      
+     
     fileprivate func memoryRefusal(_ slot: ModuleBodySlot, growingTo bytes: Int64) -> ModuleBodySkip? {
         guard let memoryGuard = limits.memoryGuard, let available = availableMemory() else { return nil }
         let others = reserved - slot.reserved
         let needed = slot.workingSet(of: bytes)
         guard available - others - needed < memoryGuard.margin else { return nil }
-        return .memory(needed: needed, others: others, available: available, margin: memoryGuard.margin)
+        relieve()
+        guard let again = availableMemory(), again - others - needed < memoryGuard.margin else { return nil }
+        return .memory(needed: needed, others: others, available: again, margin: memoryGuard.margin)
     }
 
      

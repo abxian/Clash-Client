@@ -1263,6 +1263,17 @@ final class ClashTVTunnelController: ObservableObject {
         } catch {
             ClashLogStore.shared.append("tv pin outcome  reason=\(error.localizedDescription)", stream: .app, level: .warning)
             guard generation.isValid, revision == controlRevision else { return }
+             
+             
+            if await landedAfterLostReply(error, group: group, generation: generation, revision: revision, epoch: epoch,
+                                          landed: { $0["now"] as? String == member || $0["fixed"] as? String == member }) {
+                ClashLogStore.shared.append(#"tv pin outcome  reply lost, read-back shows the member in use"#, stream: .app)
+                if presentation.active && presentationEpoch == epoch {
+                    await refreshProxyDelays(forceDocument: true)
+                }
+                return
+            }
+            guard generation.isValid, revision == controlRevision else { return }
             state.post(ClashTVFeedback.couldNotUse(member, reason: error.localizedDescription), for: .pin)
         }
     }
@@ -1292,9 +1303,55 @@ final class ClashTVTunnelController: ObservableObject {
         } catch {
             ClashLogStore.shared.append("tv unpin outcome  reason=\(error.localizedDescription)", stream: .app, level: .warning)
             guard generation.isValid, revision == controlRevision else { return }
+             
+             
+            if await landedAfterLostReply(error, group: group, generation: generation, revision: revision, epoch: epoch,
+                                          landed: { $0["fixed"] as? String == "" }) {
+                ClashLogStore.shared.append(#"tv unpin outcome  reply lost, read-back shows the pin released"#, stream: .app)
+                if presentation.active && presentationEpoch == epoch {
+                    await refreshProxyDelays(forceDocument: true)
+                }
+                return
+            }
+            guard generation.isValid, revision == controlRevision else { return }
             state.post(ClashTVFeedback.couldNotUnfix(group, reason: error.localizedDescription), for: .unpin)
         }
     }
+
+     
+     
+     
+     
+     
+     
+     
+    private func landedAfterLostReply(_ error: Error, group: String, generation: ClashTVIPCGeneration,
+                                      revision: UInt64, epoch: UInt64,
+                                      landed: ([String: Any]) -> Bool) async -> Bool {
+        guard case ControllerError.ipcResultUnknown = error else { return false }
+        let deadline = ContinuousClock.now + Self.lostReplyReadBackWindow
+        while presentation.active, presentationEpoch == epoch, generation.isValid, revision == controlRevision,
+              !Task.isCancelled {
+            do {
+                 
+                 
+                let reply = try await send(["cmd": "proxyDelaysPage", "since": Int64.max, "after": "", "limit": 1],
+                                           expectedGeneration: generation)
+                guard revision == controlRevision,
+                      let root = try? JSONSerialization.jsonObject(with: reply) as? [String: Any],
+                      let entry = (root["groups"] as? [String: Any])?[group] as? [String: Any] else { return false }
+                return landed(entry)
+            } catch ControllerError.ipcNotSent(.unresolved) where ContinuousClock.now < deadline {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            } catch {
+                return false
+            }
+        }
+        return false
+    }
+
+     
+    private static let lostReplyReadBackWindow: Duration = .seconds(16)
 
      
      
@@ -2099,7 +2156,12 @@ final class ClashTVTunnelController: ObservableObject {
         case .connected, .reasserting:
             if state.stage != .connected {
                 state.stage = .connected
-                state.connectedSince = Date()
+                 
+                 
+                 
+                 
+                let now = clock()
+                state.connectedSince = min(manager?.connectedDate ?? now, now)
                 state.issue = nil
                  
                  

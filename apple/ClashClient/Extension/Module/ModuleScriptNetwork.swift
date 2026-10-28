@@ -15,7 +15,6 @@ import Foundation
  
  
  
- 
 
  
  
@@ -104,14 +103,9 @@ final class ModuleScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
      
     static let defaultTimeoutSeconds: Double = 5
 
-    private let limits: ModuleScriptLimitsTable.Run
      
-     
-     
-     
-    private let ceiling: Int
+    private let memory: ModuleScriptMemory
     private let defaultTimeoutSeconds: Double
-    private let bytesBudget: Int
     private let date: () -> Date
     private let log: (String) -> Void
     private let now: () -> UInt64
@@ -129,17 +123,12 @@ final class ModuleScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
      
     private var paused: [(id: Int, queue: DispatchQueue, read: () -> Void)] = []
 
-    init(limits: ModuleScriptLimitsTable.Run = ModuleScriptLimitsTable.current.tunnelRun,
-         ceiling: Int = ModuleScriptLimitsTable.current.tunnel.maximumRunning
-             * ModuleScriptLimitsTable.current.tunnelRun.maximumPendingRequests,
-         bytesInFlight: Int = ModuleScriptLimitsTable.current.tunnel.maximumNetworkBytesInFlight,
+    init(memory: ModuleScriptMemory = .process,
          defaultTimeoutSeconds: Double = ModuleScriptNetwork.defaultTimeoutSeconds,
          date: @escaping () -> Date = Date.init,
          now: @escaping () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
          log: @escaping (String) -> Void) {
-        self.limits = limits
-        self.ceiling = ceiling
-        self.bytesBudget = bytesInFlight
+        self.memory = memory
         self.date = date
         self.defaultTimeoutSeconds = defaultTimeoutSeconds
         self.now = now
@@ -256,17 +245,11 @@ final class ModuleScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
         }
         let id = nextID
         nextID += 1
-        guard running.count < ceiling else {
-            let count = running.count
-            lock.unlock()
-            return fail(#"\#(count) requests are out already, every run's together"#)
-        }
         let operation = ModuleScriptHTTPOperation(
             id: id, runID: run.id, method: request.method, target: target, headers: headers, body: request.body,
             insecure: insecure, outbound: outbound, autoRedirect: Self.flag(request.options["auto-redirect"], otherwise: true),
             autoCookie: Self.flag(request.options["auto-cookie"], otherwise: true), waitSeconds: waited,
-            maximumResponseBytes: request.maximumResponseBytes ?? limits.maximumResponseBodyBytes,
-            maximumRedirects: limits.maximumRedirects,
+            memory: memory,
             opener: upstreams.opener, queue: upstreams.queue, network: self, log: log, completion: completion)
         running[id] = operation
         lock.unlock()
@@ -297,19 +280,27 @@ final class ModuleScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
 
      
      
+    private var roomForARead: Bool {
+        memory.allows(ModuleScriptHTTPOperation.readBytes * ModuleScriptMemory.bytesPerReceivedByte)
+    }
+
+     
+     
+     
      
      
     fileprivate func whenRoom(_ operation: ModuleScriptHTTPOperation, _ read: @escaping () -> Void) {
         lock.lock()
         let others = running.count - 1
-        guard heldTotal >= bytesBudget, paused.count < others else {
+        guard !roomForARead, paused.count < others else {
             lock.unlock()
             return read()
         }
         paused.append((operation.id, operation.queue, read))
         let total = heldTotal
         lock.unlock()
-        log(#"[$httpClient] \#(operation.shown): waits to read; \#(total) of \#(bytesBudget) bytes in flight"#)
+        let spare = memory.spareBytes ?? 0
+        log(#"[$httpClient] \#(operation.shown): waits to read; \#(total) bytes in flight, \#(spare) left past the floor"#)
     }
 
      
@@ -321,7 +312,8 @@ final class ModuleScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
          
          
         let others = running.count - (running[operation.id] == nil ? 0 : 1)
-        while !paused.isEmpty, heldTotal < bytesBudget || (resumed.isEmpty && paused.count >= others) {
+        let room = roomForARead
+        while !paused.isEmpty, room || (resumed.isEmpty && paused.count >= others) {
             let next = paused.removeFirst()
             resumed.append((next.queue, next.read))
         }
@@ -430,20 +422,19 @@ private final class ModuleScriptHTTPOperation {
     private let autoRedirect: Bool
     private let autoCookie: Bool
     private let waitSeconds: Double
-    private let maximumResponseBytes: Int
-    private let maximumRedirects: Int
+    private let memory: ModuleScriptMemory
     private let opener: ModuleScriptUpstreamOpening
     private weak var network: ModuleScriptNetwork?
     private let log: (String) -> Void
     private var completion: ((Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) -> Void)?
     private var deadline: ModuleDeadline?
-    private var reader: ModuleStreamReader?
     private var hops = 0
+    private var reader: ModuleStreamReader?
     private var began = false
 
     init(id: Int, runID: String?, method: String, target: ModuleScriptHTTPTarget, headers: [ModuleScriptHeader], body: Data?,
-         insecure: Bool, outbound: String?, autoRedirect: Bool, autoCookie: Bool, waitSeconds: Double, maximumResponseBytes: Int,
-         maximumRedirects: Int, opener: ModuleScriptUpstreamOpening, queue: DispatchQueue, network: ModuleScriptNetwork, log: @escaping (String) -> Void,
+         insecure: Bool, outbound: String?, autoRedirect: Bool, autoCookie: Bool, waitSeconds: Double, memory: ModuleScriptMemory,
+         opener: ModuleScriptUpstreamOpening, queue: DispatchQueue, network: ModuleScriptNetwork, log: @escaping (String) -> Void,
          completion: @escaping (Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) -> Void) {
         self.id = id
         self.runID = runID
@@ -456,8 +447,7 @@ private final class ModuleScriptHTTPOperation {
         self.autoRedirect = autoRedirect
         self.autoCookie = autoCookie
         self.waitSeconds = waitSeconds
-        self.maximumResponseBytes = maximumResponseBytes
-        self.maximumRedirects = maximumRedirects
+        self.memory = memory
         self.opener = opener
         self.queue = queue
         self.network = network
@@ -653,7 +643,7 @@ private final class ModuleScriptHTTPOperation {
         } catch {
             return fail(#"the response could not be read: \#(String(describing: error))"#)
         }
-        guard collected.count <= maximumResponseBytes else { return fail(tooLarge) }
+        guard memory.allows(collected.count * ModuleScriptMemory.bytesPerReceivedByte) else { return fail(noRoom(collected.count)) }
         network?.hold(self, bytes: reader.buffer.count + collected.count)
         if body.isComplete { return answered(head, collected) }
         if reader.ended {
@@ -671,8 +661,19 @@ private final class ModuleScriptHTTPOperation {
         }
     }
 
-    private var tooLarge: String {
-        #"its response is over the \#(maximumResponseBytes) bytes a script may take"#
+     
+     
+     
+     
+    static let maximumRedirects = 20
+
+     
+    static let readBytes = 64 << 10
+
+     
+     
+    private func noRoom(_ bytes: Int) -> String {
+        #"not enough memory is left for its response (\#(bytes) bytes so far, \#(memory.spareBytes ?? 0) left past the floor)"#
     }
 
     private func answered(_ head: ModuleHTTPResponseHead, _ encoded: Data) {
@@ -686,8 +687,9 @@ private final class ModuleScriptHTTPOperation {
          
         for coding in ModuleContentCoding.parse(head.headers.first("Content-Encoding")).reversed() {
             do {
-                let decoded = try ModuleBodyDecoder.decode(body, coding: coding, maximumOutputLength: maximumResponseBytes)
-                guard !decoded.outputLimitExceeded else { return fail(tooLarge) }
+                let room = memory.spareBytes.map { $0 / ModuleScriptMemory.bytesPerReceivedByte } ?? .max
+                let decoded = try ModuleBodyDecoder.decode(body, coding: coding, maximumOutputLength: room)
+                guard !decoded.outputLimitExceeded else { return fail(noRoom(room)) }
                 network?.hold(self, bytes: body.count + decoded.data.count)
                 body = decoded.data
             } catch let failure as ModuleBodyDecoderError {
@@ -708,7 +710,7 @@ private final class ModuleScriptHTTPOperation {
      
     private func redirect(_ status: Int, to location: String) {
         hops += 1
-        guard hops <= maximumRedirects else { return fail(#"more than \#(maximumRedirects) redirects"#) }
+        guard hops <= Self.maximumRedirects else { return fail(#"more than \#(Self.maximumRedirects) redirects"#) }
         if let host = ModuleScriptHTTPTarget.nonASCIIHost(in: location) {
             let why = #"non-ASCII host names are not supported: \#(host)"#
             log(#"[$httpClient] \#(said): redirected to \#(location); \#(why)"#)

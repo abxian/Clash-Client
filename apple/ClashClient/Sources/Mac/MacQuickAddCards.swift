@@ -79,14 +79,6 @@ struct MacQuickAddCard: View {
             return .notice(
                 .copy("That is a node, not a profile URL. Add it under a profile's Custom Nodes.")
             )
-        case let .notice(.ownRouting(_, groups, rules)):
-             
-             
-             
-             
-            return .notice(
-                .format("This link brings %@ groups and %@ rules.", [String(groups), String(rules)])
-            )
         }
     }
 }

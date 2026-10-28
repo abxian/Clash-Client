@@ -106,10 +106,8 @@ actor ModuleResourceFetcher {
         var url: String
         var place: Place
          
+         
         var cap: Int
-         
-         
-        var budget: Int
         var base64 = false
          
          
@@ -133,8 +131,7 @@ actor ModuleResourceFetcher {
          
         case notModified(etag: String?, lastModified: String?)
          
-         
-        case failed(Failure, read: Int)
+        case failed(Failure)
          
         case notTried
     }
@@ -142,10 +139,6 @@ actor ModuleResourceFetcher {
     enum Failure: Equatable, Sendable {
          
         case tooLarge(Int)
-         
-        case overTheModuleBudget
-         
-        case notSecure
          
          
         case unusable
@@ -183,7 +176,7 @@ actor ModuleResourceFetcher {
         guard let url = URL(string: link), let scheme = url.scheme?.lowercased(), scheme == "https" || scheme == "http",
               let host = url.host, !host.isEmpty else {
             log("module \(id): \(link) is no address a file can be downloaded from")
-            return .failed(.unusable, read: 0)
+            return .failed(.unusable)
         }
         switch DownloadHostPlace.of(host) {
         case .thisDevice:
@@ -191,15 +184,11 @@ actor ModuleResourceFetcher {
              
              
             log("module \(id): \(link) is on this device or its link-local network, which a module's file is never read from")
-            return .failed(.unusable, read: 0)
-        case .internet where scheme == "http":
-            log("module \(id): \(link) is plain http, which a module's file is not read from off the local network")
-            return .failed(.notSecure, read: 0)
+            return .failed(.unusable)
         case .localNetwork, .internet:
             break
         }
-         
-        let limit = max(1, min(request.cap, request.budget))
+        let limit = max(1, request.cap)
         let asked = request.base64 ? Self.base64Length(of: limit) : limit
          
         let earlier = request.earlier.flatMap { earlier -> Earlier? in
@@ -216,39 +205,37 @@ actor ModuleResourceFetcher {
                 log("module \(id): \(link) was not downloaded: the background task's time ran out")
                 return .notTried
             }
-             
-            if case DownloadError.tooLarge(let observed) = error { return tooLarge(request, id: id, read: min(max(0, observed), asked + 1)) }
+            if case DownloadError.tooLarge = error { return tooLarge(request, id: id) }
             log("module \(id): \(link) could not be downloaded (\(AuthoredText.of(error).englishText))")
-            return .failed(.unusable, read: 0)
+            return .failed(.unusable)
         }
         if answer.notModified {
              
             guard let earlier else {
                 log("module \(id): \(link) answered \"not modified\" to a request that asked about no copy")
-                return .failed(.unusable, read: 0)
+                return .failed(.unusable)
             }
             log("module \(id): \(link) has not changed")
             return .notModified(etag: answer.etag ?? earlier.etag, lastModified: answer.lastModified ?? earlier.lastModified)
         }
-        let read = answer.data.count
         var body = answer.data
         if request.base64 {
             guard let decoded = Self.base64Decoded(body) else {
                 log("module \(id): \(link) is not base64")
-                return .failed(.unusable, read: read)
+                return .failed(.unusable)
             }
             body = decoded
-            guard body.count <= limit else { return tooLarge(request, id: id, read: read) }
+            guard body.count <= limit else { return tooLarge(request, id: id) }
         }
          
          
         if body.isEmpty {
             log("module \(id): \(link) answered with nothing")
-            return .failed(.unusable, read: read)
+            return .failed(.unusable)
         }
         if !request.acceptsHTML, Self.isWebPage(body) {
             log("module \(id): \(link) answered with a web page, not the file")
-            return .failed(.unusable, read: read)
+            return .failed(.unusable)
         }
         let sha = ModuleJSON.sha256(body)
         let target = published(id, sha256: sha, in: request.place)
@@ -257,25 +244,23 @@ actor ModuleResourceFetcher {
                 try await write(body, target)
             } catch {
                 log("module \(id): \(link) could not be written (\(error.localizedDescription))")
-                return .failed(.unusable, read: read)
+                return .failed(.unusable)
             }
         }
         log("module \(id): \(link) downloaded, \(body.count) bytes, sha256 \(sha)")
         return .fetched(sha256: sha, byteCount: body.count, etag: answer.etag, lastModified: answer.lastModified)
     }
 
-    private func tooLarge(_ request: Request, id: String, read: Int) -> Outcome {
-        if request.budget < request.cap {
-            log("module \(id): \(request.url) is larger than the \(request.budget) bytes the module's files have left")
-            return .failed(.overTheModuleBudget, read: read)
-        }
+    private func tooLarge(_ request: Request, id: String) -> Outcome {
         log("module \(id): \(request.url) is larger than \(request.cap) bytes")
-        return .failed(.tooLarge(request.cap), read: read)
+        return .failed(.tooLarge(request.cap))
     }
 
      
      
+     
     static func base64Length(of bytes: Int) -> Int {
+        guard bytes < Int.max / 2 else { return .max }
         let encoded = (bytes + 2) / 3 * 4
         return encoded + encoded / 38 + 4
     }

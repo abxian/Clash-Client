@@ -337,7 +337,43 @@ final class MetricKitCollector: NSObject, MXMetricManagerSubscriber {
         ingestOnLargeStack { [weak self] in
             self?.ingest(metrics)
             self?.ingest(diagnostics)
+            if let store = MetricKitInboxStore.live(), let container = ClashAppIdentifiers.appGroupContainer {
+                Self.takeTunnelReports(from: container.appendingPathComponent(Self.tunnelFolder, isDirectory: true), into: store)
+            }
         }
+    }
+
+     
+    static let tunnelFolder = "diagnostics/metrickit-tunnel"
+
+     
+     
+     
+    @discardableResult
+    static func takeTunnelReports(from directory: URL, into store: MetricKitInboxStore,
+                                  fileManager: FileManager = .default, now: Date = Date()) -> Int {
+        let files = (try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
+        var taken = 0
+        for file in files where file.pathExtension == "json" {
+            let parts = file.deletingPathExtension().lastPathComponent.split(separator: "-")
+            guard parts.count >= 4, let kind = MetricKitReportKind(rawValue: String(parts[0])),
+                  let begin = TimeInterval(parts[1]), let end = TimeInterval(parts[2]),
+                  let data = try? Data(contentsOf: file) else { continue }
+            let text = String(decoding: data, as: UTF8.self)
+            var categories = ["Tunnel": 1]
+            for (key, category) in [("memoryMetrics", "Memory"), ("applicationExitMetrics", "Exits"),
+                                    ("crashDiagnostics", "Crash"), ("cpuExceptionDiagnostics", "CPU")]
+            where text.contains("\"\(key)\"") {
+                categories[category] = 1
+            }
+            guard (try? store.ingest(MetricKitIncomingReport(
+                kind: kind, receivedAt: now, periodStart: Date(timeIntervalSince1970: begin),
+                periodEnd: Date(timeIntervalSince1970: end), categoryCounts: categories, payload: data
+            ))) != nil else { continue }
+            try? fileManager.removeItem(at: file)
+            taken += 1
+        }
+        return taken
     }
 
     func didReceive(_ payloads: [MXMetricPayload]) {
@@ -609,7 +645,7 @@ private struct MetricKitReportDetailView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     let report: MetricKitReport
      
      

@@ -25,6 +25,9 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
             setMode: { [weak self] mode in self?.provider.setScriptRoutingMode(mode) ?? false })), carriesEngineProxy: { revision in
             PacketTunnelProvider.runtimeDocument(in: locations.container, revision)
                 .map { ModuleRuntimeDocumentScan.carriesInjectedEngine(at: $0, known: .read(locations)) } ?? false
+        }, rulesOnDemand: ModuleEngineHost.rulesOnDemandHere, idleRelease: ModuleEngineHost.idleReleaseHere,
+           checkWithoutRules: { engine, entry, reporter in
+            ModuleEngineAssembly.checkCertificate(engine, entry, reporter, locations: locations)
         }, configure: { engine, inputs, reporter, scripts in
             ModuleEngineAssembly.configure(engine, inputs, reporter, locations: locations, scripts: scripts, thresholds: .current)
         })
@@ -61,6 +64,10 @@ class PacketTunnelProvider: NEPacketTunnelProvider {
         ClashLogStore.shared.append(
             "tunnel extension launched  version=\(version) (\(build))",
             stream: .app, level: .warning)
+        #if os(iOS)
+         
+        TunnelMetricKitCollector.shared.start()
+        #endif
     }
 
     override func startTunnel(options: [String: NSObject]?) async throws {

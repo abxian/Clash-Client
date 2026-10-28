@@ -78,6 +78,8 @@
 "%@ isn't affected by modules." = "%@ isn't affected by modules.";
 "%@ item" = "%@ item";
 "%@ items" = "%@ items";
+"%@ lines" = "%@ lines";
+"%@ lines in all" = "%@ lines in all";
 "%@ match" = "%@ match";
 "%@ matches" = "%@ matches";
 "%@ matches addresses, not domains, so DNS cannot use it." = "%@ matches addresses, not domains, so DNS cannot use it.";
@@ -218,6 +220,7 @@
 "443 or 8000-9000" = "443 or 8000-9000";
 "50 Mbps" = "50 Mbps";
 "7 days" = "7 days";
+"A Mac has no cellular services, so this line was skipped." = "A Mac has no cellular services, so this line was skipped.";
 "A VPN operation is already in progress. Wait for it to finish before changing IP Stack settings." = "A VPN operation is already in progress. Wait for it to finish before changing IP Stack settings.";
 "A WireGuard peer's reserved value is exactly three bytes. Give it three, or clear it." = "A WireGuard peer's reserved value is exactly three bytes. Give it three, or clear it.";
 "A and AAAA are answered by the system resolver, so no single upstream can be credited for the address below." = "A and AAAA are answered by the system resolver, so no single upstream can be credited for the address below.";
@@ -287,8 +290,10 @@
 "A rule-based proxy client for Apple platforms, powered by the Clash core." = "The Clash family of clients, powered by the Clash core.";
 "A rule-based proxy kernel" = "A rule-based proxy kernel";
 "A saved provider credential is unavailable. Re-enter it before saving or connecting." = "A saved provider credential is unavailable. Re-enter it before saving or connecting.";
+"A script changes settings in here." = "A script changes settings in here.";
 "A script in the library uses the name reserved for the previous version's script." = "A script in the library uses the name reserved for the previous version's script.";
 "A script library conflict prevents the settings upgrade. Rename the conflicting script, then retry." = "A script library conflict prevents the settings upgrade. Rename the conflicting script, then retry.";
+"A script sets “%@”, which runs over this." = "A script sets “%@”, which runs over this.";
 "A script this module needs is missing, so nothing was changed." = "The module is missing a script, so nothing was changed.";
 "A selected source is not a configuration object." = "A selected source is not a configuration object.";
 "A selected source needs “%@”, which no selected source supplies." = "A selected source needs “%@”, which no selected source supplies.";
@@ -451,6 +456,7 @@
 "Always stays on Home" = "Always stays on Home";
 "An IP address, or another domain. Separate several with |." = "An IP address, or another domain. Separate several with |.";
 "An answer whose address belongs to this country is treated as the local answer." = "An answer whose address belongs to this country is treated as the local answer.";
+"An http or https URL with a host is required; leave empty for the default." = "An http or https URL with a host is required; leave empty for the default.";
 "An include-all group can select internal hops dynamically, so isolation cannot be proven." = "An include-all group can select internal hops dynamically, so isolation cannot be proven.";
 "An install link wants to add a profile URL to Clash.\n\n" = "An install link wants to add a profile URL to Clash.\n\n";
 "An install link wants to add a profile to Clash.\n\n" = "An install link wants to add a profile to Clash.\n\n";
@@ -696,6 +702,7 @@
 "Clash VPN is off." = "Clash VPN is off.";
 "Clash VPN is on." = "Clash VPN is on.";
 "Clash Verge" = "Clash Verge";
+"Clash always answers pings itself, so this line was skipped." = "Clash always answers pings itself, so this line was skipped.";
 "Clash always uses the memory-conservative, memory-mapped loader on iOS so large GeoIP and GeoSite databases stay off the app heap." = "Clash always uses the memory-conservative, memory-mapped loader on iOS so large GeoIP and GeoSite databases stay off the app heap.";
 "Clash by Clash" = "Clash";
 "Clash can reconnect once you open it" = "Clash can reconnect once you open it";
@@ -712,11 +719,15 @@
 "Clash couldn’t read this configuration’s rules." = "Clash couldn’t read this configuration’s rules.";
 "Clash did not confirm the LAN proxy change in time." = "The LAN sharing change didn’t take effect in time — try again";
 "Clash does not provide any proxy service and is not responsible for the third-party services you configure it with." = "Clash does not provide any proxy service and is not responsible for the third-party services you configure it with.";
+"Clash doesn't run DNS scripts, so this line was skipped." = "Clash doesn't run DNS scripts, so this line was skipped.";
+"Clash doesn't run rule scripts, so this line was skipped." = "Clash doesn't run rule scripts, so this line was skipped.";
+"Clash doesn't use a system proxy, so this compatibility mode was skipped." = "Clash doesn't use a system proxy, so this compatibility mode was skipped.";
 "Clash downloads profile URLs, providers and Geo data in the Client with conditional HTTP and last-known-good recovery; the packet-tunnel Core does not perform background downloads." = "Clash downloads profile URLs, providers and Geo data in the Client with conditional HTTP and last-known-good recovery; the packet-tunnel Core does not perform background downloads.";
 "Clash downloads the profile URL when the profile is activated." = "The profile link is downloaded when you use this profile.";
 "Clash dropped this field upstream: the core logs an error and ignores it, on every platform, and your file is left as written. Set client-fingerprint on an individual proxy when that protocol supports it." = "Clash dropped this field upstream: the core logs an error and ignores it, on every platform, and your file is left as written. Set client-fingerprint on an individual proxy when that protocol supports it.";
 "Clash enables the DNS engine required by the packet tunnel." = "Clash enables the DNS engine required by the packet tunnel.";
 "Clash has no built-in profile to fall back to right now." = "Clash has no built-in profile to fall back to right now.";
+"Clash has no such setting, so this line was skipped." = "Clash has no such setting, so this line was skipped.";
 "Clash has not received a usable network path yet. Try again after the network status appears." = "Clash has not received a usable network path yet. Try again after the network status appears.";
 "Clash is a network tool. You are responsible for making sure the way you use it complies with the laws that apply to you and with the terms of any service you connect through." = "Clash is a network tool. You are responsible for making sure the way you use it complies with the laws that apply to you and with the terms of any service you connect through.";
 "Clash is disconnected" = "Clash is disconnected";
@@ -896,6 +907,9 @@
 "Copy Diagnostic Code" = "Copy Diagnostic Code";
 "Copy Host" = "Copy Host";
 "Copy Install Command" = "Copy Install Command";
+"Copy Line" = "Copy Line";
+"Copy Link" = "Copy Link";
+"Copy Module Link" = "Copy Module Link";
 "Copy Profile URL" = "Copy Profile URL";
 "Copy Rule Scheme" = "Copy Rule Scheme";
 "Copy Shell Command" = "Copy Shell Command";
@@ -920,6 +934,8 @@
 "Could not update %@: %@" = "Could not update %@: %@";
 "Could not write the log to that location." = "Could not write the log to that location.";
 "Couldn't check the nodes" = "Couldn't check the nodes";
+"Couldn't resume automatic selection" = "Couldn't resume automatic selection";
+"Couldn't switch to this node" = "Couldn't switch to this node";
 "Couldn’t Check the External IP" = "Couldn’t Check the External IP";
 "Couldn’t Close the Connection" = "Couldn’t Close the Connection";
 "Couldn’t Close the Connections" = "Couldn’t Close the Connections";
@@ -936,6 +952,7 @@
 "Couldn’t connect: not enough memory" = "Couldn’t connect: not enough memory";
 "Couldn’t connect: the tunnel stopped while starting up" = "Couldn’t connect: it stopped while connecting";
 "Count proxy traffic only" = "Count proxy traffic only";
+"Counting lines…" = "Counting lines…";
 "Country" = "Country";
 "Country / Region" = "Country / Region";
 "Cover settings that do not yet have a visual editor" = "Cover settings that do not yet have a visual editor";
@@ -1061,8 +1078,8 @@
 "Delete source %@?" = "Delete source %@?";
 "Delete “%@”" = "Delete “%@”";
 "Deleted “%@”" = "Deleted “%@”";
-"Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay." = "Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay.";
-"Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch." = "Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch.";
+"Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay." = "Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay.";
+"Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch." = "Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch.";
 "Density" = "Density";
 "Desktop/router services are disclosed in iOS Changes and never presented as working controls." = "Desktop/router services are disclosed in iOS Changes and never presented as working controls.";
 "Destination" = "Destination";
@@ -1352,7 +1369,7 @@
 "External IP" = "External IP";
 "External address" = "External address";
 "External controller TLS material is present. Clash keeps it and uses it when the controller is served over HTTPS." = "External controller TLS material is present. Clash keeps it and uses it when the controller is served over HTTPS.";
-"External file providers are not available in an imported iOS profile. Use an HTTPS or inline provider." = "External file providers are not available in an imported iOS profile. Use an HTTPS or inline provider.";
+"External file providers are not available in an imported iOS profile. Use an http(s) or inline provider." = "External file providers are not available in an imported iOS profile. Use an http(s) or inline provider.";
 "Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share." = "Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share.";
 "Failed" = "Failed";
 "Failed: %@" = "Failed: %@";
@@ -1382,6 +1399,7 @@
 "Filters are regular expressions; join several with |. Exclude types lists node types, | separated, no regex." = "Filters are regular expressions; join several with |. Exclude types lists node types, | separated, no regex.";
 "Final Configuration" = "Final Configuration";
 "Find" = "Find";
+"Find in Source" = "Find in Source";
 "Find in configuration" = "Find in configuration";
 "Finds the domain behind each connection before rules run" = "Finds the domain behind each connection before rules run";
 "Finds the real domain, so rules match names instead of bare IPs." = "Finds the real domain, so rules match names instead of bare IPs.";
@@ -1474,9 +1492,12 @@
 "Global Proxy" = "Global Proxy";
 "Global overrides apply after this script." = "Global overrides apply after this script.";
 "Global settings or platform requirements changed the generated DNS." = "Global settings or platform requirements changed the generated DNS.";
+"Go" = "Go";
 "Go Back" = "Go Back";
 "Go Back to the Link’s Content?" = "Go Back to the Link’s Content?";
 "Go heap" = "Go heap";
+"Go to Line" = "Go to Line";
+"Go to Line…" = "Go to Line…";
 "Google DNS" = "Google DNS";
 "Google over HTTPS" = "Google over HTTPS";
 "Goroutines" = "Goroutines";
@@ -1512,8 +1533,6 @@
 "HTTPS Decryption" = "HTTPS Decryption";
 "HTTPS Decryption is getting ready; it will start working by itself." = "HTTPS Decryption is getting ready; it will start working by itself.";
 "HTTPS Decryption is not available yet, so only the rules in your modules work." = "HTTPS Decryption isn't available right now; the rules in your modules still work.";
-"HTTPS Decryption is paused to keep your network steady; rules still work. It comes back when you reconnect." = "HTTPS Decryption is paused to keep your network steady; rules still work. It comes back when you reconnect.";
-"HTTPS URL with a host required; leave empty for the default." = "HTTPS URL with a host required; leave empty for the default.";
 "Clash Core" = "Clash Core";
 "Hand-built nodes live in this profile's clash-custom provider. Reference them from a group with use, or target them directly from rules." = "Hand-built nodes live in this profile's clash-custom provider. Reference them from a group with use, or target them directly from rules.";
 "Handshake Timeout" = "Handshake Timeout";
@@ -1682,6 +1701,7 @@
 "JLS needs a host, a username and a password. Open the obfuscation options and fill them in." = "JLS needs a host, a username and a password. Open the obfuscation options and fill them in.";
 "JavaScript main(config)" = "JavaScript main(config)";
 "Join a Wi-Fi or wired network to be reached." = "Join a Wi-Fi or wired network to be reached.";
+"Jump to Current Node" = "Jump to Current Node";
 "Keep" = "Keep";
 "Keep As Is" = "Keep As Is";
 "Keep Auto Update" = "Keep Auto Update";
@@ -1723,6 +1743,7 @@
 "Last sync %@" = "Last sync %@";
 "Last updated %@" = "Last updated %@";
 "Latency" = "Latency";
+"Latency Test" = "Latency Test";
 "Later" = "Later";
 "Layout" = "Layout";
 "Lazy" = "Lazy";
@@ -1942,6 +1963,9 @@
 "Module" = "Module";
 "Module Content" = "Module Content";
 "Module Link" = "Module Link";
+"Module “%@” adds %@ more." = "Module “%@” adds %@ more.";
+"Module “%@” changes settings in here." = "Module “%@” changes settings in here.";
+"Module “%@” sets “%@”, which runs over this." = "Module “%@” sets “%@”, which runs over this.";
 "Modules" = "Modules";
 "Modules cannot be used with this configuration, so it runs without them." = "The current configuration can't use modules; it still works as usual.";
 "More" = "More";
@@ -2011,6 +2035,7 @@
 "New Node" = "New Node";
 "New Node…" = "New Node…";
 "New Policy Group" = "New Policy Group";
+"New Proxy Chain" = "New Proxy Chain";
 "New Rule Scheme" = "New Rule Scheme";
 "New Rule Set" = "New Rule Set";
 "New Script" = "New Script";
@@ -2048,6 +2073,7 @@
 "No QR code was found in that image." = "No QR code was found in that image.";
 "No Reports Yet" = "No Reports Yet";
 "No Requests" = "No Requests";
+"No Results" = "No Results";
 "No Results for “%@”" = "No Results for “%@”";
 "No Rule Sets" = "No Rule Sets";
 "No Rules" = "No Rules";
@@ -2255,9 +2281,9 @@
 "Opens Profiles" = "Opens Profiles";
 "Optional" = "Optional";
 "Optional IP addresses used by Connect If Needed while checking direct reachability." = "Optional IP addresses used by Connect If Needed while checking direct reachability.";
-"Optional credential-free HTTPS URL used by Connect If Needed." = "Optional credential-free HTTPS URL used by Connect If Needed.";
+"Optional credential-free http or https URL used by Connect If Needed." = "Optional credential-free http or https URL used by Connect If Needed.";
 "Optional note, stored only on this device" = "Optional note, stored only on this device";
-"Optional. Clash accepts credential-free HTTPS probes only; Apple requires HTTP 200 for a match." = "Optional. Clash accepts credential-free HTTPS probes only; Apple requires HTTP 200 for a match.";
+"Optional. Use a credential-free http or https probe; Apple requires HTTP 200 for a match." = "Optional. Use a credential-free http or https probe; Apple requires HTTP 200 for a match.";
 "Options" = "Options";
 "Or add a node manually" = "Or add a node manually";
 "Or create with nodes and rules" = "Or create with nodes and rules";
@@ -2280,6 +2306,7 @@
 "Outbound Mode, Proxies, and Rules always stay on Home." = "Outbound Mode, Proxies, and Rules always stay on Home.";
 "Outbound Mode, Proxies, and Rules always stay on Home. Drag any card to change the order." = "Outbound Mode, Proxies, and Rules always stay on Home. Drag any card to change the order.";
 "Outdent" = "Outdent";
+"Outline" = "Outline";
 "Overridden · not in profile" = "Overridden · not in profile";
 "Overridden · overall is %@" = "Overridden · overall is %@";
 "Overridden · profile has %@ entries" = "Overridden · profile has %@ entries";
@@ -2382,7 +2409,7 @@
 "Private Key" = "Private Key";
 "Private Key Passphrase" = "Private Key Passphrase";
 "Probe URL" = "Probe URL";
-"Probe URLs must be credential-free HTTPS URLs with a host." = "Probe URLs must be credential-free HTTPS URLs with a host.";
+"Probe URLs must be credential-free http or https URLs with a host." = "Probe URLs must be credential-free http or https URLs with a host.";
 "Process" = "Process";
 "Process Lookup" = "Process Lookup";
 "Process name" = "Process name";
@@ -2588,6 +2615,7 @@
 "Remote Trace Level" = "Remote Trace Level";
 "Remote Trace Target" = "Remote Trace Target";
 "Remote destination" = "Remote destination";
+"Remove" = "Remove";
 "Remove Bundle Path" = "Remove Bundle Path";
 "Remove Certificate %lld" = "Remove Certificate %lld";
 "Remove Chain Override" = "Remove Chain Override";
@@ -2615,6 +2643,7 @@
 "Reopen Now" = "Reopen Now";
 "Reorder" = "Reorder";
 "Reorder List" = "Reorder";
+"Reorder Modules" = "Reorder Modules";
 "Reorder Profiles" = "Reorder Profiles";
 "Reorder Rules" = "Reorder Rules";
 "Repair and connect" = "Repair and connect";
@@ -2707,7 +2736,7 @@
 "Review the profile" = "Review the profile";
 "Review the removed relay group in Proxy Chains." = "Review the removed relay group in Proxy Chains.";
 "Rewrites" = "Rewrites";
-"Rewrites and scripts are paused to keep your network steady; rules still work." = "Rewrites and scripts are paused to keep your network steady; rules still work.";
+"Rewrites and scripts are on hold for now and will resume automatically." = "Rewrites and scripts are on hold for now and will resume automatically.";
 "Round Robin" = "Round Robin";
 "Round robin" = "Round robin";
 "Route" = "Route";
@@ -2854,6 +2883,7 @@
 "Search proxies" = "Search proxies";
 "Search rule sets" = "Search rule sets";
 "Search rules" = "Search rules";
+"Searching…" = "Searching…";
 "Secondary Port" = "Secondary Port";
 "Seconds" = "Seconds";
 "Seconds." = "Seconds.";
@@ -2878,6 +2908,7 @@
 "Send traffic through the selected proxy" = "Send traffic through the selected proxy";
 "Send traffic to its destination directly" = "Send traffic to its destination directly";
 "Sends traffic directly to its destination without a proxy server." = "Sends traffic directly to its destination without a proxy server.";
+"Sent when Clash downloads a Profile URL, and with every download of a configuration that sets no Download User-Agent of its own. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name." = "Sent when Clash downloads a Profile URL, and with every download of a configuration that sets no Download User-Agent of its own. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name.";
 "Serial" = "Serial";
 "Server" = "Server";
 "Server Information" = "Server Information";
@@ -2951,6 +2982,7 @@
 "Snell Demo" = "Snell Demo";
 "Snell carries UDP from version 3. Raise the version, or turn UDP off." = "Snell carries UDP from version 3. Raise the version, or turn UDP off.";
 "Snell encrypted proxy with versioned protocol and optional obfuscation." = "Snell encrypted proxy with versioned protocol and optional obfuscation.";
+"Snell version 6 isn't supported, so this line was skipped." = "Snell version 6 isn't supported, so this line was skipped.";
 "Sniff DNS-mapped traffic" = "Sniff DNS-mapped traffic";
 "Sniff pure-IP traffic" = "Sniff pure-IP traffic";
 "Sniffer" = "Sniffer";
@@ -2965,6 +2997,7 @@
 "Some rewrites made results too large and were stopped; they come back when you reconnect." = "Some rewrites made results too large and were stopped; they come back when you reconnect.";
 "Some rewrites took too long and were stopped; they come back when you reconnect." = "Some rewrites took too long and were stopped; they come back when you reconnect.";
 "Some rules don't fit the current configuration, so they were skipped." = "Some rules don't fit the current configuration, so they were skipped.";
+"Some scripts are on hold for now and will resume automatically." = "Some scripts are on hold for now and will resume automatically.";
 "Something still references this item. Change that reference before deleting it." = "Something still references this item. Change that reference before deleting it.";
 "Sort" = "Sort";
 "Source" = "Source";
@@ -3003,6 +3036,7 @@
 "Start Recording" = "Start Recording";
 "Start Sharing" = "Start Sharing";
 "Start Test" = "Start Test";
+"Start of File" = "Start of File";
 "Start or stop Clash based on its current state." = "Start or stop Clash based on its current state.";
 "Start or stop the installed Clash by Clash VPN profile." = "Start or stop the installed Clash VPN profile.";
 "Start the installed Clash by Clash VPN profile." = "Start the installed Clash VPN profile.";
@@ -3025,6 +3059,7 @@
 "Sticky sessions" = "Sticky sessions";
 "Still running %@" = "Still running %@";
 "Still running the previous version" = "Still running the previous version";
+"Still searching. What's found so far is ready." = "Still searching. What’s found so far is ready.";
 "Still updating “%@” — the result will show on its row" = "Still updating “%@” — the result will show on its row";
 "Stop %@" = "Stop %@";
 "Stop Clash" = "Stop Clash";
@@ -3213,7 +3248,6 @@
 "The address answered with an empty document." = "The address answered with an empty document.";
 "The address answered with something that is not text." = "The address answered with something that is not text.";
 "The app added %@ rule(s) to the ones you wrote." = "%@ rule(s) were added to the ones you wrote.";
-"The app sends this when it downloads a Profile URL. Downloads the core makes for a configuration use that configuration’s Download User-Agent. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name." = "The app sends this when it downloads a Profile URL. A configuration’s own downloads (node sets, rule sets) use its Download User-Agent. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name.";
 "The app starts from a different value than the core would. Yours still wins if you set it." = "This one starts from a different default; your own setting still wins.";
 "The backup and this device disagree about script ownership, so nothing was changed." = "The backup and this device disagree about script ownership, so nothing was changed.";
 "The backup contains an unsafe profile identifier." = "The backup contains an unsafe profile identifier.";
@@ -3293,7 +3327,6 @@
 "The downloaded text is not valid configuration YAML. Edit the profile or contact the provider." = "The downloaded text is not valid configuration YAML. Edit the profile or contact the provider.";
 "The fetch proxy is kept as written. Clash downloads this provider itself and uses the cached copy if a refresh fails." = "The fetch proxy is kept as written. Clash downloads this provider itself and uses the cached copy if a refresh fails.";
 "The file this line needs isn't on this device, so it was skipped." = "The file this line needs isn't on this device, so it was skipped.";
-"The file this line returns is too large, so it was skipped." = "The file this line returns is too large, so it was skipped.";
 "The file this line uses couldn't be downloaded, so it was skipped." = "The file this line uses couldn't be downloaded, so it was skipped.";
 "The file this line uses isn't at an HTTPS address, so it was skipped." = "The file this line returns can't be used, so it was skipped.";
 "The first %@ of %@ rules." = "The first %@ of %@ rules.";
@@ -3444,6 +3477,7 @@
 "The shared container is unavailable." = "The shared container is unavailable.";
 "The source belongs to this profile; its live health remains read-only in Utilities." = "The source belongs to this profile; its live health remains read-only in Utilities.";
 "The source changed while it was downloaded; the newer one is kept." = "The source changed while it was downloaded; the newer one is kept.";
+"The source could not be opened." = "The source could not be opened.";
 "The source is downloaded before it is saved." = "The source is downloaded before it is saved.";
 "The source is downloaded on first Sync or activation." = "The source is downloaded on first Sync or activation.";
 "The stored source and effective comparison does not contain a known iOS rewrite." = "The stored source and effective comparison does not contain a known iOS rewrite.";
@@ -3451,6 +3485,7 @@
 "The system VPN service isn’t responding. Please try again in a moment, or restart your Mac." = "The system VPN service isn’t responding. Please try again in a moment, or restart your Mac.";
 "The system VPN service isn’t responding. Please try again in a moment, or restart your device." = "The system VPN service isn’t responding. Please try again in a moment, or restart your device.";
 "The system action could not be completed." = "The system action could not be completed.";
+"The system decides when Wi-Fi and cellular are used together, so this line was skipped." = "The system decides when Wi-Fi and cellular are used together, so this line was skipped.";
 "The system decides when the VPN icon shows, so this line was skipped." = "The system decides when the VPN icon shows, so this line was skipped.";
 "The system does not grant that right." = "iOS does not grant that right.";
 "The system prepares these reports on device. Clash keeps a copy locally — the payload complete and unfiltered, under a small header of its own — and never uploads it automatically. A report past the size or nesting cap is stored as a note saying so." = "The system prepares these reports on device. Clash keeps a copy locally — the payload complete and unfiltered, under a small header of its own — and never uploads it automatically. A report past the size or nesting cap is stored as a note saying so.";
@@ -3474,6 +3509,7 @@
 "Their nodes join the group." = "Their nodes join the group.";
 "Theme" = "Theme";
 "Theme Mode" = "Theme Mode";
+"There isn't enough memory to run this script right now. Try again later." = "There isn't enough memory to run this script right now. Try again later.";
 "These DNS settings belong only to this configuration." = "These DNS settings belong only to this configuration.";
 "These DNS settings have changes that have not been saved." = "These DNS settings have changes that have not been saved.";
 "These exceptions belong to this profile. Its imported source stays unchanged." = "These exceptions belong to this profile. Its imported source stays unchanged.";
@@ -3526,6 +3562,7 @@
 "This collection has no valid download address. Enter its URL in the collection's settings." = "This collection has no valid download address. Enter its URL in the collection's settings.";
 "This condition only matches metadata created inside Clash's single TUN inbound. It does not identify another app or process." = "This condition only matches metadata created inside Clash's single TUN inbound. It does not identify another app or process.";
 "This configuration already rejects the traffic this setting covers." = "This configuration already rejects the traffic this setting covers.";
+"This configuration can't be opened." = "This configuration can't be opened.";
 "This configuration changed while its settings were open. Reopen them and try again." = "This configuration changed while its settings were open. Reopen them and try again.";
 "This configuration could not be checked." = "This configuration could not be checked.";
 "This configuration has no rule sets yet." = "This configuration has no rule sets yet.";
@@ -3537,7 +3574,6 @@
 "This configuration’s file is not YAML the editor can change. Edit it in the source." = "This configuration’s file is not YAML the editor can change. Edit it in the source.";
 "This core does not recognise that record type." = "That record type isn’t supported.";
 "This device" = "This device";
-"This device can't do this, so it was skipped." = "This device can't do this, so it was skipped.";
 "This device can't see the other devices on your network, so this rule was skipped." = "This device can't see the other devices on your network, so this rule was skipped.";
 "This device can't tell which app a connection comes from, so this rule was skipped." = "This device can't tell which app a connection comes from, so this rule was skipped.";
 "This device doesn't report its carrier, so this rule was skipped." = "This device doesn't report its carrier, so this rule was skipped.";
@@ -3572,10 +3608,8 @@
 "This line doesn't work in the app it was written for either, so it was skipped." = "This line doesn't work in the app it was written for either, so it was skipped.";
 "This line has no effect, so it was skipped." = "This line has no effect, so it was skipped.";
 "This line is in another app's format, and it works here as written." = "This line is in another app's format, and it works here as written.";
-"This line is too long, so it was skipped." = "This line is too long, so it was skipped.";
 "This line is written for another app, so it was skipped." = "This line is written for another app, so it was skipped.";
 "This line isn't written correctly, so it was skipped." = "This line isn't written correctly, so it was skipped.";
-"This link brings %@ groups and %@ rules." = "This link brings %@ groups and %@ rules.";
 "This link’s rules are kept in “%@”, so they were not added again." = "This link’s rules are kept in “%@”, so they were not added again.";
 "This local rule set will be deleted. Rule schemes in the library will also remove rules added from it." = "This local rule set will be deleted. Rule schemes in the library will also remove rules added from it.";
 "This mode sends all traffic without a proxy, so proxy groups and nodes are not listed." = "This mode sends all traffic without a proxy, so proxy groups and nodes are not listed.";
@@ -3663,7 +3697,6 @@
 "This script has changes that have not been saved." = "This script has changes that have not been saved.";
 "This script is not downloaded yet; it will be at the next update." = "This script is not downloaded yet; it will be at the next update.";
 "This script is still running." = "This script is still running.";
-"This script is too large to run." = "This script is too large to run.";
 "This script is too large, so it wasn't downloaded." = "This script is too large, so it wasn't downloaded.";
 "This script is turned off in the module." = "This script is turned off in the module.";
 "This script's module is off or removed." = "This script's module is off or removed.";
@@ -3686,6 +3719,7 @@
 "Toggle Clash VPN" = "Toggle Clash VPN";
 "Toggles VPN On Demand." = "Toggles VPN On Demand.";
 "Tokyo 02" = "Tokyo 02";
+"Too large to edit here. View only." = "Too large to edit here. View only.";
 "Too many modules are on, so one of them didn't take effect; turn some off to make room." = "Too many modules are on, so one of them didn't take effect; turn some off to make room.";
 "Too many modules are on, so “%@” didn't take effect; turn some off to make room." = "Too many modules are on, so “%@” didn't take effect; turn some off to make room.";
 "Too many rule sets are on, so some didn't take effect." = "Too many rule sets are on, so some didn't take effect.";
@@ -3863,7 +3897,6 @@
 "Use generated proxy identities" = "Use generated proxy identities";
 "Use if no route remains" = "Use if no route remains";
 "Use in configurations, or add manually" = "Use in configurations, or add manually";
-"Use its own routing" = "Use its own routing";
 "Use only letters, digits, + / - _ and = at the end." = "Use only letters, digits, + / - _ and = at the end.";
 "Use only letters, digits, + and /, padded with = at the end." = "Use only letters, digits, + and /, padded with = at the end.";
 "Use system hosts" = "Use system hosts";
@@ -3919,6 +3952,8 @@
 "View Reason" = "View Reason";
 "View Runtime Configuration" = "View Effective Configuration";
 "View Safe Diagnostics" = "View Safe Diagnostics";
+"View Source" = "View Source";
+"View Source…" = "View Source…";
 "Virtual IPv4" = "Virtual IPv4";
 "WARN network path changed; flushing stale connections" = "WARN network path changed; flushing stale connections";
 "Wait for the current LAN proxy change to finish." = "Wait for the current LAN proxy change to finish.";
@@ -4075,7 +4110,8 @@
 "provider name" = "provider name";
 "proxies" = "proxies";
 "proxies page disappears" = "proxies page disappears";
-"quick-add.door.create" = "Create";
+"quick-add.new.node" = "New Node";
+"quick-add.new.rules" = "New Rules";
 "read-only" = "read-only";
 "removed before the core was started" = "removed — not used";
 "removed by the platform" = "removed by the platform";

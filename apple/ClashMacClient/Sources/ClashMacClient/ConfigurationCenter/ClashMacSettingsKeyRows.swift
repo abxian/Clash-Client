@@ -20,9 +20,17 @@ public struct ClashMacSettingsKeyRows: View {
      
      
     @State private var writeFailures: [String: String] = [:]
-    @State private var saving = false
+     
+     
+     
+     
+    @State private var writes = ClashMacSectionWrites()
     @State private var editing: ClashMacKeyEdit?
     @State private var pending: [ConfigurationPageEdit]?
+     
+     
+    @State private var runsOver: ClashMacRunsOver?
+    @State private var reads = 0
     @Environment(\.configurationFieldCopy) private var copy
     @Environment(\.locale) private var locale
 
@@ -49,6 +57,7 @@ public struct ClashMacSettingsKeyRows: View {
             }
         }
         .task { await reload() }
+        .task(id: reads) { if reads > 0, let read = actions.runsOver { runsOver = await read() } }
         .sheet(item: $editing) { edit in
             ClashMacValueEditSheet(edit: edit, save: { value in
                 request([.set(path: edit.path, to: value)])
@@ -59,7 +68,7 @@ public struct ClashMacSettingsKeyRows: View {
             Button {
                 let edits = pending ?? []
                 pending = nil
-                Task { await save(edits) }
+                if !edits.isEmpty { perform(edits) }
             } label: { Text(clash: .copy("Save")) }
         } message: {
             if let copies = document?.copies {
@@ -73,6 +82,8 @@ public struct ClashMacSettingsKeyRows: View {
         let field = document.field(at: [key])
         let value = document.running.topLevelValue(key)
         let title = copy.title(for: field, key: key, locale: locale)
+         
+        let note = runsOver?([key], field, false, document.running)
         let presets = copy.entry(for: field, locale: locale)?.presets ?? []
         let edit = ClashMacKeyEdit(path: [key], value: value, platformReason: nil, choices: document.choices[key],
                                   control: field.flatMap { document.control(for: $0) },
@@ -94,19 +105,19 @@ public struct ClashMacSettingsKeyRows: View {
                 Text(clash: .copy("Custom…")).tag(Self.customTag)
             } label: {
                 Text(verbatim: title)
+                if let note { Text(clash: note).accessibilityIdentifier("configuration-center.lan-share.runs-over") }
             }
             .pickerStyle(.menu)
-            .disabled(saving)
             .accessibilityIdentifier("configuration-center.lan-share.bind-address")
         } else {
             LabeledContent {
                 Button { editing = edit } label: {
                     Text(clash: ConfigurationValueWords.summary(value, field: field, locale: locale, copy: copy))
                 }
-                .disabled(saving)
                 .accessibilityIdentifier("configuration-center.lan-share.key")
             } label: {
                 Text(verbatim: title)
+                if let note { Text(clash: note).accessibilityIdentifier("configuration-center.lan-share.runs-over") }
             }
         }
     }
@@ -127,17 +138,35 @@ public struct ClashMacSettingsKeyRows: View {
     }
 
     private func request(_ edits: [ConfigurationPageEdit]) {
-        guard !edits.isEmpty, !saving else { return }
-        if document?.copies != nil {
+        guard !edits.isEmpty else { return }
+         
+        if !writes.busy, document?.copies != nil {
             pending = edits
             return
         }
-        Task { await save(edits) }
+        perform(edits)
+    }
+
+     
+     
+    private func perform(_ edits: [ConfigurationPageEdit]) {
+        let now = writes.take(.edits(edits))
+        document?.shownEdits = writes.shownEdits
+        guard let now else { return }
+        Task { await write(from: now) }
+    }
+
+    private func write(from first: ClashMacSectionWrites.Step) async {
+        var step: ClashMacSectionWrites.Step? = first
+        while case .edits(let edits)? = step {
+            await save(edits)
+            await reload()
+            step = writes.finish()
+            document?.shownEdits = writes.shownEdits
+        }
     }
 
     private func save(_ edits: [ConfigurationPageEdit]) async {
-        saving = true
-        defer { saving = false }
          
         let keys = edits.compactMap(\.writtenPath.first)
         do {
@@ -147,13 +176,15 @@ public struct ClashMacSettingsKeyRows: View {
         } catch {
             for key in keys { writeFailures[key] = ClashErrorCopy.message(error, locale: locale) }
         }
-        await reload()
     }
 
     private func reload() async {
         do {
-            document = try await actions.load(.general)
+            var read = try await actions.load(.general)
+            read.shownEdits = writes.shownEdits
+            document = read
             loadFailure = nil
+            reads += 1
         } catch is CancellationError {
         } catch {
             loadFailure = ClashErrorCopy.message(error, locale: locale)

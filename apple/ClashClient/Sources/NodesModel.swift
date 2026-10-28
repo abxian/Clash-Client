@@ -130,6 +130,11 @@ protocol NodesCommanding: AnyObject, Sendable {
      
      
     var isReopeningControlSession: Bool { get }
+     
+     
+     
+     
+    var coreSession: String? { get }
     var mode: String { get }
     var proxiesData: Data? { get }
     func refreshMetadata() async
@@ -233,6 +238,13 @@ extension NodesCommanding {
 }
 
 extension ClashCommandClient: NodesCommanding {
+     
+     
+    var coreSession: String? {
+        guard let diagnostics = runtimeDiagnostics, diagnostics.processIdentifier > 0, diagnostics.startTimeUnix > 0 else { return nil }
+        return "\(diagnostics.processIdentifier)-\(diagnostics.startTimeUnix)"
+    }
+
     var extensionMemoryBytes: Int64 { memoryBytes }
     var nodeListRevision: String? { nodeSummary?.revision }
     var nodePages: NodePageSource? { nodeSummary == nil ? nil : self }
@@ -313,6 +325,7 @@ extension ClashCommandClient: NodesCommanding {
 extension NodesCommanding {
      
     var isReopeningControlSession: Bool { false }
+    var coreSession: String? { nil }
 
     func extensionFootprintBytes() async -> Int64 { 0 }
 
@@ -1684,6 +1697,9 @@ enum NodeInventory {
         let revision: String
         let selections: [String: Selection]
         let readings: [String: Int]
+         
+         
+        var failures: [String: ProbeFailure] = [:]
 
          
          
@@ -1691,6 +1707,29 @@ enum NodeInventory {
         func selectionsMatch(_ groups: [ProxyGroup]) -> Bool {
             groups.allSatisfy { selections[$0.name] == Selection(now: $0.now, fixed: $0.fixed) }
         }
+    }
+
+     
+     
+     
+     
+    struct ProbeFailure: Equatable, Sendable {
+        let category: String
+        let message: String?
+    }
+
+     
+    static func probeFailure(of record: [String: Any]) -> ProbeFailure? {
+        guard let failure = record["failure"] as? [String: Any] else { return nil }
+        let message = (failure["message"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return ProbeFailure(
+            category: ClashCommandClient.urlTestCategory(
+                errno: (failure["errno"] as? String ?? "").uppercased(),
+                kind: (failure["kind"] as? String ?? "").lowercased(),
+                message: message ?? ""
+            ),
+            message: message
+        )
     }
 
      
@@ -1711,6 +1750,7 @@ enum NodeInventory {
     static func mergedDelayPages(_ pages: [Data], readingURLs: Set<String> = []) -> (PolledDelays, Int64)? {
         var first: PolledDelays?
         var readings: [String: Int] = [:]
+        var failures: [String: ProbeFailure] = [:]
         var now: Int64 = 0
         for data in pages {
             guard let polled = polledDelays(from: data, readingURLs: readingURLs) else { return nil }
@@ -1723,9 +1763,11 @@ enum NodeInventory {
                 now = delayPageCursor(data)?.now ?? 0
             }
             readings.merge(polled.readings) { _, newer in newer }
+            for key in polled.readings.keys { failures[key] = polled.failures[key] }
         }
         guard let first else { return nil }
-        return (PolledDelays(revision: first.revision, selections: first.selections, readings: readings), now)
+        return (PolledDelays(revision: first.revision, selections: first.selections, readings: readings,
+                             failures: failures), now)
     }
 
      
@@ -1754,6 +1796,12 @@ enum NodeInventory {
               let revision = root["revision"] as? String, !revision.isEmpty
         else { return nil }
         var readings: [String: Int] = [:]
+        var failures: [String: ProbeFailure] = [:]
+         
+        func read(_ reading: Int, as key: String, from record: [String: Any]) {
+            readings[key] = reading
+            failures[key] = reading < 0 ? probeFailure(of: record) : nil
+        }
          
         func readURLRecords(of name: String, in record: [String: Any]) {
             guard !readingURLs.isEmpty, let extra = record["extra"] as? [String: Any] else { return }
@@ -1767,16 +1815,16 @@ enum NodeInventory {
                 } else {
                     continue
                 }
-                readings[latencyKey(name, readingURL: url)] = reading
+                read(reading, as: latencyKey(name, readingURL: url), from: state)
             }
         }
         for case let nodes as [String: Any] in ((root["providers"] as? [String: Any]) ?? [:]).values {
             for (name, raw) in nodes {
                 guard let record = raw as? [String: Any] else { continue }
                 if let delay = record["delay"] as? Int, delay > 0 {
-                    readings[name] = delay
+                    read(delay, as: name, from: record)
                 } else if record["alive"] as? Bool == false {
-                    readings[name] = -1
+                    read(-1, as: name, from: record)
                 }
                 readURLRecords(of: name, in: record)
             }
@@ -1786,7 +1834,7 @@ enum NodeInventory {
          
         for (name, raw) in (root["proxies"] as? [String: Any]) ?? [:] {
             guard let record = raw as? [String: Any] else { continue }
-            if let delay = record["delay"] as? Int { readings[name] = delay > 0 ? delay : -1 }
+            if let delay = record["delay"] as? Int { read(delay > 0 ? delay : -1, as: name, from: record) }
             readURLRecords(of: name, in: record)
         }
         var selections: [String: PolledDelays.Selection] = [:]
@@ -1796,9 +1844,9 @@ enum NodeInventory {
                 now: group["now"] as? String ?? "",
                 fixed: (group["fixed"] as? String).flatMap { $0.isEmpty ? nil : $0 }
             )
-            if let delay = group["delay"] as? Int { readings[name] = delay > 0 ? delay : -1 }
+            if let delay = group["delay"] as? Int { read(delay > 0 ? delay : -1, as: name, from: group) }
         }
-        return PolledDelays(revision: revision, selections: selections, readings: readings)
+        return PolledDelays(revision: revision, selections: selections, readings: readings, failures: failures)
     }
 
      
@@ -2460,7 +2508,7 @@ final class NodesModel: ObservableObject {
      
      
      
-    @Published private(set) var actionRefusals: [String: String] = [:]
+    @Published private(set) var actionRefusals: [String: ClashGroupActionRefusal] = [:]
     @Published private(set) var isRuntimeAvailable = false
     @Published private(set) var trafficUsageByGroupName: [String: ProxyTrafficUsage] = [:] {
         didSet { ClashPerf.count("pub.nodes.traffic") }
@@ -2485,6 +2533,10 @@ final class NodesModel: ObservableObject {
     private weak var command: NodesCommanding?
      
     private var unfixingGroups: Set<String> = []
+     
+     
+     
+    private var unfixesUnanswered: [String: (core: String, pin: String?)] = [:]
      
      
      
@@ -2752,7 +2804,7 @@ final class NodesModel: ObservableObject {
                  
                  
                  
-                refuse(group: group, because: command.lastCommandError,
+                refuse(group: group, verb: .select, coreSaid: command.lastCommandError,
                        otherwise: "The running proxy group did not confirm the selected route.")
                 return
             }
@@ -2781,7 +2833,7 @@ final class NodesModel: ObservableObject {
                       groups.first(where: {
                           $0.name == GlobalProxySelectionPolicy.groupName
                       })?.holdsSelection(group) == true else {
-                    refuse(group: group, because: command.lastCommandError,
+                    refuse(group: group, verb: .select, coreSaid: command.lastCommandError,
                            otherwise: "The running proxy group did not confirm the selected route.")
                     return
                 }
@@ -2880,12 +2932,12 @@ final class NodesModel: ObservableObject {
         }
         guard let target = groups.first(where: { $0.name == group }) else {
             ClashLogStore.shared.append("unfix refused  no such group=\(group)", stream: .app, level: .warning)
-            refuse(group: group, because: "This group is no longer in the running configuration.")
+            refuse(group: group, verb: .unfix, appSaid: "This group is no longer in the running configuration.")
             return
         }
         guard ProxyGroupControlKind(rawType: target.type).canBeUnpinned else {
             ClashLogStore.shared.append("unfix refused  group=\(group) type=\(target.type) cannot be unpinned", stream: .app, level: .warning)
-            refuse(group: group, because: "A \(target.type) group has no pin to release.")
+            refuse(group: group, verb: .unfix, appSaid: "A \(target.type) group has no pin to release.")
             return
         }
          
@@ -2927,32 +2979,39 @@ final class NodesModel: ObservableObject {
                     "unfix refused  group=\(group)  the profile's pin could not be cleared",
                     stream: .app, level: .warning
                 )
-                refuse(group: group, because: "The profile's saved selection could not be cleared.")
+                refuse(group: group, verb: .unfix, appSaid: "The profile's saved selection could not be cleared.")
                 return
             }
-            guard await command.unfix(group: group) else {
-                ClashLogStore.shared.append(
-                    "unfix refused by core  group=\(group)  reason=\(command.lastCommandError)",
-                    stream: .app, level: .warning
-                )
-                refuse(group: group, because: command.lastCommandError)
-                if !preferences.restoreSelection(group: group, proxy: pinned) {
-                     
-                     
-                     
-                     
-                     
-                    await applyInventoryOffMain(command.proxiesData, reason: .selectionReadback)
+            if !(await command.unfix(group: group)) {
+                let refusal = command.lastCommandError
+                 
+                guard await unfixLanded(group: group, command: command, refusal: refusal) else {
+                    ClashLogStore.shared.append(
+                        "unfix refused by core  group=\(group)  reason=\(refusal)",
+                        stream: .app, level: .warning
+                    )
+                    refuse(group: group, verb: .unfix, coreSaid: refusal)
+                    awaitLateRelease(group: group, command: command, pin: pinned)
+                    if !preferences.restoreSelection(group: group, proxy: pinned) {
+                         
+                         
+                         
+                         
+                         
+                        await applyInventoryOffMain(command.proxiesData, reason: .selectionReadback)
+                    }
+                    return
                 }
-                return
             }
-        } else {
-            guard await command.unfix(group: group) else {
+        } else if !(await command.unfix(group: group)) {
+            let refusal = command.lastCommandError
+            guard await unfixLanded(group: group, command: command, refusal: refusal) else {
                 ClashLogStore.shared.append(
-                    "unfix refused by core  group=\(group)  reason=\(command.lastCommandError)",
+                    "unfix refused by core  group=\(group)  reason=\(refusal)",
                     stream: .app, level: .warning
                 )
-                refuse(group: group, because: command.lastCommandError)
+                refuse(group: group, verb: .unfix, coreSaid: refusal)
+                awaitLateRelease(group: group, command: command, pin: nil)
                 return
             }
         }
@@ -2966,9 +3025,88 @@ final class NodesModel: ObservableObject {
      
      
      
+     
+     
+    private func unfixLanded(group: String, command: NodesCommanding, refusal: String) async -> Bool {
+        guard await command.nodesRefreshMetadata(), let data = command.proxiesData else { return false }
+        let released = await Task.detached(priority: .userInitiated) {
+            Self.coreShowsReleased(group: group, in: data)
+        }.value
+        if released {
+            ClashLogStore.shared.append(
+                #"unfix  group=\#(group)  reply lost, read-back shows released  reason=\#(refusal)"#,
+                stream: .app, level: .warning
+            )
+        }
+        return released
+    }
+
+     
+     
+     
+    private func awaitLateRelease(group: String, command: NodesCommanding, pin: String?) {
+         
+         
+         
+         
+        guard let core = command.coreSession else { return }
+        unfixesUnanswered[group] = (core, pin)
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+    private func settleUnansweredUnfixes() {
+        guard !unfixesUnanswered.isEmpty else { return }
+        guard let command, command.isConnected, isRuntimeAvailable else { return }
+        for (group, sent) in unfixesUnanswered {
+            guard actionRefusals[group]?.verb == .unfix else { unfixesUnanswered[group] = nil; continue }
+            guard let core = command.coreSession else { continue }
+            guard core == sent.core else { unfixesUnanswered[group] = nil; continue }
+            guard let target = groups.first(where: { $0.name == group }),
+                  ProxyGroupControlKind(rawType: target.type).canBeUnpinned,
+                  (target.fixed ?? "").isEmpty else { continue }
+            unfixesUnanswered[group] = nil
+            actionRefusals[group] = nil
+            var forgotten = false
+            if let pin = sent.pin, let preferences, preferences.load()?.selectedMap[group] == pin {
+                forgotten = preferences.clearSelection(group: group)
+            }
+            ClashLogStore.shared.append(
+                #"unfix  group=\#(group)  landed after its read-back failed  profile pin forgotten=\#(forgotten)"#,
+                stream: .app, level: .warning
+            )
+        }
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+    nonisolated static func coreShowsReleased(group: String, in data: Data) -> Bool {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let proxies = root["proxies"] as? [String: Any],
+              let entry = proxies[group] as? [String: Any] else { return false }
+        if let fixed = entry["fixed"] as? String { return fixed.isEmpty }
+        guard entry["fixed"] == nil, let type = entry["type"] as? String else { return false }
+        return ProxyGroupControlKind(rawType: type).canBeUnpinned
+    }
+
+     
+     
+     
     func noteOfflinePick(group: String, refusal: String?) {
         guard let refusal else { actionRefusals[group] = nil; return }
-        refuse(group: group, because: refusal,
+        refuse(group: group, verb: .select, coreSaid: refusal,
                otherwise: "The running proxy group did not confirm the selected route.")
     }
 
@@ -2978,11 +3116,19 @@ final class NodesModel: ObservableObject {
      
     private func refuse(
         group: String,
-        because reason: String,
+        verb: ClashGroupActionRefusal.RefusedVerb,
+        coreSaid reason: String,
         otherwise silent: String = "The core did not release this group's pin."
     ) {
         let sentence = reason.trimmingCharacters(in: .whitespacesAndNewlines)
-        actionRefusals[group] = sentence.isEmpty ? silent : sentence
+        actionRefusals[group] = sentence.isEmpty
+            ? ClashGroupActionRefusal(verb: verb, coreSentence: nil, appSentence: .copy(silent))
+            : ClashGroupActionRefusal(verb: verb, coreSentence: sentence, appSentence: nil)
+    }
+
+     
+    private func refuse(group: String, verb: ClashGroupActionRefusal.RefusedVerb, appSaid sentence: String) {
+        actionRefusals[group] = ClashGroupActionRefusal(verb: verb, coreSentence: nil, appSentence: .copy(sentence))
     }
 
      
@@ -3115,6 +3261,41 @@ final class NodesModel: ObservableObject {
     }
 
 
+
+     
+     
+     
+     
+    func test(shown: [ClashProxiesShownMembers]) async {
+        testAllSession &+= 1
+        let targets = Self.shownTargets(shown, groups: groups)
+        guard let first = targets.names.first else { return }
+        await runLatencyTest(
+            plan: makeLatencyPlan(
+                groups: [ProxyGroup(name: "requested", type: "", now: first, members: targets.names)],
+                visibleGroupNames: ["requested"]
+            ),
+            endpoint: targets.endpoint
+        )
+    }
+
+     
+     
+    nonisolated static func shownTargets(_ shown: [ClashProxiesShownMembers], groups: [ProxyGroup]) -> (names: [String], endpoint: String?) {
+        var names: [String] = []
+        var seen = Set<String>()
+        for entry in shown {
+            for member in entry.members {
+                let target = NodeInventory.latencyTarget(of: member, inGroup: entry.group.isEmpty ? nil : entry.group,
+                                                         groups: groups)
+                if seen.insert(target.name).inserted { names.append(target.name) }
+            }
+        }
+        let endpoint = shown.count == 1 && !shown[0].group.isEmpty
+            ? groups.first { $0.name == shown[0].group }.flatMap(NodeInventory.probeURL(of:))
+            : nil
+        return (names, endpoint)
+    }
 
      
      
@@ -4091,17 +4272,19 @@ final class NodesModel: ObservableObject {
          
         var revisionRead: String?
         var readings: [String: Int] = [:]
+        var failures: [String: NodeInventory.ProbeFailure] = [:]
         switch await readDelaysPaged(command) {
         case .read(let polled, let now):
             guard !Task.isCancelled, !healthCheckFollowPaused, command.isConnected, !isTestingLatency else { return }
             if polled.revision == polledRevision, polled.selectionsMatch(groups),
                Self.listHolds(polled.revision, in: command) {
-                fillUntestedReadings(polled.readings, revision: polled.revision)
+                fillUntestedReadings(polled.readings, failures: polled.failures, revision: polled.revision)
                 delaysSince = now
                 return
             }
             revisionRead = polled.revision
             readings = polled.readings
+            failures = polled.failures
         case .notNow:
              
              
@@ -4113,7 +4296,7 @@ final class NodesModel: ObservableObject {
                 guard !Task.isCancelled, !healthCheckFollowPaused, command.isConnected, !isTestingLatency else { return }
                 if polled.revision == polledRevision, polled.selectionsMatch(groups),
                    Self.listHolds(polled.revision, in: command) {
-                    fillUntestedReadings(polled.readings, revision: polled.revision)
+                    fillUntestedReadings(polled.readings, failures: polled.failures, revision: polled.revision)
                     return
                 }
                 revisionRead = polled.revision
@@ -4150,7 +4333,9 @@ final class NodesModel: ObservableObject {
          
          
          
-        if !readings.isEmpty, Self.listHolds(revisionRead, in: command) { fillUntestedReadings(readings, revision: revisionRead) }
+        if !readings.isEmpty, Self.listHolds(revisionRead, in: command) {
+            fillUntestedReadings(readings, failures: failures, revision: revisionRead)
+        }
         if proxiesRead, self.command === command, !Task.isCancelled { polledRevision = revisionRead }
     }
 
@@ -4188,7 +4373,7 @@ final class NodesModel: ObservableObject {
               (command.nodeListRevision ?? polledRevision) == list,
               list == nil || polled.revision == list
         else { return }
-        fillUntestedReadings(polled.readings, revision: polled.revision)
+        fillUntestedReadings(polled.readings, failures: polled.failures, revision: polled.revision)
          
          
          
@@ -4218,6 +4403,7 @@ final class NodesModel: ObservableObject {
         let urls = NodeInventory.readingURLs(of: groups)
         var first: (revision: String, selections: [String: NodeInventory.PolledDelays.Selection], now: Int64)?
         var readings: [String: Int] = [:]
+        var failures: [String: NodeInventory.ProbeFailure] = [:]
         var after = ""
         pages: for _ in 0..<1_000 {
             switch await command.nodesProxyDelaysPageRead(since: since, after: after, limit: 5_000) {
@@ -4241,12 +4427,14 @@ final class NodesModel: ObservableObject {
                     first = (polled.revision, polled.selections, cursor?.now ?? 0)
                 }
                 readings.merge(polled.readings) { _, newer in newer }
+                for key in polled.readings.keys { failures[key] = polled.failures[key] }
                 guard let next = cursor?.next else { break pages }
                 after = next
             }
         }
         guard let first else { return .notNow }
-        return .read(.init(revision: first.revision, selections: first.selections, readings: readings), now: first.now)
+        return .read(.init(revision: first.revision, selections: first.selections, readings: readings,
+                           failures: failures), now: first.now)
     }
 
      
@@ -4264,7 +4452,14 @@ final class NodesModel: ObservableObject {
      
      
      
-    private func fillUntestedReadings(_ readings: [String: Int], revision: String? = nil) {
+     
+     
+     
+     
+     
+    private func fillUntestedReadings(_ readings: [String: Int],
+                                      failures: [String: NodeInventory.ProbeFailure]? = nil,
+                                      revision: String? = nil) {
          
          
         var changes: [String: Int] = [:]
@@ -4273,9 +4468,11 @@ final class NodesModel: ObservableObject {
             changes[key] = delay
         }
         var gone = Set<String>()
+        var revisionChanged = false
         if let revision, revision != recordsRevision {
             if recordsRevision != nil { gone = Set(delays.keys.filter(NodeInventory.isURLRecordKey)) }
             recordsRevision = revision
+            revisionChanged = true
         }
         let urls = NodeInventory.readingURLs(of: groups)
         if !urls.isEmpty {
@@ -4288,6 +4485,7 @@ final class NodesModel: ObservableObject {
             }
         }
         gone.subtract(readings.keys)
+        if let failures { recordCoreFailures(failures, of: readings, gone: gone, newTable: revisionChanged) }
         guard !changes.isEmpty || !gone.isEmpty else { return }
         var merged = delays
         for key in gone { merged[key] = nil }
@@ -4297,6 +4495,30 @@ final class NodesModel: ObservableObject {
 
      
     private var recordsRevision: String?
+
+     
+     
+     
+     
+    @Published private(set) var coreFailureReasons: [String: String] = [:]
+    @Published private(set) var coreFailureMessages: [String: String] = [:]
+
+    private func recordCoreFailures(_ failures: [String: NodeInventory.ProbeFailure], of readings: [String: Int],
+                                    gone: Set<String>, newTable: Bool) {
+        var reasons = newTable ? [:] : coreFailureReasons
+        var messages = newTable ? [:] : coreFailureMessages
+        for key in readings.keys {
+            let failure = failures[key]
+            reasons[key] = failure?.category
+            messages[key] = failure?.message
+        }
+        for key in gone {
+            reasons[key] = nil
+            messages[key] = nil
+        }
+        if reasons != coreFailureReasons { coreFailureReasons = reasons }
+        if messages != coreFailureMessages { coreFailureMessages = messages }
+    }
 
      
      
@@ -4499,6 +4721,7 @@ final class NodesModel: ObservableObject {
         ClashPerf.measure("inventory.catalog") {
             rebuildCatalog(from: proxies, providerCatalog: providerCatalog)
         }
+        settleUnansweredUnfixes()
     }
 
      
@@ -5052,6 +5275,9 @@ final class NodesModel: ObservableObject {
             measuredNames = []
         }
         sessionProbeFailures = []
+         
+        coreFailureReasons = [:]
+        coreFailureMessages = [:]
         nodeCatalog = []
         query = ""
         testingNames = []

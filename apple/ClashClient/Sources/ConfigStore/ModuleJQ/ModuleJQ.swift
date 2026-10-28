@@ -51,7 +51,6 @@ struct ModuleRequestBudget: Sendable {
      
      
      
-     
     #if os(macOS)
     static let maximumBodyAllowance: TimeInterval = 0.250
     #else
@@ -142,13 +141,6 @@ enum ModuleJQ {
 
          
          
-        static let engineMemoryCeiling = 32 << 20
-        static let engineBackstopCeiling = 64 << 20
-
-         
-         
-         
-         
          
          
          
@@ -160,33 +152,13 @@ enum ModuleJQ {
         static func engine(bodyBytes: Int, inputBytes: Int? = nil) -> Limits {
             var limits = Limits(steps: 4_000_000, outputBytes: bodyBytes, depth: 512)
             let input = max(0, inputBytes ?? bodyBytes)
-            limits.memoryBytes = min(engineMemoryCeiling, max(4 << 20, input.multipliedReportingOverflow(by: 16).partialValue))
-            limits.backstopBytes = min(engineBackstopCeiling, limits.memoryBytes * 4)
+            let grown = input.multipliedReportingOverflow(by: 16)
+            limits.memoryBytes = max(4 << 20, grown.overflow ? .max : grown.partialValue)
+            let backstop = limits.memoryBytes.multipliedReportingOverflow(by: 4)
+            limits.backstopBytes = backstop.overflow ? .max : backstop.partialValue
             return limits
         }
     }
-
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-     
-    #if os(iOS)
-    static let maximumBodyBytes = 512 << 10
-    #else
-    static let maximumBodyBytes = 10 << 20
-    #endif
 
     enum RunOutcome: Equatable {
         case value(ModuleJSONValue)

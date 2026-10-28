@@ -13,11 +13,8 @@ import AppKit
  
  
  
- 
 
 enum ModuleEngineReadiness {
-     
-    static let memoryStopHold: TimeInterval = 6 * 60 * 60
      
      
     static let holdExpiry: TimeInterval = 24 * 60 * 60
@@ -110,10 +107,6 @@ enum ModuleEngineReadiness {
          
          
          
-         
-        if platform == .ios, let stop = report?.lastMemoryStopAt, now.timeIntervalSince(stop) < memoryStopHold, retried < stop {
-            return (.withheld(.stoppedForMemory), nil)
-        }
          
          
         if caUnavailable { return (.withheld(.certificateUnusable), nil) }

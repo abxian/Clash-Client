@@ -533,7 +533,6 @@ struct ProfileProviderDefinitionsDraft {
              
              
              
-             
             let rawURL = (definition["url"] as? String ?? "")
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !rawURL.isEmpty else {

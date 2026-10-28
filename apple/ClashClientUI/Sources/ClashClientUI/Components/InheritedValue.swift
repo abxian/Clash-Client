@@ -658,6 +658,7 @@ public enum UpstreamNumberDefault {
          
         "dns.fake-ip-ttl": PinnedDefault(1, sentinelMeansDefault: true),
          
+         
         "dns.cache-max-size": PinnedDefault(4096, sentinelMeansDefault: true),
          
          
@@ -665,6 +666,20 @@ public enum UpstreamNumberDefault {
          
         "tun.udp-timeout": PinnedDefault(300, owner: .sing, sentinelMeansDefault: true),
     ]
+     
+     
+     
+     
+     
+     
+    public static let boundedTunnel: [String: PinnedDefault<Int>] = [
+        "dns.cache-max-size": PinnedDefault(1024, owner: .clash, sentinelMeansDefault: true, upstreamValue: 4096),
+    ]
+     
+     
+    public static func pinned(for keyPath: String, boundedTunnel bounded: Bool) -> PinnedDefault<Int> {
+        (bounded ? boundedTunnel[keyPath] : nil) ?? pinned(for: keyPath)
+    }
     public static func pinned(for keyPath: String) -> PinnedDefault<Int> {
         guard let entry = table[keyPath] else {
             preconditionFailure("no upstream default pinned for \(keyPath) — add it to UpstreamNumberDefault.table")

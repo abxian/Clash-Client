@@ -52,7 +52,7 @@ struct MemoryTrimManageView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
 
     var body: some View {

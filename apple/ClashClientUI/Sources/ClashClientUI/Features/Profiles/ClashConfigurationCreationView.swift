@@ -124,14 +124,6 @@ public enum ClashConfigurationSourceKind: String, Identifiable, Sendable {
     public var id: String { rawValue }
 }
 
- 
- 
-public struct ClashConfigurationOwnRoutingNotice: Equatable, Sendable {
-    public let groups: Int
-    public let rules: Int
-    public init(groups: Int, rules: Int) { self.groups = groups; self.rules = rules }
-}
-
 public struct ClashConfigurationLegacySource: Identifiable, Sendable {
     public let id: String
     public let label: String
@@ -170,8 +162,6 @@ public struct ClashConfigurationCreationView: View {
      
     private let completionNodes: ((ConfigurationCreationDraft) -> AnyView)?
     private let completionRules: ((ConfigurationCreationDraft) -> AnyView)?
-    private let ownRouting: ClashConfigurationOwnRoutingNotice?
-    private let useOwnRouting: (() -> Void)?
     @State private var confirmsDiscard = false
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -190,11 +180,9 @@ public struct ClashConfigurationCreationView: View {
                 sourceDetails: @escaping (String) -> Void = { _ in },
                 manageSources: @escaping () -> Void = {},
                 manageRules: @escaping () -> Void = {},
-                completionNodes: ((ConfigurationCreationDraft) -> AnyView)? = nil, completionRules: ((ConfigurationCreationDraft) -> AnyView)? = nil,
-                ownRouting: ClashConfigurationOwnRoutingNotice? = nil, useOwnRouting: (() -> Void)? = nil) {
+                completionNodes: ((ConfigurationCreationDraft) -> AnyView)? = nil, completionRules: ((ConfigurationCreationDraft) -> AnyView)? = nil) {
         self.palette = palette; self.presentationClass = presentationClass; self.icon = icon
         self.completionNodes = completionNodes; self.completionRules = completionRules
-        self.ownRouting = ownRouting; self.useOwnRouting = useOwnRouting
         self.editingStep = editingStep
         self.isEditing = isEditing; self.baseline = baseline; self.sourceDetails = sourceDetails; self.manageSources = manageSources; self.manageRules = manageRules
         _draft = draft; self.library = library; self.legacy = legacy
@@ -479,19 +467,6 @@ public struct ClashConfigurationCreationView: View {
                     } header: { Text(ClashCopy.key(group.title)) }
                 }
             }
-            if let ownRouting, let useOwnRouting {
-                 
-                 
-                 
-                 
-                Section {
-                    Button("Use its own routing", action: useOwnRouting)
-                        .accessibilityIdentifier("configuration.create.use-own-routing")
-                } footer: {
-                    Text(clash: .format("This link brings %@ groups and %@ rules.",
-                                       [String(ownRouting.groups), String(ownRouting.rules)]))
-                }
-            }
             Section {
                 Button("Manage Rule Schemes", action: manageRules)
                     .accessibilityIdentifier("configuration.create.manage-rules")
@@ -619,6 +594,8 @@ public struct ClashConfigurationCreationView: View {
  
 struct ClashConfigurationUpdateButton: View {
     let title: String
+     
+    var updatingTitle: String = "Updating Sources…"
     let isUpdating: Bool
     let disabled: Bool
     let action: () -> Void
@@ -630,7 +607,7 @@ struct ClashConfigurationUpdateButton: View {
                 } else {
                     Image(systemName: "arrow.clockwise").transition(.identity)
                 }
-                Text(ClashCopy.key(isUpdating ? "Updating Sources…" : title))
+                Text(ClashCopy.key(isUpdating ? updatingTitle : title))
                     .foregroundStyle(isUpdating ? AnyShapeStyle(.primary) : AnyShapeStyle(.tint))
                 Spacer(minLength: 0)
             }
@@ -875,15 +852,23 @@ public struct ClashConfigurationSourceLibraryView: View {
      
      
     public let refusals: [String: String]
+     
+     
+     
+    public let updateSource: ((String) -> Void)?
+    public let copySourceLink: ((String) -> Void)?
+    public let deleteSource: ((String) -> Void)?
     public init(library: ConfigurationLibrarySnapshot, palette: ClashProductPalette, isReady: Bool, isBusy: Bool, error: String?,
                 add: @escaping (ClashConfigurationSourceKind) -> Void, open: @escaping (String) -> Void,
                 reload: @escaping () -> Void, close: @escaping () -> Void, updateAll: (() -> Void)? = nil, refreshAll: (() async -> Void)? = nil, status: String? = nil, updateProgress: String? = nil, isCenterSection: Bool = false, showsClose: Bool = true,
                 collections: [ConfigurationCollectionEntry] = [], openCollection: @escaping (ConfigurationCollectionEntry) -> Void = { _ in },
                 quickAdd: (() -> AnyView)? = nil, addMenu: (() -> AnyView)? = nil,
-                refusals: [String: String] = [:]) {
+                refusals: [String: String] = [:], updateSource: ((String) -> Void)? = nil,
+                copySourceLink: ((String) -> Void)? = nil, deleteSource: ((String) -> Void)? = nil) {
         self.collections = collections; self.openCollection = openCollection; self.quickAdd = quickAdd
         self.addMenu = addMenu
         self.refusals = refusals
+        self.updateSource = updateSource; self.copySourceLink = copySourceLink; self.deleteSource = deleteSource
         self.palette = palette
         self.updateAll = updateAll; self.refreshAll = refreshAll; self.status = status; self.updateProgress = updateProgress
         self.isCenterSection = isCenterSection; self.showsClose = showsClose
@@ -926,7 +911,9 @@ public struct ClashConfigurationSourceLibraryView: View {
                 if !hasUpdates, let error { ClashConfigurationLibraryCard(palette: palette, nativeList: true) { Text(verbatim: error).foregroundStyle(.red) } }
                 if let updateAll, hasUpdates {
                     Section {
-                        ClashConfigurationUpdateButton(title: "Update All Sources", isUpdating: isBusy, disabled: false, action: updateAll)
+                         
+                         
+                        ClashConfigurationUpdateButton(title: "Update All", isUpdating: isBusy, disabled: false, action: updateAll)
                             .accessibilityIdentifier("configuration.library.update-all")
                     } footer: {
                          
@@ -1024,6 +1011,57 @@ public struct ClashConfigurationSourceLibraryView: View {
          
          
         .accessibilityIdentifier("configuration.library.source.\(source.id)")
+        .contextMenu { sourceMenu(source) }
+         
+         
+        .clashSwipeToDelete(identifier: "configuration.library.source.swipe-delete", disabled: isBusy,
+                           deleteSource != nil && Self.rowActions(source).contains(.delete) ? { deleteSource?(source.id) } : nil)
+    }
+
+     
+     
+     
+     
+    public enum RowAction: Hashable, Sendable { case update, copyLink, delete }
+
+    public static func rowActions(_ source: ConfigurationSourceRecord) -> [RowAction] {
+        var actions: [RowAction] = []
+        if case .subscription = source.origin {
+            if source.isRetainedSnapshot != true { actions.append(.update) }
+            actions.append(.copyLink)
+        }
+        if source.isRetainedSnapshot != true {
+            if case .bundled = source.origin {} else { actions.append(.delete) }
+        }
+        return actions
+    }
+
+     
+     
+     
+    @ViewBuilder
+    private func sourceMenu(_ source: ConfigurationSourceRecord) -> some View {
+        let actions = Self.rowActions(source)
+        if actions.contains(.update), let updateSource {
+            Button { updateSource(source.id) } label: {
+                Label { Text("Update") } icon: { Image(systemName: ClashSymbol.arrowClockwise.rawValue) }
+            }
+            .disabled(isBusy)
+            .accessibilityIdentifier("configuration.library.source.update")
+        }
+        if actions.contains(.copyLink), let copySourceLink {
+            Button { copySourceLink(source.id) } label: {
+                Label { Text("Copy Link") } icon: { Image(systemName: ClashSymbol.link.rawValue) }
+            }
+            .accessibilityIdentifier("configuration.library.source.copy-link")
+        }
+        if actions.contains(.delete), let deleteSource {
+            Button(role: .destructive) { deleteSource(source.id) } label: {
+                Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+            }
+            .disabled(isBusy)
+            .accessibilityIdentifier("configuration.library.source.delete")
+        }
     }
 
      
@@ -1686,9 +1724,7 @@ public struct ClashConfigurationContentsView: View {
                                 editNode: deleteNode == nil ? nil : { openNode(index) }, testNode: nil,
                                 inspectNode: { openNode(index) }, showsLatency: false
                             )
-                            .swipeActions {
-                                if let deleteNode { Button("Delete", role: .destructive) { deleteNode(index) }.tint(.red) }
-                            }
+                            .clashSwipeToDelete(deleteNode.map { delete in { delete(index) } })
                         } else if let rule = row.rule, let palette {
                             ClashRuleListRow(row: ClashRuleFrozenRow(rule), palette: palette)
                                 .textSelection(.enabled)

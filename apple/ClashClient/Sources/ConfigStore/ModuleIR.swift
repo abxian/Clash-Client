@@ -533,17 +533,6 @@ struct ModuleAnswerFileReference: Codable, Equatable, Sendable {
 }
 
  
- 
- 
- 
- 
- 
-enum ModuleAnswerFileLimit {
-    static let iOS = 256 * 1024
-    static let macOS = 10 * 1024 * 1024
-}
-
- 
 
 enum ModuleJSONPathComponent: Codable, Hashable, Sendable {
     case key(String)
@@ -1420,17 +1409,19 @@ enum ModuleIgnoredReason: Error, Codable, Equatable, Sendable {
      
      
      
+     
     case scriptAddressNotSecure
      
      
     case newerSyntaxNotSupported
      
      
+     
     case argumentsOverLimit
      
      
      
-    case headerOverLimit
+     
      
      
      
@@ -1448,9 +1439,10 @@ enum ModuleIgnoredReason: Error, Codable, Equatable, Sendable {
      
     case noEffectInItsOwnApp(ModuleSentence)
      
-    case answerFileTooLarge(Int)
      
-    case lineTooLong(Int)
+     
+     
+     
      
     case jqExpressionInvalid(String)
      
@@ -1508,7 +1500,6 @@ enum ModulePlatformLimit: String, Codable, Sendable {
      
      
      
-    case scriptTooLargeHere
      
      
     case dnsScripts
@@ -1537,6 +1528,69 @@ struct ModuleIgnoredEntry: Codable, Equatable, Sendable {
      
      
     var moduleID: String? = nil
+
+    private enum CodingKeys: String, CodingKey { case text, reason, origin, moduleID }
+}
+
+extension ModuleIgnoredEntry {
+     
+     
+     
+     
+     
+     
+     
+     
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let text = try c.decode(String.self, forKey: .text)
+        let origin = try c.decode(ModuleLineOrigin.self, forKey: .origin)
+        let moduleID = try c.decodeIfPresent(String.self, forKey: .moduleID)
+        let reason: ModuleIgnoredReason
+        do {
+            reason = try c.decode(ModuleIgnoredReason.self, forKey: .reason)
+        } catch {
+            guard c.contains(.reason) else { throw error }
+            guard let retired = (try? c.decode(RetiredReason.self, forKey: .reason))?.now else { throw UnknownReason(underlying: error) }
+            reason = retired
+        }
+        self.init(text: text, reason: reason, origin: origin, moduleID: moduleID)
+    }
+
+     
+     
+    struct UnknownReason: Error {
+        let underlying: Error
+    }
+
+     
+     
+    static let scriptNotDownloadedYet = ModuleSentence.app("This script is not downloaded yet; it will be at the next update.", arguments: [])
+
+     
+     
+    private struct RetiredReason: Decodable {
+        struct Limit: Decodable { let _0: String }
+        let platformCannot: Limit?
+
+        var now: ModuleIgnoredReason? {
+            platformCannot?._0 == "scriptTooLargeHere" ? .scriptDownloadFailed(ModuleIgnoredEntry.scriptNotDownloadedYet) : nil
+        }
+    }
+
+     
+     
+    struct IfReadable: Decodable {
+        let entry: ModuleIgnoredEntry?
+
+        init(from decoder: Decoder) throws {
+            do {
+                entry = try ModuleIgnoredEntry(from: decoder)
+            } catch is UnknownReason {
+                entry = nil
+            }
+        }
+    }
 }
 
  
@@ -1550,6 +1604,9 @@ enum ModuleRefusal: Error, Equatable, Sendable {
      
     case otherPlatform([String])
     case notText
+     
+     
+     
     case tooLarge(Int)
     case unreadableYAML(String)
     case notAnAddress
@@ -1709,7 +1766,9 @@ extension ModuleIR: Codable {
                             edits: try list(.edits), deviceSettings: try list(.deviceSettings), inEffect: try list(.inEffect),
                             changes: try list(.changes), notes: try list(.notes),
                             ruleSets: try list(.ruleSets), answerFiles: try list(.answerFiles),
-                            appScripts: try list(.appScripts), ignored: try list(.ignored))
+                            appScripts: try list(.appScripts),
+                             
+                            ignored: try c.decodeIfPresent([ModuleIgnoredEntry.IfReadable].self, forKey: .ignored)?.compactMap(\.entry) ?? [])
             ir.panels = try list(.panels)
             return ir
         }

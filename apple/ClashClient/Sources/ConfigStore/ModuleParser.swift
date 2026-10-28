@@ -85,10 +85,6 @@ enum ModuleParser {
      
      
      
-    static let maximumBytes = 2 << 20
-
-     
-     
      
      
     static func parse(_ data: Data, sourceURL: String?, fetchedAt: Date?,
@@ -96,7 +92,6 @@ enum ModuleParser {
                       environment: ModuleRequirementEnvironment = .current,
                       argumentValues: [String: String] = [:],
                       check: ModuleRuleMapping.Check = ModuleRuleMapping.kernelCheck) throws -> Result<ModuleIR, ModuleRefusal> {
-        guard data.count <= maximumBytes else { return .failure(.tooLarge(data.count)) }
         guard var text = String(data: data, encoding: .utf8) else { return .failure(.notText) }
          
          
@@ -293,66 +288,23 @@ enum ModuleParser {
      
      
      
+     
+     
+     
+     
     static func arguments(_ value: String) -> [ModuleArgument] {
-        cappedArguments(value).kept
-    }
-
-     
-     
-     
-     
-     
-     
-     
-     
-     
-    static let maximumArguments = 256
-    static let maximumArgumentBytes = 1024
-     
-    static let maximumSystems = 64
-     
-     
-     
-    static let maximumDescriptionBytes = 4096
-     
-     
-     
-     
-     
-    static let maximumArgumentsDescriptionBytes = 32 * 1024
-
-     
-     
-     
-     
-    static func cappedArguments(_ value: String) -> (kept: [ModuleArgument], dropped: Int, droppedNames: [String]) {
         var kept: [ModuleArgument] = []
-        var droppedNames: [String] = []
-        var dropped = 0
         for item in commaSplit(value) {
             let part = item.trimmingCharacters(in: .whitespaces)
             guard !part.isEmpty else { continue }
-            let argument: ModuleArgument
             if let colon = part.firstIndex(of: ":") {
-                argument = ModuleArgument(name: unquoted(part[..<colon].trimmingCharacters(in: .whitespaces)),
-                                                 defaultValue: unquoted(part[part.index(after: colon)...].trimmingCharacters(in: .whitespaces)))
+                kept.append(ModuleArgument(name: unquoted(part[..<colon].trimmingCharacters(in: .whitespaces)),
+                                           defaultValue: unquoted(part[part.index(after: colon)...].trimmingCharacters(in: .whitespaces))))
             } else {
-                argument = ModuleArgument(name: unquoted(part), defaultValue: nil)
+                kept.append(ModuleArgument(name: unquoted(part), defaultValue: nil))
             }
-            guard kept.count < maximumArguments, isWithinLimit(argument) else {
-                dropped += 1
-                droppedNames.append(argument.name)
-                continue
-            }
-            kept.append(argument)
         }
-        return (kept, dropped, droppedNames)
-    }
-
-     
-     
-    static func isWithinLimit(_ argument: ModuleArgument) -> Bool {
-        argument.name.utf8.count + 1 + (argument.defaultValue?.utf8.count ?? 0) <= maximumArgumentBytes
+        return kept
     }
 
      
@@ -429,13 +381,7 @@ enum ModuleParser {
      
      
     private static let keysReadElsewhere: Set<String> = ["requirement", "select", "input"]
-     
-     
-     
-    static let maximumOtherKeys = 64
 
-     
-     
      
      
      
@@ -451,41 +397,52 @@ enum ModuleParser {
         guard !written.isEmpty, written.allSatisfy({ $0.isLetter || $0.isNumber || "_-.".contains($0) }) else { return nil }
         let key = written.lowercased()
         if converterKeys.contains(key) || (loon && loonConverterKeys.contains(key)) || keysReadElsewhere.contains(key) { return nil }
-        let value = line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces)
-        let limit = key == "desc" ? maximumDescriptionBytes : key == "arguments-desc" ? maximumArgumentsDescriptionBytes : maximumArgumentBytes
-        let cut = prefix(value, bytes: limit)
+        let value = String(line[line.index(after: equals)...].trimmingCharacters(in: .whitespaces))
         switch key {
-        case "name": manifest.name = cut
-        case "desc": manifest.desc = cut
-        case "author": manifest.author = cut
-        case "icon": manifest.icon = cut
-        case "homepage": manifest.homepage = cut
-        case "category": manifest.category = cut
-        case "openurl": manifest.openURL = cut
-        case "date": manifest.date = cut
-        case "tag": manifest.tag = cut
-        case "version": manifest.version = cut
-        case "arguments-desc": manifest.argumentsDescription = cut
+        case "name": manifest.name = value
+        case "desc": manifest.desc = value
+        case "author": manifest.author = value
+        case "icon": manifest.icon = value
+        case "homepage": manifest.homepage = value
+        case "category": manifest.category = value
+        case "openurl": manifest.openURL = value
+        case "date": manifest.date = value
+        case "tag": manifest.tag = value
+        case "version": manifest.version = value
+        case "arguments-desc": manifest.argumentsDescription = value
         case "system":
-            let capped = cappedSystems(value)
-            manifest.system = capped.kept
-            return capped.dropped > 0 ? .headerOverLimit : nil
+            manifest.system = systems(value)
         case "arguments":
             manifest.arguments = arguments(value)
             return nil
         case "type":
             return value.lowercased() == "parser" ? .unsupportedScriptType("parser") : nil
         default:
-            guard manifest.otherKeys.count < maximumOtherKeys, written.utf8.count <= maximumArgumentBytes else { return .headerOverLimit }
-            manifest.otherKeys.append(ModuleManifestKey(key: written, value: cut))
+            manifest.otherKeys.append(ModuleManifestKey(key: written, value: value))
         }
-        return cut.utf8.count < value.utf8.count ? .headerOverLimit : nil
+        return nil
     }
 
      
      
      
-    static func systems(_ value: String) -> [String] { cappedSystems(value).kept }
+     
+    static func systems(_ value: String) -> [String] {
+        var out: [String] = []
+         
+        for word in value.lowercased().split(whereSeparator: { $0 == "," || $0.isWhitespace }) {
+            let name = word.trimmingCharacters(in: .whitespaces)
+            let platform: String
+            switch name {
+            case "": continue
+            case "ios", "ipados", "iphoneos": platform = "ios"
+            case "mac", "macos", "osx": platform = "mac"
+            default: platform = name
+            }
+            if !out.contains(platform) { out.append(platform) }
+        }
+        return out
+    }
 
      
      
@@ -519,32 +476,6 @@ enum ModuleParser {
         if written.contains("all") { return true }
         if written.contains("ios") { return false }
         return written.contains("ipad") && written.contains("tv") && written.contains("mac")
-    }
-
-     
-     
-     
-    static func cappedSystems(_ value: String) -> (kept: [String], dropped: Int) {
-        var out: [String] = []
-        var dropped = 0
-         
-        for word in value.lowercased().split(whereSeparator: { $0 == "," || $0.isWhitespace }) {
-            let name = word.trimmingCharacters(in: .whitespaces)
-            let platform: String
-            switch name {
-            case "": continue
-            case "ios", "ipados", "iphoneos": platform = "ios"
-            case "mac", "macos", "osx": platform = "mac"
-            default: platform = name
-            }
-            guard !out.contains(platform) else { continue }
-            guard out.count < maximumSystems, platform.utf8.count <= maximumArgumentBytes else {
-                dropped += 1
-                continue
-            }
-            out.append(platform)
-        }
-        return (out, dropped)
     }
 
      
@@ -870,7 +801,6 @@ enum ModuleParser {
      
      
      
-     
     static func storedSettings(_ lines: [String], besides declared: [ModuleArgument]) -> [ModuleArgument] {
         var out: [ModuleArgument] = []
         var names = Set(declared.map(\.name))
@@ -879,12 +809,11 @@ enum ModuleParser {
             let select = metadataValue(line, "select"), input = metadataValue(line, "input")
             guard let value = select ?? input else { continue }
             let parts = commaSplit(value).map { unquoted($0.trimmingCharacters(in: .whitespaces)) }.filter { !$0.isEmpty }
-            guard let name = parts.first, !names.contains(name), declared.count + out.count < maximumArguments else { continue }
+            guard let name = parts.first, !names.contains(name) else { continue }
             let options = Array(parts.dropFirst())
             let setting = select != nil
                 ? ModuleArgument(name: name, defaultValue: options.first, kind: .storedChoice(options))
                 : ModuleArgument(name: name, defaultValue: nil, kind: .storedInput)
-            guard isWithinLimit(setting), options.reduce(0, { $0 + $1.utf8.count + 1 }) <= maximumArgumentBytes else { continue }
             names.insert(name)
             out.append(setting)
         }
@@ -1035,10 +964,7 @@ enum ModuleParser {
         for (index, raw) in lines.enumerated() {
             let line = raw.trimmingCharacters(in: .whitespaces)
             guard let reason = readMetadata(line, loon: loon, into: &manifest) else { continue }
-             
-            let shown = reason == .headerOverLimit
-                ? line.firstIndex(of: "=").map { String(line[..<$0]).trimmingCharacters(in: .whitespaces) } ?? "#!" : line
-            headerNotes.append(ModuleIgnoredEntry(text: prefix(shown, bytes: maximumArgumentBytes), reason: reason,
+            headerNotes.append(ModuleIgnoredEntry(text: prefix(line, bytes: maximumShownBytes), reason: reason,
                                                    origin: ModuleLineOrigin(section: "", line: index + 1)))
         }
          
@@ -1069,13 +995,9 @@ enum ModuleParser {
         var loonTypes: [String: ModuleLoonRewriteSyntax.SettingType] = [:]
          
          
-        var overLimit = Set<Int>()
-        var droppedNames = Set<String>()
-         
-         
         var invalidNames = Set<String>()
         var scanning: String?
-        for (index, raw) in lines.enumerated() {
+        for raw in lines {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("//") || trimmed.hasPrefix(";") { continue }
             let written = strippingComment(trimmed)
@@ -1086,13 +1008,6 @@ enum ModuleParser {
                 invalidNames.insert(name)
             } else if scanning == "argument", let argument = loonArgument(written) {
                 let known = manifest.arguments.contains { $0.name == argument.name }
-                guard isWithinLimit(argument), known || manifest.arguments.count < maximumArguments else {
-                    overLimit.insert(index)
-                     
-                     
-                    droppedNames.insert(argument.name)
-                    continue
-                }
                 loonArguments[argument.name] = .some(argument.defaultValue)
                 loonTypes[argument.name] = ModuleLoonRewriteSyntax.declaredType(ofArgument: written)
                 if !known { manifest.arguments.append(argument) }
@@ -1101,33 +1016,17 @@ enum ModuleParser {
          
          
          
-        var argumentsLine: (index: Int, value: String)?
-        for (index, raw) in lines.enumerated() {
-            if let value = metadataValue(raw, "arguments") { argumentsLine = (index, value) }
-        }
-        var argumentsOverLimit: ModuleIgnoredEntry?
-         
-         
         var bareNames = Set<String>()
-        if let argumentsLine {
-            let capped = cappedArguments(argumentsLine.value)
-            bareNames = Set(capped.kept.filter { $0.defaultValue == nil }.map(\.name))
-            if capped.dropped > 0 {
-                argumentsOverLimit = ModuleIgnoredEntry(text: "#!arguments", reason: .argumentsOverLimit,
-                                                         origin: ModuleLineOrigin(section: "", line: argumentsLine.index + 1))
-            }
-            droppedNames.formUnion(capped.droppedNames.filter { name in !manifest.arguments.contains { $0.name == name } })
+        if let value = lines.compactMap({ metadataValue($0, "arguments") }).last {
+            bareNames = Set(arguments(value).filter { $0.defaultValue == nil }.map(\.name))
         }
-        manifest.arguments.removeAll { droppedNames.contains($0.name) }
-        for name in droppedNames { loonArguments.removeValue(forKey: name) }
          
          
          
         var newerLoonArguments = loonArguments
-        for name in droppedNames { newerLoonArguments[name] = .some(nil) }
          
          
-        let declaredNames = Set(manifest.arguments.map(\.name)).union(loonArguments.keys).union(droppedNames)
+        let declaredNames = Set(manifest.arguments.map(\.name)).union(loonArguments.keys)
         func holdsPlaceholder(_ text: String) -> Bool {
             text.contains("{{{") || text.contains("${args.") || loonReferences(in: text).contains(where: declaredNames.contains)
         }
@@ -1148,8 +1047,7 @@ enum ModuleParser {
          
          
          
-        for (name, value) in argumentValues where declaredNames.contains(name) && !droppedNames.contains(name)
-            && !invalidNames.contains(name) {
+        for (name, value) in argumentValues where declaredNames.contains(name) && !invalidNames.contains(name) {
             defaults[name] = value
             if loonArguments[name] != nil {
                 loonArguments[name] = .some(value)
@@ -1162,9 +1060,6 @@ enum ModuleParser {
         manifest.arguments += storedSettings(lines, besides: manifest.arguments)
         var ir = ModuleIR.empty(manifest)
         ir.ignored += headerNotes
-        if let argumentsOverLimit { ir.ignored.append(argumentsOverLimit) }
-         
-        for name in droppedNames where loonArguments[name] == nil { loonArguments[name] = .some(nil) }
         var section: String?
          
         var rulesets: [(name: String, lines: [(text: String, origin: ModuleLineOrigin)])] = []
@@ -1181,11 +1076,6 @@ enum ModuleParser {
             let origin = ModuleLineOrigin(section: section ?? "", line: index + 1)
             guard let current = section else {
                 ir.ignored.append(ModuleIgnoredEntry(text: written, reason: .unreadableLine, origin: origin))
-                continue
-            }
-            if overLimit.contains(index) {
-                ir.ignored.append(ModuleIgnoredEntry(text: prefix(written, bytes: maximumArgumentBytes), reason: .argumentsOverLimit,
-                                                      origin: origin))
                 continue
             }
              
@@ -1236,11 +1126,8 @@ enum ModuleParser {
              
             if case .success(let line) = filled, line != written, isComment(line) { continue }
             if case .success(let line) = filled, let name = surge.unresolved.first,
-               key(of: current) != "script" || !placeholdersOnlyInArgument(line)
-                || surge.unresolved.contains(where: droppedNames.contains) {
-                 
-                 
-                filled = .failure(.missingArgument(surge.unresolved.first(where: droppedNames.contains) ?? name))
+               key(of: current) != "script" || !placeholdersOnlyInArgument(line) {
+                filled = .failure(.missingArgument(name))
             }
              
              

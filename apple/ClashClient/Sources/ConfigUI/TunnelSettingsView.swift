@@ -1,3 +1,4 @@
+import ClashClientKit
 import ClashClientUI
 import SwiftUI
 
@@ -20,6 +21,11 @@ struct TunnelSettingsView: View {
     @State private var hasLoaded = false
     @State private var isApplying = false
     @State private var error = ""
+     
+     
+     
+    @State private var moduleSets: [ModuleDeviceSettingKey: ModuleDeviceSettingNote] = [:]
+    @Environment(\.locale) private var locale
 
     var body: some View {
         ClashMacSettingsFormContainer {
@@ -45,6 +51,7 @@ struct TunnelSettingsView: View {
                      
                      
                     Text("While this is on, the tunnel runs the gVisor stack; a profile that asks for the system or mixed stack is switched, and the switch is listed under Deviations.")
+                    moduleNote(.includeAllNetworks)
                 }
             }
 
@@ -55,7 +62,10 @@ struct TunnelSettingsView: View {
             } header: {
                 Text("Include Local Networks")
             } footer: {
-                Text("If YES, all traffic destined for local networks will be included from the tunnel.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("If YES, all traffic destined for local networks will be included from the tunnel.")
+                    moduleNote(.includeLocalNetworks)
+                }
             }
 
             if #available(iOS 16.4, *) {
@@ -66,7 +76,10 @@ struct TunnelSettingsView: View {
                 } header: {
                     Text("Include APNs")
                 } footer: {
-                    Text("If YES, the network traffic for the Apple Push Notification service (APNs) will be included from the tunnel.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("If YES, the network traffic for the Apple Push Notification service (APNs) will be included from the tunnel.")
+                        moduleNote(.includeAPNs)
+                    }
                 }
 
                 Section {
@@ -76,7 +89,10 @@ struct TunnelSettingsView: View {
                 } header: {
                     Text("Include Cellular Services")
                 } footer: {
-                    Text("If YES, The internet-routable network traffic for cellular services (VoLTE, Wi-Fi Calling, IMS, MMS, Visual Voicemail, etc.) will be included from the tunnel.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("If YES, The internet-routable network traffic for cellular services (VoLTE, Wi-Fi Calling, IMS, MMS, Visual Voicemail, etc.) will be included from the tunnel.")
+                        moduleNote(.includeCellularServices)
+                    }
                 }
             }
 
@@ -88,7 +104,10 @@ struct TunnelSettingsView: View {
             } header: {
                 Text("Hide VPN Icon")
             } footer: {
-                Text("If YES, the VPN badge stays off the status bar: the tunnel leaves 0.0.0.0/31 and ::/127 outside its routes. Takes effect on the next connection.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("If YES, the VPN badge stays off the status bar: the tunnel leaves 0.0.0.0/31 and ::/127 outside its routes. Takes effect on the next connection.")
+                    moduleNote(.hideVPNIcon)
+                }
             }
 
             Section {
@@ -105,6 +124,7 @@ struct TunnelSettingsView: View {
                 VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
                     Text("If YES, the tunnel does not take the default route and installs a split route table instead, so HomeKit accessories on the local network keep answering. Internet Sharing does not work while this is on. Takes effect on the next connection.")
                     Text("Turn this on only if HomeKit accessories stop responding. Not needed when the configuration sets tun.strict-route.")
+                    moduleNote(.homeKitCompatibility)
                 }
             }
 
@@ -134,6 +154,18 @@ struct TunnelSettingsView: View {
         }
         .onChange(of: vpn.tunnelSettings) { settings in
             draft = settings
+        }
+        .task { moduleSets = await ModuleDeviceSettingNote.published() }
+    }
+
+     
+     
+    @ViewBuilder
+    private func moduleNote(_ key: ModuleDeviceSettingKey) -> some View {
+        if let set = moduleSets[key] {
+            Text(clash: .format("Module “%@” sets “%@”, which runs over this.",
+                               [set.module, ClashCopy.string(for: .copy(set.isOn ? "On" : "Off"), locale: locale)]))
+                .accessibilityIdentifier("tunnel.module-note.\(key.rawValue)")
         }
     }
 

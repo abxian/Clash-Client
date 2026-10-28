@@ -252,6 +252,9 @@ struct ProxyNodeDetailSheet: View {
      
      
     var resolved: ProxyNodeDetailLookup.Resolution? = nil
+     
+    var failureCategory: String? = nil
+    var failureMessage: String? = nil
 
      
      
@@ -259,7 +262,7 @@ struct ProxyNodeDetailSheet: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
      
@@ -282,6 +285,7 @@ struct ProxyNodeDetailSheet: View {
                         .accessibilityIdentifier("proxy-detail.loading")
                 } else if let details {
                     identity(details)
+                    lastFailure
                     ForEach(details.sections) { section in
                         Section(ClashCopy.key(section.title)) {
                             ForEach(section.rows) { row in
@@ -448,6 +452,25 @@ struct ProxyNodeDetailSheet: View {
 
      
      
+    @ViewBuilder
+    private var lastFailure: some View {
+        if let failureMessage {
+            Section(ClashCopy.key("Latency Test")) {
+                valueRow(ClashCopy.key("Latency")) {
+                    Text(ClashCopy.key(ClashProbeFailureCopy.badge(for: failureCategory ?? "")))
+                }
+                Text(verbatim: failureMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .accessibilityIdentifier("proxy-detail.failure")
+            }
+        }
+    }
+
+     
+     
     private func valueText(_ row: ProxyProtocolDetailRow, _ written: String) -> Text {
         row.kind == .toggle ? Text(ClashCopy.key(written)) : Text(verbatim: written)
     }
@@ -596,10 +619,13 @@ struct ProxyNodeEditorSheet: View {
     let cachedProjection: String?
     let profile: Profile
     let providersDir: URL?
+     
+    var failureCategory: String?
+    var failureMessage: String?
     @ObservedObject var profiles: ProfilesViewModel
 
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
      
@@ -642,7 +668,9 @@ struct ProxyNodeEditorSheet: View {
                             type: details.typeID,
                             delay: nil,
                             groupNames: [],
-                            protocolDetails: details
+                            protocolDetails: details,
+                            failureCategory: failureCategory,
+                            failureMessage: failureMessage
                         ),
                         retest: {},
                         saveNode: { original, edited in
@@ -666,7 +694,9 @@ struct ProxyNodeEditorSheet: View {
                     nodeName: nodeName,
                     yaml: resolution?.source == .presented ? presented : projected,
                     providersDir: providersDir,
-                    resolved: resolution
+                    resolved: resolution,
+                    failureCategory: failureCategory,
+                    failureMessage: failureMessage
                 )
             }
         }

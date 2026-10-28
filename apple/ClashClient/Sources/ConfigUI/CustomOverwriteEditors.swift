@@ -269,7 +269,7 @@ struct CustomProxyGroupEditor: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @State private var group: CustomProxyGroup

@@ -22,7 +22,7 @@ struct ProfileNetworkSettingsView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ProfileNetworkDraft
      
      

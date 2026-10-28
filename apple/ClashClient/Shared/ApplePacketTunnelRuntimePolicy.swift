@@ -70,7 +70,14 @@ struct ApplePacketTunnelRuntimePolicy: Equatable {
              
              
              
-            Self(runtimeProfile: "iosPacketTunnel", memoryLimit: nil, maxProcs: 4)
+             
+             
+             
+             
+             
+             
+             
+            Self(runtimeProfile: "iosPacketTunnel", memoryLimit: nil, maxProcs: 1)
         case .tvOS:
              
              

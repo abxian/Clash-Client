@@ -10,9 +10,6 @@ import Foundation
  
 enum ModuleJSONRewriteSyntax {
      
-    static let maximumJQBytes = 32 * 1024
-
-     
      
      
      
@@ -224,8 +221,8 @@ enum ModuleJSONRewriteSyntax {
      
      
      
+     
     static func jq(_ expression: String) -> Result<String, ModuleIgnoredReason> {
-        guard expression.utf8.count <= maximumJQBytes else { return .failure(.lineTooLong(maximumJQBytes)) }
         do {
             _ = try ModuleJQ.parseOnLargeStack(expression)
             return .success(expression)

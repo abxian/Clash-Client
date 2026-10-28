@@ -21,18 +21,6 @@ import UniformTypeIdentifiers
  
 enum ModuleLocalAnswerSyntax {
      
-    static let maximumInlineBodyBytes = 64 * 1024
-
-     
-     
-     
-     
-     
-    static func maximumFileBytes(on platform: ModulePlatform) -> Int {
-        platform == .mac ? ModuleAnswerFileLimit.macOS : ModuleAnswerFileLimit.iOS
-    }
-
-     
     static let pendingFile = ModuleAnswerBody.file(sha256: "", byteCount: 0)
 
      
@@ -433,20 +421,12 @@ enum ModuleLocalAnswerSyntax {
      
      
      
-     
-    static func publishing(_ ir: ModuleIR, files: [String: PublishedFile], platform: ModulePlatform) -> ModuleIR {
-        let cap = maximumFileBytes(on: platform)
+    static func publishing(_ ir: ModuleIR, files: [String: PublishedFile]) -> ModuleIR {
         var out = ir
         var kept: [ModuleAnswerFileReference] = []
-        var setAside: [ModuleLineOrigin] = []
         for var reference in ir.answerFiles {
             guard let file = files[reference.url] else {
                 kept.append(reference)
-                continue
-            }
-            guard file.byteCount <= cap else {
-                setAside.append(reference.origin)
-                out.ignored.append(ModuleIgnoredEntry(text: reference.url, reason: .answerFileTooLarge(cap), origin: reference.origin))
                 continue
             }
             reference.sha256 = file.sha256
@@ -466,15 +446,6 @@ enum ModuleLocalAnswerSyntax {
                 }
             }
         }
-        out.rewriteRules.removeAll { rule in
-            setAside.contains(rule.origin) && rule.actions.contains { action in
-                switch action {
-                case .localAnswer(let answer): return isFile(answer.body)
-                case .requestBody(let body, _): return isFile(body)
-                default: return false
-                }
-            }
-        }
         out.answerFiles = kept
         return out
     }
@@ -487,13 +458,12 @@ enum ModuleLocalAnswerSyntax {
 
      
      
+     
     static func inlineBody(_ text: String, base64: Bool) -> Result<ModuleAnswerBody, ModuleIgnoredReason> {
         if base64 {
             guard let data = decodedBase64(text) else { return .failure(.unreadableLine) }
-            guard data.count <= maximumInlineBodyBytes else { return .failure(.lineTooLong(maximumInlineBodyBytes)) }
             return .success(data.isEmpty ? .empty : .bytes(data))
         }
-        guard text.utf8.count <= maximumInlineBodyBytes else { return .failure(.lineTooLong(maximumInlineBodyBytes)) }
         return .success(text.isEmpty ? .empty : .text(text))
     }
 
@@ -505,7 +475,6 @@ enum ModuleLocalAnswerSyntax {
      
     static func rawResponse(_ base64: String) -> Result<ModuleLocalAnswer, ModuleIgnoredReason> {
         guard let data = decodedBase64(base64) else { return .failure(.unreadableLine) }
-        guard data.count <= maximumInlineBodyBytes else { return .failure(.lineTooLong(maximumInlineBodyBytes)) }
         let ends = [Data("\r\n\r\n".utf8), Data("\n\n".utf8)].compactMap { data.range(of: $0) }
         let end = ends.min { $0.lowerBound < $1.lowerBound }
         let headBytes = end.map { data[..<$0.lowerBound] } ?? data[...]

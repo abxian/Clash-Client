@@ -240,6 +240,9 @@ public struct ClashMacSettingsSectionDocument: Equatable {
      
     func row(for shared: ClashMacSectionLayout.Row) -> ClashMacSectionRow {
         let running = running
+         
+         
+        let value = shows(shared.path) ? running.node(at: shared.path) : shared.value
         var owner: ClashMacKeyOwner?
         var reason: String?
         var drills = false
@@ -250,9 +253,9 @@ public struct ClashMacSettingsSectionDocument: Equatable {
         case .inline, .page: break
         }
         var row = ClashMacSectionRow(
-            key: shared.key, path: shared.path, value: shared.value, field: shared.field,
+            key: shared.key, path: shared.path, value: value, field: shared.field,
             control: shared.field.flatMap { field in
-                ClashMacFieldControl.make(field, value: shared.value) { ConfigurationReferenceNames.names($0, in: running) }
+                ClashMacFieldControl.make(field, value: value) { ConfigurationReferenceNames.names($0, in: running) }
             },
             owner: owner,
             platformReason: reason,
@@ -260,16 +263,45 @@ public struct ClashMacSettingsSectionDocument: Equatable {
             platformNote: shared.conditionalEffective == nil ? nil : shared.field.flatMap { field in
                 field.platformDecision?.condition.flatMap { ConfigurationValueWords.conditionalLine(for: field, conditions: [$0]) }
             },
-            usesDefault: shared.value == nil,
-            removable: shared.value != nil && removes(shared.path)
+            usesDefault: value == nil,
+            removable: value != nil && removes(shared.path)
         )
         row.opensLevel = drills
         return row
     }
 
      
+    @MainActor
+    func noted(_ row: ClashMacSectionRow, by runsOver: ClashMacRunsOver?) -> ClashMacSectionRow {
+        guard let runsOver else { return row }
+        var row = row
+        row.runsOver = runsOver(row.path, row.field, row.drillsIn, running)
+        return row
+    }
+
      
-    public var running: OrderedJSON { ownLayer.map { page.mergingAsTheCoreMerges($0) } ?? page }
+     
+     
+    public var running: OrderedJSON {
+        let written = ownLayer.map { page.mergingAsTheCoreMerges($0) } ?? page
+        return shownEdits.reduce(written) { (try? $0.applying($1)) ?? $0 }
+    }
+
+     
+     
+     
+     
+     
+     
+    public var shownEdits: [ConfigurationPageEdit] = []
+
+     
+    func shows(_ path: [String]) -> Bool {
+        shownEdits.contains { edit in
+            let written = edit.writtenPath
+            return written.starts(with: path) || path.starts(with: written)
+        }
+    }
 
      
      
@@ -292,7 +324,7 @@ public struct ClashMacSettingsSectionDocument: Equatable {
             && lhs.elsewhere == rhs.elsewhere && lhs.platformReasons == rhs.platformReasons && lhs.choices == rhs.choices
             && lhs.platformKeysKnown == rhs.platformKeysKnown && lhs.catalogVersion == rhs.catalogVersion
             && lhs.activeConditions == rhs.activeConditions && lhs.removesFileText == rhs.removesFileText
-            && lhs.catalog?.fields.count == rhs.catalog?.fields.count
+            && lhs.catalog?.fields.count == rhs.catalog?.fields.count && lhs.shownEdits == rhs.shownEdits
     }
 }
 
@@ -321,6 +353,11 @@ struct ClashMacSectionRow: Identifiable {
     let platformReason: String?
      
     var platformNote: ClashDisplayText? = nil
+     
+     
+    var runsOver: ClashDisplayText? = nil
+     
+    var caption: ClashDisplayText? { runsOver ?? platformNote }
      
      
     var opensLevel = false
@@ -353,10 +390,93 @@ struct ClashMacSectionRow: Identifiable {
  
  
  
+ 
+ 
+ 
+public typealias ClashMacRunsOver = @MainActor (_ path: [String], _ field: ConfigurationField?, _ opensPage: Bool,
+                                               _ running: OrderedJSON) -> ClashDisplayText?
+
+ 
+ 
+ 
 public enum ClashMacListenOff {
     case edits([ConfigurationPageEdit])
     case written
     case nothing
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+struct ClashMacSectionWrites: Equatable {
+    enum Step: Equatable {
+         
+        case edits([ConfigurationPageEdit])
+         
+        case ownDNS(Bool)
+         
+        case turnOff([String])
+    }
+
+     
+    private(set) var running: Step?
+     
+    private(set) var waiting: [Step] = []
+
+    var busy: Bool { running != nil }
+
+     
+     
+    mutating func take(_ step: Step) -> Step? {
+        guard running == nil else {
+            waiting.append(step)
+            return nil
+        }
+        running = step
+        return step
+    }
+
+     
+     
+    mutating func finish() -> Step? {
+        guard !waiting.isEmpty else {
+            running = nil
+            return nil
+        }
+        var next = waiting.removeFirst()
+        if case .edits(var edits) = next {
+            while case .edits(let more)? = waiting.first {
+                edits += more
+                waiting.removeFirst()
+            }
+            next = .edits(edits)
+        }
+        running = next
+        return next
+    }
+
+     
+     
+    var shownEdits: [ConfigurationPageEdit] {
+        ((running.map { [$0] } ?? []) + waiting).flatMap { step -> [ConfigurationPageEdit] in
+            switch step {
+            case .edits(let edits): return edits
+            case .turnOff(let path): return [.set(path: path, to: .string(""))]
+            case .ownDNS: return []
+            }
+        }
+    }
+
+     
+    var ownDNSPressed: Bool? {
+        ((running.map { [$0] } ?? []) + waiting).reduce(nil) { pressed, step in
+            if case .ownDNS(let on) = step { return on }
+            return pressed
+        }
+    }
 }
 
  
@@ -382,6 +502,9 @@ public struct ClashMacSettingsSectionActions {
      
      
     public var turnOff: (@MainActor ([String]) async throws -> ClashMacListenOff)? = nil
+     
+     
+    public var runsOver: (@MainActor () async -> ClashMacRunsOver?)? = nil
     public init(load: @escaping @MainActor (ConfigurationOutlineSection) async throws -> ClashMacSettingsSectionDocument,
                 save: @escaping @MainActor ([ConfigurationPageEdit], String?) async throws -> Void) {
         self.load = load; self.save = save
@@ -505,7 +628,13 @@ struct ClashMacSettingsSectionPage: View {
     @State private var writeFailures: [[String]: String] = [:]
      
     @State private var dnsSwitchFailure: String?
-    @State private var saving = false
+     
+     
+     
+     
+     
+     
+    @State private var writes = ClashMacSectionWrites()
     @State private var editing: ClashMacKeyEdit?
     @State private var adding = false
      
@@ -513,13 +642,15 @@ struct ClashMacSettingsSectionPage: View {
     @State private var pending: [ConfigurationPageEdit]?
      
      
-     
-    @State private var queued: [ConfigurationPageEdit] = []
+    @State private var runsOver: ClashMacRunsOver?
+    @State private var reads = 0
     @Environment(\.locale) private var locale
     @Environment(\.configurationFieldCopy) private var copy
 
     private var rows: [ClashMacSectionRow] {
-        document?.rows(section: section, under: basePath, fallback: basePath.isEmpty ? knownKeys : []) ?? []
+        guard let document else { return [] }
+        return document.rows(section: section, under: basePath, fallback: basePath.isEmpty ? knownKeys : [])
+            .map { document.noted($0, by: runsOver) }
     }
 
      
@@ -543,7 +674,7 @@ struct ClashMacSettingsSectionPage: View {
             var kept: [(title: ClashDisplayText?, rows: [ClashMacSectionRow], footer: String?)] = []
             var platform = layout.platformDecided.map { document.row(for: $0) }
             for group in layout.groups {
-                let rows = group.rows.map { document.row(for: $0) }
+                let rows = group.rows.map { document.noted(document.row(for: $0), by: runsOver) }
                 platform += rows.filter { $0.platformReason != nil }
                 let shown = rows.filter { $0.platformReason == nil }
                 if !shown.isEmpty { kept.append((group.title, shown, group.footer)) }
@@ -551,7 +682,7 @@ struct ClashMacSettingsSectionPage: View {
             return (kept, platform)
         }
         let blocks = Self.blocks(rows, section: section, basePath: basePath) { row in
-            document.rows(section: section, under: row.path, fallback: [])
+            document.rows(section: section, under: row.path, fallback: []).map { document.noted($0, by: runsOver) }
         }
         let split = Self.separatingPlatformKeys(blocks)
         return (split.blocks.map { ($0.title, $0.rows, nil) }, split.platform)
@@ -587,16 +718,9 @@ struct ClashMacSettingsSectionPage: View {
             }
              
              
-            if section == .dns, basePath.isEmpty, let on = document?.ownDNSSwitch, let setSwitch = actions.setOwnDNSSwitch {
+            if section == .dns, basePath.isEmpty, let on = document?.ownDNSSwitch, actions.setOwnDNSSwitch != nil {
                 Section {
-                    Toggle(isOn: Binding(get: { on }, set: { value in
-                        Task { @MainActor in
-                            saving = true
-                            defer { saving = false }
-                            do { try await setSwitch(value); dnsSwitchFailure = nil } catch { dnsSwitchFailure = ClashErrorCopy.message(error, locale: locale) }
-                            await reload()
-                        }
-                    })) {
+                    Toggle(isOn: Binding(get: { writes.ownDNSPressed ?? on }, set: { perform(.ownDNS($0)) })) {
                         Text(clash: .copy("Use custom DNS"))
                     }
                     .toggleStyle(.switch)
@@ -667,7 +791,7 @@ struct ClashMacSettingsSectionPage: View {
             if !readOnly, let entry = entryKind {
                 Section {
                     Button { adding = true } label: { Text(clash: .copy("Add…")) }
-                        .disabled(document == nil || saving || entry.choices.map { $0.allSatisfy(taken.contains) } == true)
+                        .disabled(document == nil || writes.busy || entry.choices.map { $0.allSatisfy(taken.contains) } == true)
                         .accessibilityIdentifier("configuration-center.section.key.add")
                      
                     ForEach(stray, id: \.self) { ClashMacRowFailure(message: $0) }
@@ -681,6 +805,7 @@ struct ClashMacSettingsSectionPage: View {
         }
         .formStyle(.grouped)
         .task { await reload() }
+        .task(id: reads) { if reads > 0, let read = actions.runsOver { runsOver = await read() } }
         .sheet(item: $editing) { edit in
             ClashMacValueEditSheet(edit: edit, save: { value in
                 request([.set(path: edit.path, to: value)])
@@ -704,7 +829,7 @@ struct ClashMacSettingsSectionPage: View {
             Button {
                 let edits = pending ?? []
                 pending = nil
-                Task { await save(edits) }
+                if !edits.isEmpty { perform(.edits(edits)) }
             } label: { Text(clash: .copy("Save")) }
                 .accessibilityIdentifier("configuration-center.section.copy-scheme.confirm")
         } message: {
@@ -1006,28 +1131,59 @@ struct ClashMacSettingsSectionPage: View {
      
     private func request(_ edits: [ConfigurationPageEdit]) {
         guard !edits.isEmpty else { return }
-        if saving {
-            queued += edits
-            return
-        }
-        if document?.copies != nil {
+         
+        if !writes.busy, document?.copies != nil {
             pending = edits
             return
         }
-        Task { await save(edits) }
+        perform(.edits(edits))
     }
 
      
      
      
+     
     private func turnOff(_ path: [String]) {
-        guard let off = actions.turnOff else { return request([.remove(path: path)]) }
-        guard !saving else { return }
-        Task { @MainActor in
+        guard actions.turnOff != nil else { return request([.remove(path: path)]) }
+        perform(.turnOff(path))
+    }
+
+     
+     
+    private func perform(_ step: ClashMacSectionWrites.Step) {
+        let now = writes.take(step)
+        document?.shownEdits = writes.shownEdits
+        guard let now else { return }
+        Task { await write(from: now) }
+    }
+
+    private func write(from first: ClashMacSectionWrites.Step) async {
+        var step: ClashMacSectionWrites.Step? = first
+        while let current = step {
+            await run(current)
+            await reload()
+            step = writes.finish()
+             
+             
+            document?.shownEdits = writes.shownEdits
+        }
+    }
+
+     
+    private func run(_ step: ClashMacSectionWrites.Step) async {
+        switch step {
+        case .edits(let edits):
+            await save(edits)
+        case .ownDNS(let on):
+            guard let setSwitch = actions.setOwnDNSSwitch else { return }
+            do { try await setSwitch(on); dnsSwitchFailure = nil } catch { dnsSwitchFailure = ClashErrorCopy.message(error, locale: locale) }
+        case .turnOff(let path):
+            guard let off = actions.turnOff else { return }
             do {
                 switch try await off(path) {
-                case .edits(let edits): request(edits)
-                case .written: clearFailures(at: [path]); await reload()
+                case .edits(let edits):
+                    if document?.copies != nil { pending = edits } else { await save(edits) }
+                case .written: clearFailures(at: [path])
                 case .nothing: break
                 }
             } catch is CancellationError {
@@ -1038,21 +1194,13 @@ struct ClashMacSettingsSectionPage: View {
     }
 
     private func save(_ edits: [ConfigurationPageEdit]) async {
-        saving = true
-        defer { saving = false }
-        var next = edits
-        while !next.isEmpty {
-            let paths = next.map(\.writtenPath)
-            do {
-                try await actions.save(next, document?.scheme)
-                clearFailures(at: paths)
-            } catch is CancellationError {
-            } catch {
-                for path in paths { writeFailures[path] = ClashErrorCopy.message(error, locale: locale) }
-            }
-            await reload()
-            next = queued
-            queued = []
+        let paths = edits.map(\.writtenPath)
+        do {
+            try await actions.save(edits, document?.scheme)
+            clearFailures(at: paths)
+        } catch is CancellationError {
+        } catch {
+            for path in paths { writeFailures[path] = ClashErrorCopy.message(error, locale: locale) }
         }
     }
 
@@ -1079,8 +1227,13 @@ struct ClashMacSettingsSectionPage: View {
 
     private func reload() async {
         do {
-            document = try await actions.load(section)
+            var read = try await actions.load(section)
+             
+             
+            read.shownEdits = writes.shownEdits
+            document = read
             loadFailure = nil
+            reads += 1
         } catch is CancellationError {
         } catch {
             loadFailure = ClashErrorCopy.message(error, locale: locale)
@@ -1108,7 +1261,18 @@ struct ClashMacObjectListPage: View {
      
      
     @State private var writeFailures: [WritePlace: String] = [:]
-    @State private var saving = false
+     
+     
+     
+     
+     
+    @State private var writes = ClashMacSectionWrites()
+     
+    @State private var runningPlaces: [WritePlace] = []
+    @State private var waitingPlaces: [WritePlace] = []
+     
+    @State private var runsOver: ClashMacRunsOver?
+    @State private var reads = 0
     @State private var adding = false
     @State private var editing: ClashMacListItemEdit?
     @State private var pending: PendingWrite?
@@ -1181,17 +1345,22 @@ struct ClashMacObjectListPage: View {
                      
                      
                     Button { adding = true } label: { Text(clash: .copy("Add…")) }
-                        .disabled(document?.catalog == nil || saving)
+                        .disabled(document?.catalog == nil || writes.busy)
                         .accessibilityIdentifier("configuration-center.section.item.add")
                     if let reason = writeFailures[.add] { ClashMacRowFailure(message: reason) }
                 } footer: {
                     if let footer = Self.listFooter(listPath) { Text(clash: footer) }
+                     
+                     
+                    if let document, let note = runsOver?(listPath, nil, false, document.running) {
+                        Text(clash: note).accessibilityIdentifier("configuration-center.section.item.runs-over")
+                    }
                 }
             }
         }
         .formStyle(.grouped)
-        .disabled(saving)
         .task { await reload() }
+        .task(id: reads) { if reads > 0, let read = actions.runsOver { runsOver = await read() } }
         .sheet(isPresented: $adding) {
              
             if let document, let catalog = document.catalog,
@@ -1216,7 +1385,7 @@ struct ClashMacObjectListPage: View {
             Button {
                 let write = pending
                 pending = nil
-                if let write { Task { await save(write.edits, at: write.place) } }
+                if let write { perform(write.edits, at: write.place) }
             } label: { Text(clash: .copy("Save")) }
         } message: {
             if let copies = document?.copies {
@@ -1388,33 +1557,65 @@ struct ClashMacObjectListPage: View {
     }
 
     private func request(_ edits: [ConfigurationPageEdit], at place: WritePlace) {
-        guard !edits.isEmpty, !saving else { return }
-        if document?.copies != nil {
+        guard !edits.isEmpty else { return }
+         
+        if !writes.busy, document?.copies != nil {
             pending = PendingWrite(edits: edits, place: place)
             return
         }
-        Task { await save(edits, at: place) }
+        perform(edits, at: place)
     }
 
-    private func save(_ edits: [ConfigurationPageEdit], at place: WritePlace) async {
-        saving = true
-        defer { saving = false }
+     
+    private func perform(_ edits: [ConfigurationPageEdit], at place: WritePlace) {
+        let now = writes.take(.edits(edits))
+        document?.shownEdits = writes.shownEdits
+        guard let now else {
+            waitingPlaces.append(place)
+            return
+        }
+        runningPlaces = [place]
+        Task { await write(from: now) }
+    }
+
+    private func write(from first: ClashMacSectionWrites.Step) async {
+        var step: ClashMacSectionWrites.Step? = first
+        while case .edits(let edits)? = step {
+            await save(edits, at: runningPlaces)
+            await reload()
+             
+             
+            step = writes.finish()
+            runningPlaces = waitingPlaces
+            waitingPlaces = []
+            document?.shownEdits = writes.shownEdits
+        }
+    }
+
+    private func save(_ edits: [ConfigurationPageEdit], at places: [WritePlace]) async {
         do {
             try await actions.save(edits, document?.scheme)
              
              
-            if case .item = place { writeFailures = [:] } else { writeFailures[place] = nil }
+            if places.contains(where: { if case .item = $0 { return true }; return false }) {
+                writeFailures = [:]
+            } else {
+                for place in places { writeFailures[place] = nil }
+            }
         } catch is CancellationError {
         } catch {
-            writeFailures[place] = ClashErrorCopy.message(error, locale: locale)
+            let message = ClashErrorCopy.message(error, locale: locale)
+            for place in places { writeFailures[place] = message }
         }
-        await reload()
     }
 
     private func reload() async {
         do {
-            document = try await actions.load(section)
+            var read = try await actions.load(section)
+            read.shownEdits = writes.shownEdits
+            document = read
             loadFailure = nil
+            reads += 1
         } catch is CancellationError {
         } catch {
             loadFailure = ClashErrorCopy.message(error, locale: locale)
@@ -1453,7 +1654,7 @@ struct ClashMacNewItemSheet: View {
     let save: (OrderedJSON) -> Void
     @State private var type = ""
     @State private var values: [String: ConfigurationNewItem.Value] = [:]
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var copy
     @Environment(\.locale) private var locale
 
@@ -1719,7 +1920,7 @@ struct ClashMacSectionKeyLabel: View {
         if let why = ClashMacSectionKeyLabel.unavailableWords(row.value, field: row.field, copy: copy, locale: locale) {
             Text(verbatim: why).foregroundStyle(.orange)
         }
-        if let note = row.platformNote {
+        if let note = row.caption {
             Text(clash: note)
         }
     }
@@ -1876,7 +2077,7 @@ struct ClashMacValueEditSheet: View {
      
      
     @State private var seed: OrderedJSON?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var copy
     @Environment(\.locale) private var locale
 
@@ -2188,7 +2389,7 @@ struct ClashMacNewEntrySheet: View {
     @State private var policyKind: ConfigurationPolicyKey.Kind = .domain
     @State private var policyValue = ""
     @State private var pickingGeo = false
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var name: String {
         guard policyKeys else { return key.trimmingCharacters(in: .whitespaces) }

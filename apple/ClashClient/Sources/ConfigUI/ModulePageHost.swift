@@ -17,6 +17,8 @@ struct ModulePageHost: View {
     @State private var isVisible = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.locale) private var locale
+     
+    @Environment(\.clashFeedback) private var feedback
 
      
     static let pollInterval: UInt64 = 5_000_000_000
@@ -29,16 +31,29 @@ struct ModulePageHost: View {
     var body: some View {
         ClashClientUI.ClashModulesView(
             snapshot: model.snapshot,
-            perform: { model.perform($0) },
+            perform: { model.perform($0, feedback: feedback) },
             detail: { model.details[$0] },
-            opensAddModule: addRequest.link != nil && isVisible && scenePhase == .active
-        ) { dismiss in
+            opensAddModule: addRequest.link != nil && isVisible && scenePhase == .active,
+            pullToUpdate: { await model.refreshAll() },
+            quickAdd: { open in
+                ModuleQuickAddCard(
+                    isAdding: model.isAdding,
+                    refusal: model.addRefusal,
+                    add: { input in Task { _ = await model.add(input) } },
+                    create: {
+                        model.addRefusal = nil
+                        open(.manual)
+                    }
+                )
+            }
+        ) { mode, dismiss in
             ModuleAddModuleSheet(
+                mode: mode,
                 isAdding: model.isAdding,
                 refusal: model.addRefusal,
                 offeredLink: addRequest.link,
-                add: { input in
-                    Task { if await model.add(input) { dismiss() } }
+                add: { input, name in
+                    Task { if await model.add(input, name: name) { dismiss() } }
                 },
                 cancel: {
                     model.addRefusal = nil
@@ -49,14 +64,18 @@ struct ModulePageHost: View {
              
             .onDisappear { addRequest.settle() }
         }
-        .onAppear {
-            ModuleTextPlatform.installIfNeeded()
-            isVisible = true
-            addRequest.pageAppeared()
-        }
-        .onDisappear {
-            isVisible = false
-            addRequest.pageDisappeared()
+        .onAppear { ModuleTextPlatform.installIfNeeded() }
+         
+         
+         
+         
+        .clashOnScreen { onScreen in
+            isVisible = onScreen
+            if onScreen {
+                addRequest.pageAppeared()
+            } else {
+                addRequest.pageDisappeared()
+            }
         }
         .task {
             model.locale = locale

@@ -20,6 +20,7 @@ import Foundation
  
  
  
+ 
 
  
 struct ModuleRuleOrigin: Equatable, Sendable {
@@ -1124,7 +1125,13 @@ final class ModuleRewriteProgram {
      
      
      
+     
+     
+    #if os(macOS)
+    static let maximumCarriedRegexes = Int.max
+    #else
     static let maximumCarriedRegexes = 256
+    #endif
 
      
      
@@ -1577,7 +1584,15 @@ final class ModuleRewriteProgram {
      
      
      
+     
+     
+     
+     
+    #if os(macOS)
+    static let maximumHeldJQBytes = Int.max
+    #else
     static let maximumHeldJQBytes = 768 << 10
+    #endif
 
      
     static let jqOverBudgetReason = "over budget: the engine holds at most \(maximumHeldJQBytes >> 10) KiB of jq programs, "
@@ -1852,16 +1867,13 @@ final class ModuleRewriteProgram {
      
      
      
+     
     static func jqExpression(fileSHA256 sha256: String, at url: URL?) -> String? {
         guard let url, let handle = try? FileHandle(forReadingFrom: url) else { return nil }
         defer { try? handle.close() }
-        guard let data = try? handle.read(upToCount: maximumJQFileBytes + 1), data.count <= maximumJQFileBytes,
-              ModuleJSON.sha256(data) == sha256.lowercased() else { return nil }
+        guard let data = try? handle.readToEnd(), ModuleJSON.sha256(data) == sha256.lowercased() else { return nil }
         return String(data: data, encoding: .utf8)
     }
-
-     
-    static let maximumJQFileBytes = 32 * 1024
 
      
      
@@ -2052,6 +2064,14 @@ final class ModuleRewriteProgram {
      
      
     var pinnedRegexes: Int { table.pinnedCount }
+
+     
+    var cachedRegexes: Int { table.cachedCount }
+
+     
+     
+     
+    func dropCachedRegexes() { table.dropCache() }
 
      
      
@@ -2962,7 +2982,8 @@ enum ModuleBodySteps {
                 return nil
             }
             let start = ModuleRequestBudget.threadNanoseconds()
-            let reading = ModuleJSONText.parse(text, maximumNodes: ModuleJSONRewrite.maximumNodes)
+             
+            let reading = ModuleJSONText.parse(text, maximumNodes: .max)
             charge(since: start)
             switch reading {
             case .value(let value):
@@ -2970,10 +2991,8 @@ enum ModuleBodySteps {
                  
                 if readAndWriteCharged { reserved = budget.hold(UInt64(text.count) &* writeNanosecondsPerByte) }
                 return value
-            case .notJSON:
+            case .notJSON, .tooManyNodes:
                 result.notes.append((step.origin, step.what, "the body is not JSON; it goes as it came"))
-            case .tooManyNodes:
-                result.notes.append((step.origin, step.what, "the body holds more than the \(ModuleJSONRewrite.maximumNodes) values a JSON rewrite reads; it goes as it came"))
             }
             return nil
         }

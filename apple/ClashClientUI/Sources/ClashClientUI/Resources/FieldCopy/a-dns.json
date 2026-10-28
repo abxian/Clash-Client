@@ -234,7 +234,7 @@
     "summary": {"en": "The most DNS records the cache keeps.",
                 "zh-Hans": "最多缓存多少条 DNS 记录。",
                 "zh-Hant": "最多快取多少筆 DNS 紀錄。"},
-    "unset": {"en": "4096", "zh-Hans": "4096 条", "zh-Hant": "4096 筆"}
+    "platform": {"en": "Unwritten, the cache keeps up to 1024 records to save memory; what you write is used as is.", "zh-Hans": "不写时最多缓存 1024 条，更省内存；写了就按你写的。", "zh-Hant": "不寫時最多快取 1024 筆，更省記憶體；寫了就依你寫的。"}
   },
   "dns.nameserver-policy": {
     "title": {"en": "DNS by Domain", "zh-Hans": "分域名 DNS", "zh-Hant": "分網域 DNS"},

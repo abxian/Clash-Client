@@ -27,15 +27,21 @@ public struct ClashScrollRequest: @unchecked Sendable, Equatable {
      
      
     private let token: UUID
-    private let perform: (AnyHashable) -> Void
+    private let perform: (AnyHashable, UnitPoint) -> Void
 
-    init(token: UUID = UUID(), perform: @escaping (AnyHashable) -> Void) {
+    init(token: UUID = UUID(), perform: @escaping (AnyHashable, UnitPoint) -> Void) {
         self.token = token
         self.perform = perform
     }
 
+     
     public func callAsFunction(_ id: AnyHashable) {
-        perform(id)
+        perform(id, .top)
+    }
+
+     
+    public func callAsFunction(_ id: AnyHashable, anchor: UnitPoint) {
+        perform(id, anchor)
     }
 
     public static func == (a: Self, b: Self) -> Bool {
@@ -590,9 +596,9 @@ struct ClashProductRootPage<Content: View>: View {
             scrollingBody
                 .environment(
                     \.clashScrollToID,
-                    ClashScrollRequest(token: scrollRequestToken) { id in
+                    ClashScrollRequest(token: scrollRequestToken) { id, anchor in
                         withAnimation(.easeInOut(duration: 0.25)) {
-                            proxy.scrollTo(id, anchor: .top)
+                            proxy.scrollTo(id, anchor: anchor)
                         }
                     }
                 )

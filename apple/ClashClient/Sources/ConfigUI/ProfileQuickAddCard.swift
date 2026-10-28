@@ -8,9 +8,6 @@ import UniformTypeIdentifiers
 struct ProfileQuickAddState: Equatable {
     enum Notice: Equatable {
         case nodeBelongsInCustomNodes
-         
-         
-        case ownRouting(profileID: String, groups: Int, rules: Int)
     }
     enum Phase: Equatable {
         case idle
@@ -116,8 +113,6 @@ final class ProfileQuickAddController: ObservableObject {
 
     let target: Target
     @Published var state = ProfileQuickAddState()
-     
-    @Published var switchingRouting = false
     @Published var showsImporter = false
     @Published var showsQRCapture = false {
         didSet {
@@ -130,10 +125,6 @@ final class ProfileQuickAddController: ObservableObject {
      
      
     var onFirstProfileCreated: (() -> Void)?
-     
-     
-     
-    var onLibraryChanged: (() async -> Void)?
      
     var onSourceAdded: ((ConfigurationLibrarySnapshot) -> Void)?
      
@@ -269,24 +260,6 @@ final class ProfileQuickAddController: ObservableObject {
      
      
      
-    func useOwnRouting(_ profileID: String) {
-        guard !switchingRouting else { return }
-        switchingRouting = true
-        Task { @MainActor in
-            defer { switchingRouting = false }
-            do {
-                try await model.setUsesOriginalConfiguration(profileID, enabled: true)
-                await onLibraryChanged?()
-                state.phase = .idle
-            } catch {
-                state.fail(error.localizedDescription)
-            }
-        }
-    }
-
-     
-     
-     
     nonisolated static func nodesOnly(for error: Error, input: ProfileQuickAddInput, target: Target) -> ProfileQuickAddState.NodesOnly? {
         switch target {
         case .profile, .source: break
@@ -310,15 +283,13 @@ final class ProfileQuickAddController: ObservableObject {
             do {
                 switch target {
                 case .profile:
+                     
+                     
+                     
                     let outcome = try await model.quickCreate(input, nodesOnly: nodesOnly)
-                    let notice = outcome.ownRouting.map {
-                        ProfileQuickAddState.Notice.ownRouting(profileID: outcome.id, groups: $0.groups, rules: $0.rules)
-                    }
-                    state.succeed(notice: notice)
+                    state.succeed()
                      
-                     
-                     
-                    if outcome.isFirstUserProfile, notice == nil { onFirstProfileCreated?() }
+                    if outcome.isFirstUserProfile { onFirstProfileCreated?() }
                 case .source:
                     let snapshot = try await model.quickAddSource(input, nodesOnly: nodesOnly)
                     state.succeed()
@@ -373,9 +344,6 @@ struct ProfileQuickAddIdentifiers {
     let fileIdentifier: String
     let manualIdentifier: String
     let statusIdentifier: String
-     
-     
-    var ownRoutingIdentifier: String? = nil
 }
 
 struct ProfileQuickAddCard: View {
@@ -384,8 +352,6 @@ struct ProfileQuickAddCard: View {
     @Environment(\.locale) private var locale
      
     var onFirstProfileCreated: (() -> Void)? = nil
-     
-    var onLibraryChanged: (() async -> Void)? = nil
      
     var manual: (() -> Void)? = nil
 
@@ -401,7 +367,7 @@ struct ProfileQuickAddCard: View {
                 .disabled(controller.state.isBusy)
             }
             statusRow
-            actionRow
+            actionRows
         } header: {
              
              
@@ -409,7 +375,6 @@ struct ProfileQuickAddCard: View {
         }
         .onAppear {
             controller.onFirstProfileCreated = onFirstProfileCreated
-            controller.onLibraryChanged = onLibraryChanged
         }
     }
 
@@ -421,45 +386,31 @@ struct ProfileQuickAddCard: View {
      
      
      
-     
-     
-     
-    private var actionRow: some View {
-        HStack(alignment: .top, spacing: ClashTheme.Spacing.compact) {
-            Button {
-                controller.showsQRCapture = true
-            } label: {
-                 
-                Label(ClashCopy.key("Scan"), systemImage: ClashSymbol.qrcodeViewfinder.name)
-            }
-            .accessibilityIdentifier(identifiers.scanIdentifier)
-            Button {
-                controller.showsImporter = true
-            } label: {
-                Label(ClashCopy.key("Import"), systemImage: ClashSymbol.arrowUpDocument.name)
-            }
-            .accessibilityIdentifier(identifiers.fileIdentifier)
-            if let manual {
-                Button(action: manual) {
-                     
-                     
-                     
-                     
-                     
-                     
-                     
-                     
-                     
-                    Label(ClashCopy.key("quick-add.door.create"), systemImage: ClashSymbol.pencilLine.name)
-                }
-                .accessibilityIdentifier(identifiers.manualIdentifier)
-            }
+    @ViewBuilder
+    private var actionRows: some View {
+        Button {
+            controller.showsQRCapture = true
+        } label: {
+            Label(ClashCopy.key("Scan QR Code"), systemImage: ClashSymbol.qrcodeViewfinder.name)
         }
-        .labelStyle(QuickAddDoorLabelStyle())
-        .buttonStyle(.plain)
-        .foregroundStyle(.tint)
         .disabled(controller.state.isBusy)
-        .padding(.vertical, ClashTheme.Spacing.tight)
+        .accessibilityIdentifier(identifiers.scanIdentifier)
+        Button {
+            controller.showsImporter = true
+        } label: {
+            Label(ClashCopy.key("Import File"), systemImage: ClashSymbol.arrowUpDocument.name)
+        }
+        .disabled(controller.state.isBusy)
+        .accessibilityIdentifier(identifiers.fileIdentifier)
+        if let manual {
+            Button(action: manual) {
+                 
+                Label(ClashCopy.key(controller.target == .rules ? "quick-add.new.rules" : "quick-add.new.node"),
+                      systemImage: ClashSymbol.docBadgePlus.name)
+            }
+            .disabled(controller.state.isBusy)
+            .accessibilityIdentifier(identifiers.manualIdentifier)
+        }
     }
 
      
@@ -507,56 +458,7 @@ struct ProfileQuickAddCard: View {
                 kind: .warning
             )
             .accessibilityIdentifier(identifiers.statusIdentifier)
-        case let .notice(.ownRouting(profileID, groups, rules)):
-            ClashStatusMessage(
-                text: .format("This link brings %@ groups and %@ rules.", [String(groups), String(rules)]),
-                kind: .information
-            )
-            .accessibilityIdentifier(identifiers.statusIdentifier)
-            let button = Button {
-                controller.useOwnRouting(profileID)
-            } label: {
-                Text(clash: .copy("Use its own routing"))
-            }
-            .disabled(controller.switchingRouting)
-            if let identifier = identifiers.ownRoutingIdentifier {
-                button.accessibilityIdentifier(identifier)
-            } else {
-                button
-            }
         }
-    }
-}
-
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
- 
-struct QuickAddDoorLabelStyle: LabelStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        VStack(spacing: ClashTheme.Spacing.compact - 2) {
-            configuration.icon
-                .font(.title3)
-                .frame(maxWidth: .infinity, minHeight: 52)
-                .background(
-                    .tint.opacity(0.11),
-                    in: RoundedRectangle(cornerRadius: ClashTheme.Radius.icon, style: .continuous)
-                )
-            configuration.title
-                .font(.footnote)
-                .lineLimit(1)
-        }
-        .contentShape(Rectangle())
     }
 }
 

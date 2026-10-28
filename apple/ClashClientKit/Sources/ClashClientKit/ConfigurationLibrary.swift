@@ -539,14 +539,15 @@ public final class ConfigurationLibraryStore: Sendable {
     }
 
     public func acknowledgePublication(_ reference: ConfigurationPublicationReference) throws {
-        try locked {
+        let acknowledged = try locked { () throws -> Bool in
             var current = try readSnapshot()
-            guard current.pendingPublications?.contains(reference) == true else { return }
+            guard current.pendingPublications?.contains(reference) == true else { return false }
             current.pendingPublications?.removeAll { $0 == reference }
             current.generation += 1
             try writeSnapshot(current)
-            _ = sweep(current)
+            return true
         }
+        if acknowledged { sweepTail() }
     }
 
 
@@ -639,6 +640,18 @@ public final class ConfigurationLibraryStore: Sendable {
      
     public func commit(_ candidate: ConfigurationLibrarySnapshot, payloads: [ConfigurationSourcePayload],
                        publications: [ConfigurationPublicationPayload] = [], expectedGeneration: UInt64) throws -> ConfigurationLibrarySnapshot {
+        let committed = try commitLocked(candidate, payloads: payloads, publications: publications,
+                                         expectedGeneration: expectedGeneration)
+         
+         
+         
+        sweepTail()
+        return committed
+    }
+
+    private func commitLocked(_ candidate: ConfigurationLibrarySnapshot, payloads: [ConfigurationSourcePayload],
+                              publications: [ConfigurationPublicationPayload],
+                              expectedGeneration: UInt64) throws -> ConfigurationLibrarySnapshot {
         try locked {
             let previous = try readSnapshot()
             guard previous.generation == expectedGeneration else { throw ConfigurationLibraryError.staleGeneration }
@@ -686,9 +699,6 @@ public final class ConfigurationLibraryStore: Sendable {
                 committed.schemePageRevision = Self.currentSchemePageRevision
             }
             try writeSnapshot(committed)
-             
-             
-            _ = sweep(committed)
             return committed
         }
     }
@@ -699,6 +709,28 @@ public final class ConfigurationLibraryStore: Sendable {
      
     public func originalURL(_ reference: ConfigurationSourceVersion) throws -> URL {
         try versionDirectory(reference).appendingPathComponent("original")
+    }
+
+     
+     
+     
+     
+     
+     
+     
+    func providerSections(_ reference: ConfigurationSourceVersion) throws -> [String: OrderedJSON] {
+        let file = try versionDirectory(reference).appendingPathComponent("document.json")
+        let identity = ProviderSectionsMemo.identity(of: file)
+        if let identity, let known = ProviderSectionsMemo.shared.sections(of: file.path, identity: identity) { return known }
+        let members = try OrderedJSON.topLevel(payload(reference).documentJSON)
+        var sections: [String: OrderedJSON] = [:]
+        for key in ["proxy-providers", "rule-providers", "global-ua"] {
+            if let value = try members?.value(key) { sections[key] = value }
+        }
+        if let identity, ProviderSectionsMemo.identity(of: file) == identity {
+            ProviderSectionsMemo.shared.record(sections, of: file.path, identity: identity)
+        }
+        return sections
     }
 
     public func payload(_ reference: ConfigurationSourceVersion) throws -> ConfigurationSourcePayload {
@@ -1023,6 +1055,8 @@ public struct ConfigurationLibraryGarbageCollection: Equatable, Sendable {
  
  
  
+ 
+ 
 extension ConfigurationLibraryStore {
      
     public static func referencedVersions(of snapshot: ConfigurationLibrarySnapshot) -> Set<ConfigurationSourceVersion> {
@@ -1076,47 +1110,105 @@ extension ConfigurationLibraryStore {
         }
     }
 
+
+
      
      
      
     func sweep(_ snapshot: ConfigurationLibrarySnapshot) -> ConfigurationLibraryGarbageCollection {
+        remove(garbage(by: snapshot), keptBy: snapshot)
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+    @discardableResult
+    func sweepTail() -> ConfigurationLibraryGarbageCollection {
+        guard let onDisk = try? readSnapshot() else { return .init() }
+        let found = garbage(by: onDisk)
+        guard !found.isEmpty else { return .init() }
+        return (try? locked { remove(found, keptBy: try readSnapshot()) }) ?? .init()
+    }
+
+     
+     
+     
+    struct SweepFindings {
+        var versions: [(id: String, url: URL)] = []
+        var publications: [(reference: ConfigurationPublicationReference, url: URL)] = []
+        var partials: [URL] = []
+        var folders: [URL] = []
+        var isEmpty: Bool { versions.isEmpty && publications.isEmpty && partials.isEmpty && folders.isEmpty }
+    }
+
+    func garbage(by snapshot: ConfigurationLibrarySnapshot) -> SweepFindings {
         let fm = FileManager.default
-        var result = ConfigurationLibraryGarbageCollection()
+        var found = SweepFindings()
         func subdirectories(_ url: URL) -> [URL] {
             (try? fm.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]))?
                 .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true } ?? []
         }
-        func isEmpty(_ url: URL) -> Bool {
-            ((try? fm.contentsOfDirectory(atPath: url.path)) ?? []).isEmpty
-        }
         let kept = Self.referencedVersions(of: snapshot)
         for sourceDirectory in subdirectories(directory.appendingPathComponent("sources")) {
             let id = sourceDirectory.lastPathComponent
-            for versionDirectory in subdirectories(sourceDirectory)
-            where !kept.contains(.init(id: id, version: versionDirectory.lastPathComponent)) {
-                if (try? fm.removeItem(at: versionDirectory)) != nil { result.removedVersions += 1 }
+
+
+            let versions = subdirectories(sourceDirectory)
+            let dropped = versions.filter { !kept.contains(.init(id: id, version: $0.lastPathComponent)) }
+            found.versions += dropped.map { (id, $0) }
+            if dropped.count == versions.count, ((try? fm.contentsOfDirectory(atPath: sourceDirectory.path)) ?? []).count == versions.count {
+                found.folders.append(sourceDirectory)
             }
-            if isEmpty(sourceDirectory) { try? fm.removeItem(at: sourceDirectory) }
         }
         let pending = Set(snapshot.pendingPublications ?? [])
         for profileDirectory in subdirectories(directory.appendingPathComponent("publications")) {
             let profileID = profileDirectory.lastPathComponent
-            let files = (try? fm.contentsOfDirectory(at: profileDirectory, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-             
-            for file in files where file.pathExtension == "json" || file.pathExtension == "yaml" {
+            let names = (try? fm.contentsOfDirectory(atPath: profileDirectory.path)) ?? []
+            var leaves = 0
+            for name in names {
+                let file = profileDirectory.appendingPathComponent(name)
+                 
+                 
+                 
+                 
+                if name.hasPrefix(".") {
+                    if name.hasSuffix(".partial") { found.partials.append(file); leaves += 1 }
+                    continue
+                }
+                 
+                guard file.pathExtension == "json" || file.pathExtension == "yaml" else { continue }
                 let reference = ConfigurationPublicationReference(profileID: profileID, version: file.deletingPathExtension().lastPathComponent)
                 guard !pending.contains(reference) else { continue }
-                if (try? fm.removeItem(at: file)) != nil, file.pathExtension == "json" { result.removedPublications += 1 }
+                found.publications.append((reference, file))
+                leaves += 1
             }
-             
-             
-             
-             
-            for name in (try? fm.contentsOfDirectory(atPath: profileDirectory.path)) ?? []
-            where name.hasPrefix(".") && name.hasSuffix(".partial") {
-                try? fm.removeItem(at: profileDirectory.appendingPathComponent(name))
-            }
-            if isEmpty(profileDirectory) { try? fm.removeItem(at: profileDirectory) }
+            if leaves == names.count { found.folders.append(profileDirectory) }
+        }
+        return found
+    }
+
+     
+     
+     
+    func remove(_ found: SweepFindings, keptBy snapshot: ConfigurationLibrarySnapshot) -> ConfigurationLibraryGarbageCollection {
+        let fm = FileManager.default
+        var result = ConfigurationLibraryGarbageCollection()
+        let kept = Self.referencedVersions(of: snapshot)
+        for (id, url) in found.versions where !kept.contains(.init(id: id, version: url.lastPathComponent)) {
+            if (try? fm.removeItem(at: url)) != nil { result.removedVersions += 1 }
+        }
+        let pending = Set(snapshot.pendingPublications ?? [])
+        for (reference, url) in found.publications where !pending.contains(reference) {
+            if (try? fm.removeItem(at: url)) != nil, url.pathExtension == "json" { result.removedPublications += 1 }
+        }
+        for url in found.partials { try? fm.removeItem(at: url) }
+        for folder in found.folders where ((try? fm.contentsOfDirectory(atPath: folder.path)) ?? [""]).isEmpty {
+            try? fm.removeItem(at: folder)
         }
         return result
     }
@@ -1130,5 +1222,38 @@ public extension ConfigurationLibraryError {
     func noted(_ detail: String? = nil, file: StaticString = #fileID, line: UInt = #line) -> ConfigurationLibraryError {
         ConfigurationLibraryDiagnostics.record("\(file):\(line)" + (detail.map { " " + $0 } ?? ""))
         return self
+    }
+}
+
+ 
+ 
+final class ProviderSectionsMemo: @unchecked Sendable {
+    static let shared = ProviderSectionsMemo()
+    private let lock = NSLock()
+    private var known: [String: (identity: String, sections: [String: OrderedJSON])] = [:]
+
+    static func identity(of url: URL) -> String? {
+        var status = stat()
+        guard stat(url.path, &status) == 0 else { return nil }
+        #if canImport(Darwin)
+        let (modified, changed) = (status.st_mtimespec, status.st_ctimespec)
+        #else
+        let (modified, changed) = (status.st_mtim, status.st_ctim)
+        #endif
+        return "\(status.st_dev)|\(status.st_ino)|\(status.st_size)|"
+            + "\(modified.tv_sec).\(modified.tv_nsec)|\(changed.tv_sec).\(changed.tv_nsec)"
+    }
+
+    func sections(of path: String, identity: String) -> [String: OrderedJSON]? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = known[path], entry.identity == identity else { return nil }
+        return entry.sections
+    }
+
+    func record(_ sections: [String: OrderedJSON], of path: String, identity: String) {
+        lock.lock(); defer { lock.unlock() }
+         
+        if known.count >= 512 { known.removeAll() }
+        known[path] = (identity, sections)
     }
 }

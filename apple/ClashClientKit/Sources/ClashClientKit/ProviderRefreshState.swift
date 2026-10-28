@@ -22,8 +22,11 @@ public struct ProviderRefreshState: Decodable, Equatable, Sendable {
     }
 
      
+     
+     
+     
     public enum Variant: String, Decodable, Sendable {
-        case compiled, indexed, text, mrs, proxy
+        case compiled, indexed, text, mrs, proxy, mapped, library
     }
 
     public struct Running: Decodable, Equatable, Sendable {

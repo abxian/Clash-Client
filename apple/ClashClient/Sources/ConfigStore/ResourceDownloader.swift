@@ -832,11 +832,7 @@ enum DownloadHostPlace: Equatable, Sendable {
      
     static func reachableByAModule(_ url: URL) -> Bool {
         guard let host = url.host, !host.isEmpty else { return false }
-        switch of(host) {
-        case .thisDevice: return false
-        case .localNetwork: return true
-        case .internet: return url.scheme?.lowercased() == "https"
-        }
+        return of(host) != .thisDevice
     }
 }
 
@@ -844,9 +840,7 @@ enum DownloadHostPlace: Equatable, Sendable {
 enum DownloadServerTrust: Equatable, Sendable {
      
      
-     
     case asPresented
-     
      
      
      
@@ -864,7 +858,6 @@ struct UnprotectedRedirectRefused: LocalizedError, Equatable {
     var errorDescription: String? { "the download was sent on from \(from) to \(to), which is not protected" }
 }
 
- 
  
  
  
@@ -943,14 +936,6 @@ final class SecureRedirectDelegate: NSObject, URLSessionTaskDelegate {
     ) {
         guard let destination = request.url,
               let original = task.originalRequest?.url else {
-            completionHandler(nil)
-            return
-        }
-         
-        if serverTrust == .verified, destination.scheme?.lowercased() == "http", original.scheme?.lowercased() != "http" {
-            let refusal = UnprotectedRedirectRefused(from: response.url?.absoluteString ?? original.absoluteString,
-                                                     to: destination.absoluteString)
-            lock.lock(); refused = refusal; lock.unlock()
             completionHandler(nil)
             return
         }
@@ -1034,7 +1019,6 @@ final class ResourceDownloader: HTTPFetching {
     static func connect() -> ResourceDownloader {
         ResourceDownloader(session: bounded(seconds: connectTimeoutSeconds), maximumAttempts: 1, fallsBackDirect: false)
     }
-     
      
      
      
@@ -1157,15 +1141,14 @@ final class ResourceDownloader: HTTPFetching {
      
      
      
+     
     static func directMayRetry(_ request: URLRequest, redirectPolicy: DownloadRedirectPolicy, after error: Error) -> Bool {
          
          
         guard (request.httpMethod ?? "GET").uppercased() == "GET", request.httpBody == nil,
               request.httpBodyStream == nil else { return false }
-        if let urlError = error as? URLError, urlError.code == .cancelled { return false }
-        if case DownloadError.badStatus(let status) = error,
-           (400..<500).contains(status), ![403, 408, 429, 451].contains(status) { return false }
-        return true
+        guard let urlError = error as? URLError else { return false }
+        return urlError.code != .cancelled
     }
 
      

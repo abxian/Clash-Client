@@ -54,6 +54,10 @@ public enum ClashProxiesCommand: Codable, Equatable, Sendable {
     case testGroup(name: String)
      
      
+     
+    case testShown([ClashProxiesShownMembers])
+     
+     
     case loadMembers(group: String)
      
      

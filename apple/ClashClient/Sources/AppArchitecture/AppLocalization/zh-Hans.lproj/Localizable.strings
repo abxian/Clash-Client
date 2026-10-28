@@ -78,6 +78,8 @@
 "%@ isn't affected by modules." = "%@ 不受模块影响。";
 "%@ item" = "%@ 项";
 "%@ items" = "%@ 项";
+"%@ lines" = "%@ 行";
+"%@ lines in all" = "共 %@ 行";
 "%@ match" = "%@ 条匹配";
 "%@ matches" = "%@ 条匹配";
 "%@ matches addresses, not domains, so DNS cannot use it." = "%@ 匹配的是地址而不是域名，DNS 无法使用。";
@@ -218,6 +220,7 @@
 "443 or 8000-9000" = "443 or 8000-9000";
 "50 Mbps" = "50 Mbps";
 "7 days" = "7 天";
+"A Mac has no cellular services, so this line was skipped." = "Mac 没有蜂窝服务，这一行已跳过。";
 "A VPN operation is already in progress. Wait for it to finish before changing IP Stack settings." = "VPN 操作正在进行。请等待完成后再更改 IP Stack 设置。";
 "A WireGuard peer's reserved value is exactly three bytes. Give it three, or clear it." = "WireGuard 的 peer 的 reserved 恰好是三个字节。给它三个，或者清空。";
 "A and AAAA are answered by the system resolver, so no single upstream can be credited for the address below." = "A 与 AAAA 由系统解析器回答，因此下方地址无法归到某一个上游解析器。";
@@ -285,10 +288,12 @@
 "A rule uses the rule set %@, which doesn’t exist." = "规则用到的规则集「%@」不存在";
 "A rule uses the sub-rule %@, which doesn’t exist." = "规则用到的子规则「%@」不存在";
 "A rule-based proxy client for Apple platforms, powered by the Clash core." = "Clash 系列客户端，由 Clash 内核驱动。";
-"A rule-based proxy kernel" = "按规则分流的代理内核";
+"A rule-based proxy kernel" = "按规则转发流量的代理内核";
 "A saved provider credential is unavailable. Re-enter it before saving or connecting." = "已保存的集合凭据不可用。请重新输入后再保存或连接。";
+"A script changes settings in here." = "覆写脚本改了这里面的设置。";
 "A script in the library uses the name reserved for the previous version's script." = "脚本库里有一个脚本占用了旧版全局脚本的名字。";
 "A script library conflict prevents the settings upgrade. Rename the conflicting script, then retry." = "脚本库冲突导致设置升级失败。请重命名冲突脚本后重试。";
+"A script sets “%@”, which runs over this." = "覆写脚本设成了「%@」，暂时盖过这里。";
 "A script this module needs is missing, so nothing was changed." = "模块缺少脚本，没有改动。";
 "A selected source is not a configuration object." = "所选来源不是一份配置。";
 "A selected source needs “%@”, which no selected source supplies." = "所选来源需要「%@」，但没有任何所选来源提供它。";
@@ -344,7 +349,7 @@
 "Add Proxy Providers…" = "添加代理集合…";
 "Add Proxy Source" = "添加代理来源";
 "Add Resolver" = "添加解析器";
-"Add Routing Scheme" = "添加分流方案";
+"Add Routing Scheme" = "添加规则方案";
 "Add Rule" = "添加规则";
 "Add Rule Scheme" = "添加规则方案";
 "Add Rule Set" = "添加规则集";
@@ -404,7 +409,7 @@
 "Advanced Settings" = "高级设置";
 "Advanced fields belong to this configuration. Scripts can transform the full working copy." = "高级字段仅用于本配置。脚本可以修改完整的运行副本。";
 "Advanced metadata" = "高级元数据";
-"Affected configurations keep their node sources and switch to Basic Routing." = "受影响的配置将保留节点来源，切换为基础分流。";
+"Affected configurations keep their node sources and switch to Basic Routing." = "受影响的配置将保留节点来源，切换为默认配置。";
 "Affected configurations keep their node sources and switch to Default Configuration." = "受影响的配置将保留节点来源，切换为默认配置。";
 "Affected configurations: %@" = "受影响的配置：%@";
 "After Start" = "启动后段";
@@ -451,6 +456,7 @@
 "Always stays on Home" = "始终显示在首页";
 "An IP address, or another domain. Separate several with |." = "一个 IP 地址，或另一个域名。多个之间用 | 分隔。";
 "An answer whose address belongs to this country is treated as the local answer." = "地址归属该国家的应答视为本地应答。";
+"An http or https URL with a host is required; leave empty for the default." = "需要带主机名的 http 或 https URL；留空使用默认。";
 "An include-all group can select internal hops dynamically, so isolation cannot be proven." = "include-all 分组会动态选中内部跳点，因此无法证明其隔离性。";
 "An install link wants to add a profile URL to Clash.\n\n" = "有链接想向 Clash 添加配置链接。\n\n";
 "An install link wants to add a profile to Clash.\n\n" = "有链接想向 Clash 添加配置。\n\n";
@@ -544,7 +550,7 @@
 "Bad HTTP" = "异常";
 "Bandwidth and port hopping" = "带宽与端口跳跃";
 "Basic Config" = "基础配置";
-"Basic Routing" = "基础分流";
+"Basic Routing" = "默认配置";
 "Behavior" = "behavior";
 "Behavior says what each line in the file is. mrs is binary and only carries domain or ipcidr." = "behavior 说明文件里每一行是什么。mrs 是二进制格式，只承载 domain 或 ipcidr。";
 "Between %@ and %@" = "在 %@ 到 %@ 之间";
@@ -696,6 +702,7 @@
 "Clash VPN is off." = "Clash VPN 已关闭。";
 "Clash VPN is on." = "Clash VPN 已开启。";
 "Clash Verge" = "Clash Verge";
+"Clash always answers pings itself, so this line was skipped." = "Clash 总是自己回应 ping，这一行已跳过。";
 "Clash always uses the memory-conservative, memory-mapped loader on iOS so large GeoIP and GeoSite databases stay off the app heap." = "iOS 上 Clash 始终使用省内存的内存映射加载器，大体积 GeoIP 与 GeoSite 数据库不进应用堆。";
 "Clash by Clash" = "Clash";
 "Clash can reconnect once you open it" = "打开 Clash 后可重新连接";
@@ -712,11 +719,15 @@
 "Clash couldn’t read this configuration’s rules." = "Clash 无法读取这份配置的规则。";
 "Clash did not confirm the LAN proxy change in time." = "局域网共享的更改没有及时生效，请再试一次";
 "Clash does not provide any proxy service and is not responsible for the third-party services you configure it with." = "Clash 不提供任何代理服务，也不对你配置接入的第三方服务负责。";
+"Clash doesn't run DNS scripts, so this line was skipped." = "Clash 不运行 DNS 脚本，这一行已跳过。";
+"Clash doesn't run rule scripts, so this line was skipped." = "Clash 不运行规则脚本，这一行已跳过。";
+"Clash doesn't use a system proxy, so this compatibility mode was skipped." = "Clash 不使用系统代理，这个兼容模式已跳过。";
 "Clash downloads profile URLs, providers and Geo data in the Client with conditional HTTP and last-known-good recovery; the packet-tunnel Core does not perform background downloads." = "Clash 在客户端下载配置链接、集合与 Geo 数据，使用条件 HTTP 请求并以最近可用副本兜底；隧道内核不做后台下载。";
 "Clash downloads the profile URL when the profile is activated." = "使用这份配置时会下载配置链接";
 "Clash dropped this field upstream: the core logs an error and ignores it, on every platform, and your file is left as written. Set client-fingerprint on an individual proxy when that protocol supports it." = "Clash 上游已经去掉这个字段：内核会记一行错误并忽略它——所有平台都一样，你的文件保持原样。请在支持该协议的单个代理上设置 client-fingerprint。";
 "Clash enables the DNS engine required by the packet tunnel." = "Clash 会启用隧道所需的 DNS 引擎。";
 "Clash has no built-in profile to fall back to right now." = "当前没有可回退的内置配置。";
+"Clash has no such setting, so this line was skipped." = "Clash 没有这项设置，这一行已跳过。";
 "Clash has not received a usable network path yet. Try again after the network status appears." = "Clash 尚未获得可用网络路径。请等网络状态出现后重试。";
 "Clash is a network tool. You are responsible for making sure the way you use it complies with the laws that apply to you and with the terms of any service you connect through." = "Clash 是一款网络工具。你有责任确保自己的使用方式符合适用于你的法律，以及你所接入服务的条款。";
 "Clash is disconnected" = "Clash 未连接";
@@ -807,7 +818,7 @@
 "Configuration store limits are invalid" = "配置存储的限额无效";
 "Configuration validation failed: %@" = "配置校验失败：%@";
 "Configurations" = "配置";
-"Configurations lose this source. Its rule schemes fall back to Basic." = "配置将移除此来源。使用它的规则方案将退回基础分流。";
+"Configurations lose this source. Its rule schemes fall back to Basic." = "配置将移除此来源。使用它的规则方案将退回默认配置。";
 "Configurations, data, and caches" = "配置、数据与缓存";
 "Configured" = "已配置";
 "Configured Options" = "已配置的选项";
@@ -896,6 +907,9 @@
 "Copy Diagnostic Code" = "复制诊断代码";
 "Copy Host" = "复制主机";
 "Copy Install Command" = "复制安装命令";
+"Copy Line" = "复制这一行";
+"Copy Link" = "复制链接";
+"Copy Module Link" = "复制模块链接";
 "Copy Profile URL" = "复制配置链接";
 "Copy Rule Scheme" = "复制规则方案";
 "Copy Shell Command" = "复制终端代理命令";
@@ -920,6 +934,8 @@
 "Could not update %@: %@" = "无法更新 %@：%@";
 "Could not write the log to that location." = "无法把日志写到该位置。";
 "Couldn't check the nodes" = "无法检查节点是否可用";
+"Couldn't resume automatic selection" = "没能取消固定";
+"Couldn't switch to this node" = "没能切换到这个节点";
 "Couldn’t Check the External IP" = "没能查询出口 IP";
 "Couldn’t Close the Connection" = "没能关闭这条连接";
 "Couldn’t Close the Connections" = "没能关闭连接";
@@ -936,6 +952,7 @@
 "Couldn’t connect: not enough memory" = "连不上：内存不够";
 "Couldn’t connect: the tunnel stopped while starting up" = "连不上：连接过程中被中断";
 "Count proxy traffic only" = "仅统计代理流量";
+"Counting lines…" = "正在统计行数…";
 "Country" = "国家或地区";
 "Country / Region" = "国家与地区";
 "Cover settings that do not yet have a visual editor" = "覆写暂时没有可视化编辑器的设置";
@@ -989,7 +1006,7 @@
 "DNS Interception" = "DNS 拦截";
 "DNS Listener Mark Removed" = "DNS 监听 mark 已移除";
 "DNS Query" = "DNS 查询";
-"DNS Routing Rules" = "DNS 分流规则";
+"DNS Routing Rules" = "DNS 规则";
 "DNS Search Domain Match" = "DNS 搜索域匹配";
 "DNS Server" = "DNS 服务器";
 "DNS Server Address Match" = "DNS 服务器地址匹配";
@@ -1061,8 +1078,8 @@
 "Delete source %@?" = "删除来源“%@”？";
 "Delete “%@”" = "删除「%@」";
 "Deleted “%@”" = "已删除「%@」";
-"Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay." = "将删除本机上的全部配置、设置和已保存的凭据。系统设置中的 VPN 配置与 iCloud 备份保留。";
-"Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch." = "将删除本机上的全部配置、设置和已保存的凭据。系统设置中的 VPN 配置与 iCloud 备份保留。Clash 将回到首次安装状态。";
+"Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay." = "将删除本机上的全部配置、模块、证书、设置和已保存的凭据。之前安装的证书不再使用，需重新生成、安装并信任。系统设置中的 VPN 配置与 iCloud 备份保留。";
+"Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch." = "将删除本机上的全部配置、模块、证书、设置和已保存的凭据。之前安装的证书不再使用，需重新生成、安装并信任。系统设置中的 VPN 配置与 iCloud 备份保留。Clash 将回到首次安装状态。";
 "Density" = "密度";
 "Desktop/router services are disclosed in iOS Changes and never presented as working controls." = "桌面/路由器服务只在「iOS 变更」中披露，不会伪装成可用控件。";
 "Destination" = "目标地址";
@@ -1352,8 +1369,8 @@
 "External IP" = "出口 IP";
 "External address" = "外部地址";
 "External controller TLS material is present. Clash keeps it and uses it when the controller is served over HTTPS." = "存在外部控制器的 TLS 材料。Clash 会保留它，并在控制器以 HTTPS 提供服务时使用。";
-"External file providers are not available in an imported iOS profile. Use an HTTPS or inline provider." = "导入的 iOS 配置不支持外部文件集合。请改用 HTTPS 或 inline 集合。";
-"Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share." = "另外开的端口，各自设协议、账号和分流。本机和局域网默认用的代理端口在「局域网代理共享」里。";
+"External file providers are not available in an imported iOS profile. Use an http(s) or inline provider." = "导入的 iOS 配置不支持外部文件集合。请改用 http(s) 链接或 inline 集合。";
+"Extra ports, each with its own protocol, account and route. The proxy ports this device and the LAN use by default are in LAN Proxy Share." = "另外开的端口，各自设协议、账号和出站。本机和局域网默认用的代理端口在「局域网代理共享」里。";
 "Failed" = "失败";
 "Failed: %@" = "失败：%@";
 "Fake-IP Storage Enabled" = "Fake-IP 存储已启用";
@@ -1382,6 +1399,7 @@
 "Filters are regular expressions; join several with |. Exclude types lists node types, | separated, no regex." = "filter 是正则表达式，多个用 | 连接。exclude-type 列出节点类型，用 | 分隔，不支持正则。";
 "Final Configuration" = "最终配置";
 "Find" = "查找";
+"Find in Source" = "在源码中查找";
 "Find in configuration" = "在配置中查找";
 "Finds the domain behind each connection before rules run" = "在规则运行前找出每个连接背后的域名";
 "Finds the real domain, so rules match names instead of bare IPs." = "找出真实域名，让规则按名称而不是裸 IP 匹配。";
@@ -1398,7 +1416,7 @@
 "Follow Link Updates" = "随链接更新";
 "Follow Removal" = "跟随删除";
 "Follow Rules" = "跟随规则";
-"Follow Rules uses the active routing mode and rules. Selecting an outbound tests that exact UDP-capable proxy or group. Results describe UDP egress for diagnostics only and never change routing." = "「跟随规则」使用当前的分流模式与规则。选择某个出站则测试该支持 UDP 的代理或分组。结果仅用于诊断 UDP 出口，不会改变分流。";
+"Follow Rules uses the active routing mode and rules. Selecting an outbound tests that exact UDP-capable proxy or group. Results describe UDP egress for diagnostics only and never change routing." = "「跟随规则」使用当前的出站模式与规则。选择某个出站则测试该支持 UDP 的代理或分组。结果仅用于诊断 UDP 出口，不会改变流量走向。";
 "Follow app default" = "跟随默认";
 "Follow app default (%@ entries)" = "跟随默认（%@ 条）";
 "Follow app default (%@)" = "跟随默认（%@）";
@@ -1474,9 +1492,12 @@
 "Global Proxy" = "全局代理";
 "Global overrides apply after this script." = "全局覆写在脚本之后生效。";
 "Global settings or platform requirements changed the generated DNS." = "全局设置或系统要求调整了生成的 DNS。";
+"Go" = "跳转";
 "Go Back" = "换回";
 "Go Back to the Link’s Content?" = "换回链接的内容？";
 "Go heap" = "Go 堆";
+"Go to Line" = "跳到第几行";
+"Go to Line…" = "跳到第几行…";
 "Google DNS" = "Google DNS";
 "Google over HTTPS" = "Google（DoH）";
 "Goroutines" = "Goroutine 数";
@@ -1512,8 +1533,6 @@
 "HTTPS Decryption" = "HTTPS 解密";
 "HTTPS Decryption is getting ready; it will start working by itself." = "HTTPS 解密正在准备，好了会自动生效。";
 "HTTPS Decryption is not available yet, so only the rules in your modules work." = "HTTPS 解密暂时用不了，模块里的规则照常生效。";
-"HTTPS Decryption is paused to keep your network steady; rules still work. It comes back when you reconnect." = "为了网络稳定，HTTPS 解密已暂停，规则照常生效；重新连接后恢复。";
-"HTTPS URL with a host required; leave empty for the default." = "需要带主机名的 HTTPS URL；留空使用默认。";
 "Clash Core" = "Clash 内核";
 "Hand-built nodes live in this profile's clash-custom provider. Reference them from a group with use, or target them directly from rules." = "自建节点保存在本 Profile 的 clash-custom 集合中；可在分组的 use 中引用，或在规则中直接指向它们。";
 "Handshake Timeout" = "握手超时";
@@ -1682,6 +1701,7 @@
 "JLS needs a host, a username and a password. Open the obfuscation options and fill them in." = "JLS 需要 host、username 与 password。打开混淆选项填上。";
 "JavaScript main(config)" = "JavaScript main(config)";
 "Join a Wi-Fi or wired network to be reached." = "连上 Wi-Fi 或有线网络后才能被访问。";
+"Jump to Current Node" = "跳到当前节点";
 "Keep" = "保留";
 "Keep As Is" = "保留现状";
 "Keep Auto Update" = "保持自动更新";
@@ -1723,6 +1743,7 @@
 "Last sync %@" = "上次同步 %@";
 "Last updated %@" = "%@更新";
 "Latency" = "延迟";
+"Latency Test" = "延迟测试";
 "Later" = "稍后";
 "Layout" = "布局";
 "Lazy" = "lazy";
@@ -1825,7 +1846,7 @@
 "Make a New Secret?" = "生成新密钥？";
 "Manage" = "管理";
 "Manage Collections" = "管理集合";
-"Manage DNS Routing" = "DNS 分流规则管理";
+"Manage DNS Routing" = "管理 DNS 规则";
 "Manage GEO Rules" = "管理 GEO 规则";
 "Manage Node Sources" = "管理节点来源";
 "Manage Rule Schemes" = "管理规则方案";
@@ -1843,7 +1864,7 @@
 "Match" = "匹配";
 "Match Domains" = "匹配域名";
 "Match source instead" = "改为匹配来源";
-"Match the configured routing rules" = "按已配置的分流规则匹配";
+"Match the configured routing rules" = "按已配置的规则匹配";
 "Match value" = "匹配值";
 "Matched So Far" = "目前已匹配";
 "Matched a nameserver-policy entry" = "命中了一条 nameserver-policy";
@@ -1942,6 +1963,9 @@
 "Module" = "模块";
 "Module Content" = "模块内容";
 "Module Link" = "模块链接";
+"Module “%@” adds %@ more." = "模块「%@」另加了 %@ 项。";
+"Module “%@” changes settings in here." = "模块「%@」改了这里面的设置。";
+"Module “%@” sets “%@”, which runs over this." = "模块「%@」设成了「%@」，暂时盖过这里。";
 "Modules" = "模块";
 "Modules cannot be used with this configuration, so it runs without them." = "当前配置用不了模块，配置照常使用。";
 "More" = "更多";
@@ -1950,7 +1974,7 @@
 "More than one group is named %@." = "有多个分组叫「%@」";
 "More than one provider could not be downloaded." = "不止一个资源未能下载。";
 "More than one proxy is named %@." = "有多个代理叫「%@」";
-"Most of this start’s memory went to loading rule sets. A large domain rule set costs many times its file size while it loads, so a single big one can be more than the whole tunnel is allowed — switching off the ones you don’t route on is what lowers this step." = "这次连接的内存大部分花在加载规则集上。一份大的域名规则集加载时要占用它文件大小好几倍的内存，单独一份就可能超出系统允许的上限——关掉不用来分流的那几份，就能直接降低这一步";
+"Most of this start’s memory went to loading rule sets. A large domain rule set costs many times its file size while it loads, so a single big one can be more than the whole tunnel is allowed — switching off the ones you don’t route on is what lowers this step." = "这次连接的内存大部分花在加载规则集上。一份大的域名规则集加载时要占用它文件大小好几倍的内存，单独一份就可能超出系统允许的上限——关掉用不上的那几份，就能直接降低这一步";
 "Most of this start’s memory went to loading the nodes from your profile URLs — every profile URL’s full node list loads at start. Removing profile URLs you don’t use, or narrowing one with a proxy-provider filter, lowers this step directly." = "这次启动的内存主要花在加载配置链接的节点上——每个配置链接的整份节点列表都会在启动时装进来。去掉用不到的配置链接，或在 proxy-providers 里用 filter 收窄节点，能直接降低这一步。";
 "Move Down" = "下移";
 "Move Up" = "上移";
@@ -2011,6 +2035,7 @@
 "New Node" = "新节点";
 "New Node…" = "新建节点…";
 "New Policy Group" = "新建策略组";
+"New Proxy Chain" = "新建链式代理";
 "New Rule Scheme" = "新建规则方案";
 "New Rule Set" = "新建规则集";
 "New Script" = "新建脚本";
@@ -2048,6 +2073,7 @@
 "No QR code was found in that image." = "未在该图片中找到二维码。";
 "No Reports Yet" = "暂无报告";
 "No Requests" = "暂无请求";
+"No Results" = "没有找到";
 "No Results for “%@”" = "没有「%@」的结果";
 "No Rule Sets" = "没有规则集";
 "No Rules" = "没有规则";
@@ -2255,9 +2281,9 @@
 "Opens Profiles" = "打开「配置」";
 "Optional" = "可选";
 "Optional IP addresses used by Connect If Needed while checking direct reachability." = "「按需连接」检查直连可达性时使用的可选 IP 地址。";
-"Optional credential-free HTTPS URL used by Connect If Needed." = "「按需连接」使用的可选 HTTPS 探测地址，不得含凭据。";
+"Optional credential-free http or https URL used by Connect If Needed." = "「按需连接」使用的可选 http 或 https 探测地址，不得含凭据。";
 "Optional note, stored only on this device" = "可选备注，仅保存在本机";
-"Optional. Clash accepts credential-free HTTPS probes only; Apple requires HTTP 200 for a match." = "可选。Clash 只接受不含凭据的 HTTPS 探测；Apple 要求返回 HTTP 200 才算命中。";
+"Optional. Use a credential-free http or https probe; Apple requires HTTP 200 for a match." = "可选。填不含凭据的 http 或 https 探测地址；Apple 要求返回 HTTP 200 才算命中。";
 "Options" = "选项";
 "Or add a node manually" = "也可以手动添加节点";
 "Or create with nodes and rules" = "也可以选择节点和规则创建";
@@ -2280,6 +2306,7 @@
 "Outbound Mode, Proxies, and Rules always stay on Home." = "出站模式、代理、规则始终留在首页。";
 "Outbound Mode, Proxies, and Rules always stay on Home. Drag any card to change the order." = "出站模式、代理与规则始终留在首页。拖动任意卡片即可调整顺序。";
 "Outdent" = "减少缩进";
+"Outline" = "大纲";
 "Overridden · not in profile" = "已覆盖 · 配置未设";
 "Overridden · overall is %@" = "已覆盖 · 总体为 %@";
 "Overridden · profile has %@ entries" = "已覆盖 · 配置有 %@ 条";
@@ -2382,7 +2409,7 @@
 "Private Key" = "私钥";
 "Private Key Passphrase" = "私钥口令";
 "Probe URL" = "探测 URL";
-"Probe URLs must be credential-free HTTPS URLs with a host." = "探测 URL 必须是不含凭据、带主机名的 HTTPS URL。";
+"Probe URLs must be credential-free http or https URLs with a host." = "探测 URL 必须是不含凭据、带主机名的 http 或 https URL。";
 "Process" = "进程";
 "Process Lookup" = "进程查询";
 "Process name" = "进程名称";
@@ -2534,7 +2561,7 @@
 "Reading the current proxy catalog." = "正在读取节点与策略组…";
 "Reading the live connection snapshot." = "正在读取连接…";
 "Ready" = "已就绪";
-"Ready-made routing for AI, streaming, social and gaming services." = "已预设 AI、流媒体、社交和游戏等服务分流。";
+"Ready-made routing for AI, streaming, social and gaming services." = "已预设 AI、流媒体、社交和游戏等服务的规则。";
 "Reality" = "Reality";
 "Reapply this profile's validated runtime" = "改回这份配置上一次可用的版本";
 "Reason" = "原因";
@@ -2588,6 +2615,7 @@
 "Remote Trace Level" = "远程追踪级别";
 "Remote Trace Target" = "远程追踪目标";
 "Remote destination" = "远端目标";
+"Remove" = "移除";
 "Remove Bundle Path" = "移除归档路径";
 "Remove Certificate %lld" = "删除证书 %lld";
 "Remove Chain Override" = "移除链式覆写";
@@ -2615,6 +2643,7 @@
 "Reopen Now" = "立即重开";
 "Reorder" = "重新排序";
 "Reorder List" = "排序";
+"Reorder Modules" = "模块排序";
 "Reorder Profiles" = "配置排序";
 "Reorder Rules" = "规则排序";
 "Repair and connect" = "修复并连接";
@@ -2707,24 +2736,24 @@
 "Review the profile" = "查看这份配置";
 "Review the removed relay group in Proxy Chains." = "请在链式代理中检查已移除的 relay 组。";
 "Rewrites" = "重写";
-"Rewrites and scripts are paused to keep your network steady; rules still work." = "为了网络稳定，重写和脚本已暂停，规则照常生效。";
+"Rewrites and scripts are on hold for now and will resume automatically." = "重写和脚本暂时没有生效，稍后会自动恢复。";
 "Round Robin" = "轮询 (round-robin)";
 "Round robin" = "轮询";
 "Route" = "走向";
 "Route Coverage" = "路由范围";
 "Route Rules (Configuration Chapter)" = "路由规则";
 "Route coverage could not be saved. The previous configuration is still available." = "路由覆盖无法保存。先前的配置仍然可用。";
-"Route traffic by the profile rules" = "按配置规则分流";
+"Route traffic by the profile rules" = "按配置的规则转发流量";
 "Router & Android Services" = "路由器与 Android 服务";
 "Routes Entering Clash" = "进入 Clash 的路由";
 "Routes Kept Outside Clash" = "留在 Clash 之外的路由";
 "Routes matched DNS traffic through the core's DNS outbound." = "把命中的 DNS 流量交给 Clash 的 DNS 处理";
 "Routes, memory pressure, and core health" = "路由、内存压力与运行状况";
-"Routing" = "分流";
-"Routing Behavior" = "分流行为";
+"Routing" = "路由";
+"Routing Behavior" = "路由设置";
 "Routing Mark" = "路由标记 (routing-mark)";
-"Routing Mode" = "分流模式";
-"Routing Rules" = "分流规则";
+"Routing Mode" = "出站模式";
+"Routing Rules" = "规则";
 "Routing fixture backup is not UTF-8" = "Routing fixture backup is not UTF-8";
 "Routing mark" = "routing-mark";
 "Rule" = "规则";
@@ -2854,6 +2883,7 @@
 "Search proxies" = "搜索代理";
 "Search rule sets" = "搜索规则集";
 "Search rules" = "搜索规则";
+"Searching…" = "正在查找…";
 "Secondary Port" = "备用端口";
 "Seconds" = "秒";
 "Seconds." = "单位：秒。";
@@ -2878,6 +2908,7 @@
 "Send traffic through the selected proxy" = "让流量走选中的代理";
 "Send traffic to its destination directly" = "让流量直接发往目标";
 "Sends traffic directly to its destination without a proxy server." = "不经代理服务器，直接把流量发往目标。";
+"Sent when Clash downloads a Profile URL, and with every download of a configuration that sets no Download User-Agent of its own. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name." = "下载配置链接时发送这个身份；配置没写自己的「下载时的 UA」时，它的节点集合、规则集等下载也用它。推荐 Clash；FlClash 用于按客户端名识别的面板。";
 "Serial" = "串行";
 "Server" = "服务器";
 "Server Information" = "服务器信息";
@@ -2886,9 +2917,9 @@
 "Session Pool" = "会话池";
 "Session Timeouts" = "会话超时";
 "Session details, network tests, and local reports" = "连接详情、网络测试与本地报告";
-"Set Clash Routing Mode" = "设置 Clash 分流模式";
+"Set Clash Routing Mode" = "设置 Clash 出站模式";
 "Set Clash VPN" = "设置 Clash VPN";
-"Set Routing Mode" = "设置分流模式";
+"Set Routing Mode" = "设置出站模式";
 "Set Up" = "设置";
 "Set a proxy account or allowed devices to limit who can use it." = "设置代理账号或允许的来源 IP，就能限制谁可以使用。";
 "Set by the configuration in use." = "由当前使用的配置设定。";
@@ -2951,6 +2982,7 @@
 "Snell Demo" = "Snell Demo";
 "Snell carries UDP from version 3. Raise the version, or turn UDP off." = "Snell 从第 3 版起才承载 UDP。提高版本，或者关掉 UDP。";
 "Snell encrypted proxy with versioned protocol and optional obfuscation." = "Snell 加密代理，带版本化协议与可选混淆。";
+"Snell version 6 isn't supported, so this line was skipped." = "不支持 Snell 第 6 版，这一行已跳过。";
 "Sniff DNS-mapped traffic" = "嗅探 DNS 映射流量";
 "Sniff pure-IP traffic" = "嗅探纯 IP 流量";
 "Sniffer" = "Sniffer";
@@ -2965,6 +2997,7 @@
 "Some rewrites made results too large and were stopped; they come back when you reconnect." = "部分重写的结果太大，已停止，重新连接后恢复。";
 "Some rewrites took too long and were stopped; they come back when you reconnect." = "部分重写运行太久，已停止，重新连接后恢复。";
 "Some rules don't fit the current configuration, so they were skipped." = "部分规则不适用于当前配置，已跳过。";
+"Some scripts are on hold for now and will resume automatically." = "部分脚本暂时没有运行，稍后会自动恢复。";
 "Something still references this item. Change that reference before deleting it." = "还有地方引用这一项，先改掉引用再删除。";
 "Sort" = "排序";
 "Source" = "来源";
@@ -3003,6 +3036,7 @@
 "Start Recording" = "开始记录";
 "Start Sharing" = "开始共享";
 "Start Test" = "开始测试";
+"Start of File" = "开头";
 "Start or stop Clash based on its current state." = "根据当前状态启动或停止 Clash。";
 "Start or stop the installed Clash by Clash VPN profile." = "启动或停止已安装的 Clash VPN 描述文件。";
 "Start the installed Clash by Clash VPN profile." = "启动已安装的 Clash VPN 描述文件。";
@@ -3025,6 +3059,7 @@
 "Sticky sessions" = "会话保持";
 "Still running %@" = "新配置没生效，还在用「%@」";
 "Still running the previous version" = "新配置没生效，还在用上一版";
+"Still searching. What's found so far is ready." = "还在往下找，已找到的可以先看";
 "Still updating “%@” — the result will show on its row" = "仍在更新「%@」，结果会显示在这一行";
 "Stop %@" = "停止 %@";
 "Stop Clash" = "停止 Clash";
@@ -3055,7 +3090,7 @@
 "Summary" = "摘要";
 "Supported Fields" = "受支持的字段";
 "Supporting Files" = "附属文件";
-"Switch Clash between Rule, Global, and Direct routing." = "在规则、全局与直连之间切换 Clash 分流。";
+"Switch Clash between Rule, Global, and Direct routing." = "在规则、全局与直连之间切换 Clash 的出站模式。";
 "Switch to %@" = "切换到 %@";
 "Switch to another profile before deleting" = "删除前请先切换到其他配置";
 "Switched to “%@”" = "已切换到「%@」";
@@ -3213,7 +3248,6 @@
 "The address answered with an empty document." = "该地址返回了一个空文档。";
 "The address answered with something that is not text." = "该地址返回的内容不是文本。";
 "The app added %@ rule(s) to the ones you wrote." = "在你写的规则之外，另外加了 %@ 条";
-"The app sends this when it downloads a Profile URL. Downloads the core makes for a configuration use that configuration’s Download User-Agent. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name." = "App 下载配置链接时发送这个身份。配置自己的下载（节点集合、规则集等）用配置里的「下载时的 UA」。推荐 Clash；FlClash 用于按客户端名识别的面板。";
 "The app starts from a different value than the core would. Yours still wins if you set it." = "这一项的默认值与通常不同；你自己设了就以你的为准";
 "The backup and this device disagree about script ownership, so nothing was changed." = "备份与本机对脚本归属判断不一致，因此未做任何更改。";
 "The backup contains an unsafe profile identifier." = "备份包含不安全的配置标识符。";
@@ -3293,7 +3327,6 @@
 "The downloaded text is not valid configuration YAML. Edit the profile or contact the provider." = "下载的内容不是有效的配置 YAML。请编辑配置或联系提供方。";
 "The fetch proxy is kept as written. Clash downloads this provider itself and uses the cached copy if a refresh fails." = "抓取代理按原样保留。Clash 自己下载该资源；刷新失败时使用缓存副本。";
 "The file this line needs isn't on this device, so it was skipped." = "这一行要的文件不在这台设备上，已跳过。";
-"The file this line returns is too large, so it was skipped." = "这一行要返回的文件太大，已跳过。";
 "The file this line uses couldn't be downloaded, so it was skipped." = "这一行用的文件下载不了，已跳过。";
 "The file this line uses isn't at an HTTPS address, so it was skipped." = "这一行要返回的文件用不了，已跳过。";
 "The first %@ of %@ rules." = "前 %@ 条，共 %@ 条规则。";
@@ -3444,6 +3477,7 @@
 "The shared container is unavailable." = "共享容器不可用。";
 "The source belongs to this profile; its live health remains read-only in Utilities." = "该来源属于本配置；其实时健康状态在「工具」中保持只读。";
 "The source changed while it was downloaded; the newer one is kept." = "下载期间源码有了更改，已保留较新的那份。";
+"The source could not be opened." = "打不开源码。";
 "The source is downloaded before it is saved." = "保存前会先下载来源。";
 "The source is downloaded on first Sync or activation." = "源会在首次同步或激活时下载。";
 "The stored source and effective comparison does not contain a known iOS rewrite." = "源文本与生效配置的对比中没有已知的 iOS 改写。";
@@ -3451,6 +3485,7 @@
 "The system VPN service isn’t responding. Please try again in a moment, or restart your Mac." = "系统 VPN 服务无响应。请稍后重试，或重启 Mac。";
 "The system VPN service isn’t responding. Please try again in a moment, or restart your device." = "系统 VPN 服务无响应。请稍后重试，或重启设备。";
 "The system action could not be completed." = "系统操作未能完成。";
+"The system decides when Wi-Fi and cellular are used together, so this line was skipped." = "Wi-Fi 和蜂窝网络何时一起用由系统决定，这一行已跳过。";
 "The system decides when the VPN icon shows, so this line was skipped." = "VPN 图标是否显示由系统决定，已跳过。";
 "The system does not grant that right." = "系统不授予该权限。";
 "The system prepares these reports on device. Clash keeps a copy locally — the payload complete and unfiltered, under a small header of its own — and never uploads it automatically. A report past the size or nesting cap is stored as a note saying so." = "这些报告由系统在设备上生成。Clash 只在本地保留一份——载荷完整、不做任何过滤，外面套一层它自己的小信封——绝不自动上传。超过体积或嵌套上限的报告，存成一条说明。";
@@ -3474,11 +3509,12 @@
 "Their nodes join the group." = "这些集合里的节点会加入这个组。";
 "Theme" = "主题";
 "Theme Mode" = "主题模式";
+"There isn't enough memory to run this script right now. Try again later." = "现在内存不够，这个脚本没有运行，稍后再试。";
 "These DNS settings belong only to this configuration." = "仅用于本配置，链接更新会保留这些设置。";
 "These DNS settings have changes that have not been saved." = "这些 DNS 设置有尚未保存的更改。";
 "These exceptions belong to this profile. Its imported source stays unchanged." = "这些例外属于本配置，导入的源码不受影响。";
 "These fields are removed:" = "这些字段会被移除：";
-"These fields change how the current profile routes traffic." = "这些字段会改变当前配置的分流方式。";
+"These fields change how the current profile routes traffic." = "这些字段会改变当前配置转发流量的方式。";
 "These nodes have changes that have not been saved." = "这些节点有尚未保存的改动。";
 "These overrides apply to the generated runtime only. The imported profile remains unchanged." = "这些改动只作用于生效中的配置，导入的配置保持不变";
 "These proxy sources and rule sets belong to this profile and update without changing the original file." = "这些代理来源与规则集属于本配置，更新时不会改动原文件。";
@@ -3526,6 +3562,7 @@
 "This collection has no valid download address. Enter its URL in the collection's settings." = "未设置有效的下载地址，请在集合设置中填写 URL。";
 "This condition only matches metadata created inside Clash's single TUN inbound. It does not identify another app or process." = "此条件只匹配 Clash 单一 TUN 入站内部产生的元数据，不能识别其他应用或进程。";
 "This configuration already rejects the traffic this setting covers." = "当前配置已经拒绝了本设置所覆盖的流量。";
+"This configuration can't be opened." = "打不开这份配置。";
 "This configuration changed while its settings were open. Reopen them and try again." = "这份配置在设置页打开期间变了，请重新打开再试一次。";
 "This configuration could not be checked." = "这份配置没法检查。";
 "This configuration has no rule sets yet." = "这份配置还没有规则集。";
@@ -3537,7 +3574,6 @@
 "This configuration’s file is not YAML the editor can change. Edit it in the source." = "这份配置的文件不是编辑器能改的 YAML，请在源码里改。";
 "This core does not recognise that record type." = "不支持这种记录类型";
 "This device" = "本机";
-"This device can't do this, so it was skipped." = "这台设备做不到这一项，已跳过。";
 "This device can't see the other devices on your network, so this rule was skipped." = "这台设备看不到局域网中的其他设备，已跳过。";
 "This device can't tell which app a connection comes from, so this rule was skipped." = "这台设备无法分辨连接来自哪个 App，已跳过。";
 "This device doesn't report its carrier, so this rule was skipped." = "这台设备不提供运营商信息，已跳过。";
@@ -3572,10 +3608,8 @@
 "This line doesn't work in the app it was written for either, so it was skipped." = "这一行在原本适配的 App 里也不生效，已跳过。";
 "This line has no effect, so it was skipped." = "这一行本来就不生效，已跳过。";
 "This line is in another app's format, and it works here as written." = "这一行是其他 App 的写法，在这里照样生效。";
-"This line is too long, so it was skipped." = "这一行太长，已跳过。";
 "This line is written for another app, so it was skipped." = "这一行是为其他 App 写的，已跳过。";
 "This line isn't written correctly, so it was skipped." = "这一行写得不对，已跳过。";
-"This link brings %@ groups and %@ rules." = "这个链接自带 %@ 个分组、%@ 条规则。";
 "This link’s rules are kept in “%@”, so they were not added again." = "这条链接的规则已保留在配置「%@」中，没有重复添加。";
 "This local rule set will be deleted. Rule schemes in the library will also remove rules added from it." = "此本地规则集将被删除，规则库中引用它的方案也会移除对应规则。";
 "This mode sends all traffic without a proxy, so proxy groups and nodes are not listed." = "此模式下所有流量不经过代理，因此不列出代理组与节点。";
@@ -3624,14 +3658,14 @@
 "This profile changed while its runtime settings were being edited. Reopen the editor and try again." = "编辑期间这份配置被改动了。请重新打开编辑器再试";
 "This profile changed while the provider editor was open. Reopen it before saving." = "集合编辑器打开期间本配置已变化。保存前请重新打开。";
 "This profile chooses the route automatically" = "本配置自动选择线路";
-"This profile does not declare routing rules or rule providers." = "本配置没有声明分流规则或规则集合。";
+"This profile does not declare routing rules or rule providers." = "本配置没有写规则或规则集合。";
 "This profile has changes that have not been saved." = "当前配置有尚未保存的更改。";
 "This profile has no configuration document yet." = "这份配置还没有配置文档。";
 "This profile has no previously applied configuration." = "此配置尚无已应用的版本。";
 "This profile has no proxies that can be linked." = "本配置没有可串联的代理。";
 "This profile has no proxy groups or nodes." = "此配置没有代理组或节点。";
 "This profile keeps its proxies and rules directly in the configuration, so there is nothing separate to sync." = "本配置把代理与规则直接写在配置里，因此没有需要单独同步的内容。";
-"This profile names %@ categories. Every one of them loads its whole domain list into memory — even the ones your traffic never reaches. Keeping the handful you actually route on is usually enough." = "这份配置写了 %@ 个分类。每一个都要把它整份域名表装进内存——哪怕你的流量根本不去那些站点。只留你真正用来分流的那几个通常就够了。";
+"This profile names %@ categories. Every one of them loads its whole domain list into memory — even the ones your traffic never reaches. Keeping the handful you actually route on is usually enough." = "这份配置写了 %@ 个分类。每一个都要把它整份域名表装进内存——哪怕你的流量根本不去那些站点。只留你真正用得上的那几个通常就够了。";
 "This profile names %@ countries. Every one of them loads that country’s whole address list into memory — even the ones your traffic never reaches. Most profiles only need one or two, such as GEOIP,CN." = "这份配置写了 %@ 个国家。每一个都要把那个国家的整份地址表装进内存——哪怕你的流量根本不去那儿。多数配置只需要一两个，比如 GEOIP,CN。";
 "This profile sets no external controller TLS material." = "本配置未设置外部控制器的 TLS 材料。";
 "This profile updates from its profile URL. The next update overwrites what you edited here." = "本配置由链接更新。下次更新会覆盖你在此处的编辑。";
@@ -3663,7 +3697,6 @@
 "This script has changes that have not been saved." = "该脚本有未保存的更改。";
 "This script is not downloaded yet; it will be at the next update." = "这个脚本还没下载好，下次更新时补上。";
 "This script is still running." = "这个脚本还在运行。";
-"This script is too large to run." = "这个脚本太大，无法运行。";
 "This script is too large, so it wasn't downloaded." = "这个脚本太大，没有下载。";
 "This script is turned off in the module." = "这个脚本在模块里是关着的。";
 "This script's module is off or removed." = "这个脚本所在的模块已关闭或移除。";
@@ -3686,6 +3719,7 @@
 "Toggle Clash VPN" = "切换 Clash VPN";
 "Toggles VPN On Demand." = "开启按需切换 VPN。";
 "Tokyo 02" = "Tokyo 02";
+"Too large to edit here. View only." = "文件太大，只能查看，不能在这里编辑";
 "Too many modules are on, so one of them didn't take effect; turn some off to make room." = "打开的模块太多，有个模块没能生效；关掉一些模块就好。";
 "Too many modules are on, so “%@” didn't take effect; turn some off to make room." = "打开的模块太多，“%@”没能生效；关掉一些模块就好。";
 "Too many rule sets are on, so some didn't take effect." = "打开的规则集太多，部分没有生效。";
@@ -3859,11 +3893,10 @@
 "Use each profile source's route coverage." = "使用各配置源自带的路由覆盖范围。";
 "Use each profile's own DNS again" = "恢复为各配置自己的 DNS";
 "Use fewer GEOIP rules. Every country you write a GEOIP rule for loads that country’s whole address list into memory — even the ones your traffic never reaches. Most profiles only need one or two, such as GEOIP,CN." = "少用几条 GEOIP 规则。你每写一条 GEOIP 规则，就要把那个国家的整份地址表装进内存——哪怕你的流量根本不去那个国家。多数配置只需要一两条，比如 GEOIP,CN。";
-"Use fewer GEOSITE categories. Every category you name loads its whole domain list into memory — even the ones your traffic never reaches. Keeping the handful you actually route on is usually enough." = "少用几个 GEOSITE 分类。你每写一个分类，就要把它整份域名表装进内存——哪怕你的流量根本不去那些站点。只留你真正用来分流的那几个通常就够了。";
+"Use fewer GEOSITE categories. Every category you name loads its whole domain list into memory — even the ones your traffic never reaches. Keeping the handful you actually route on is usually enough." = "少用几个 GEOSITE 分类。你每写一个分类，就要把它整份域名表装进内存——哪怕你的流量根本不去那些站点。只留你真正用得上的那几个通常就够了。";
 "Use generated proxy identities" = "使用生成的代理标识";
 "Use if no route remains" = "没有可用线路时使用";
 "Use in configurations, or add manually" = "用于创建配置，也可手动添加";
-"Use its own routing" = "改用它自己的分流";
 "Use only letters, digits, + / - _ and = at the end." = "只能用字母、数字和 + / - _，末尾可带 =。";
 "Use only letters, digits, + and /, padded with = at the end." = "只能用字母、数字和 + /，末尾按需补 =。";
 "Use system hosts" = "使用系统 hosts";
@@ -3919,6 +3952,8 @@
 "View Reason" = "查看原因";
 "View Runtime Configuration" = "查看生效中的配置";
 "View Safe Diagnostics" = "查看安全诊断";
+"View Source" = "查看源码";
+"View Source…" = "查看源码…";
 "Virtual IPv4" = "虚拟 IPv4";
 "WARN network path changed; flushing stale connections" = "WARN network path changed; flushing stale connections";
 "Wait for the current LAN proxy change to finish." = "请等待当前局域网代理变更完成。";
@@ -4075,7 +4110,8 @@
 "provider name" = "集合名称";
 "proxies" = "个代理";
 "proxies page disappears" = "proxies page disappears";
-"quick-add.door.create" = "新建";
+"quick-add.new.node" = "新建节点";
+"quick-add.new.rules" = "新建规则";
 "read-only" = "只读";
 "removed before the core was started" = "不使用（已移除）";
 "removed by the platform" = "被平台移除";

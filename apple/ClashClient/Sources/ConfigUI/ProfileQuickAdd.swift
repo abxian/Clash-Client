@@ -8,27 +8,11 @@ import Foundation
  
  
 struct ProfileQuickAddOutcome: Equatable {
-     
-     
-     
-     
-     
-    struct OwnRouting: Equatable {
-        let groups: Int
-        let rules: Int
-    }
-
     let id: String
     let isFirstUserProfile: Bool
-    var ownRouting: OwnRouting? = nil
-
      
      
-    static func ownRouting(of record: ConfigurationSourceRecord, suppliesOwnRouting: Bool,
-                           runsAsOriginal: Bool) -> OwnRouting? {
-        guard suppliesOwnRouting, !runsAsOriginal else { return nil }
-        return OwnRouting(groups: record.groupCount, rules: record.ruleCount)
-    }
+    var runsAsOriginal = false
 }
 
 enum ProfileQuickAddInput: Equatable {

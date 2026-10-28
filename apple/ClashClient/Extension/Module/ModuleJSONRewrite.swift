@@ -20,6 +20,7 @@ import Foundation
  
  
  
+ 
 
 enum ModuleJSONRewrite {
     enum Outcome: Equatable {
@@ -41,22 +42,6 @@ enum ModuleJSONRewrite {
         case unchanged
         case stopped
     }
-
-     
-     
-     
-     
-     
-     
-     
-     
-     
-    static let iPhoneMaximumNodes = 48 << 10
-    #if os(iOS)
-    static let maximumNodes = iPhoneMaximumNodes
-    #else
-    static let maximumNodes = 4 << 20
-    #endif
 
      
      
@@ -88,8 +73,7 @@ enum ModuleJSONRewrite {
      
      
     static func compile(_ operations: [ModuleJSONOperation], readingValues: Bool = true,
-                        maximumBodyBytes: Int = ModuleJQ.maximumBodyBytes,
-                        maximumNodes: Int = ModuleJSONRewrite.maximumNodes) -> Result<Compiled, CompileFailure> {
+                        maximumBodyBytes: Int = .max) -> Result<Compiled, CompileFailure> {
         var steps: [Step] = []
         var held = 0
         for operation in operations {
@@ -97,8 +81,8 @@ enum ModuleJSONRewrite {
             if !readingValues {
                 held += step.valueJSON?.utf8.count ?? 0
             } else if let json = step.valueJSON {
-                guard let value = Self.value(json, maximumBodyBytes: maximumBodyBytes, maximumNodes: maximumNodes) else {
-                    return .failure(CompileFailure(reason: "a value it writes is larger than a body may be (\(maximumBodyBytes) bytes, \(maximumNodes) values)"))
+                guard let value = Self.value(json, maximumBodyBytes: maximumBodyBytes) else {
+                    return .failure(CompileFailure(reason: "a value it writes is larger than a body may be (\(maximumBodyBytes) bytes)"))
                 }
                 step.value = value
                 held += json.utf8.count * readValueBytesPerTextByte + 64
@@ -113,17 +97,16 @@ enum ModuleJSONRewrite {
      
      
      
-    static func apply(_ compiled: Compiled, to value: inout ModuleJSONValue, maximumBodyBytes: Int = ModuleJQ.maximumBodyBytes,
+    static func apply(_ compiled: Compiled, to value: inout ModuleJSONValue, maximumBodyBytes: Int = .max,
                       bodyBytes: Int, budget: inout ModuleRequestBudget) -> Change {
         var working = value
-        let change = run(compiled.steps, on: &working, maximumBodyBytes: maximumBodyBytes, maximumNodes: maximumNodes,
-                         bodyBytes: bodyBytes, budget: &budget)
+        let change = run(compiled.steps, on: &working, maximumBodyBytes: maximumBodyBytes, bodyBytes: bodyBytes, budget: &budget)
         if change == .changed { value = working }
         return change
     }
 
-    static func apply(_ operations: [ModuleJSONOperation], to body: Data, maximumBodyBytes: Int = ModuleJQ.maximumBodyBytes,
-                      maximumNodes: Int = ModuleJSONRewrite.maximumNodes, budget: inout ModuleRequestBudget) -> Outcome {
+    static func apply(_ operations: [ModuleJSONOperation], to body: Data, maximumBodyBytes: Int = .max,
+                      budget: inout ModuleRequestBudget) -> Outcome {
         guard !operations.isEmpty else { return .unchanged }
         guard body.count <= maximumBodyBytes else { return .tooLarge }
          
@@ -132,13 +115,11 @@ enum ModuleJSONRewrite {
             return .stopped
         }
         var value: ModuleJSONValue
-        switch ModuleJSONText.parse(body, maximumNodes: maximumNodes) {
+        switch ModuleJSONText.parse(body, maximumNodes: .max) {
         case .value(let read): value = read
-        case .notJSON: return .notJSON
-        case .tooManyNodes: return .tooLarge
+        case .notJSON, .tooManyNodes: return .notJSON
         }
-        switch run(operations.map(Step.init), on: &value, maximumBodyBytes: maximumBodyBytes, maximumNodes: maximumNodes,
-                   bodyBytes: body.count, budget: &budget) {
+        switch run(operations.map(Step.init), on: &value, maximumBodyBytes: maximumBodyBytes, bodyBytes: body.count, budget: &budget) {
         case .unchanged: return .unchanged
         case .stopped: return .stopped
         case .changed:
@@ -157,10 +138,9 @@ enum ModuleJSONRewrite {
      
      
     static func apply(_ operations: [ModuleJSONOperation], to value: inout ModuleJSONValue,
-                      maximumBodyBytes: Int = ModuleJQ.maximumBodyBytes, maximumNodes: Int = ModuleJSONRewrite.maximumNodes,
-                      bodyBytes: Int? = nil, budget: inout ModuleRequestBudget) -> Change {
+                      maximumBodyBytes: Int = .max, bodyBytes: Int? = nil, budget: inout ModuleRequestBudget) -> Change {
         var working = value
-        let change = run(operations.map(Step.init), on: &working, maximumBodyBytes: maximumBodyBytes, maximumNodes: maximumNodes,
+        let change = run(operations.map(Step.init), on: &working, maximumBodyBytes: maximumBodyBytes,
                          bodyBytes: bodyBytes ?? maximumBodyBytes, budget: &budget)
         if change == .changed { value = working }
         return change
@@ -170,9 +150,8 @@ enum ModuleJSONRewrite {
      
      
      
-     
     static func envelope(bodyBytes: Int) -> Int {
-        ModuleJQ.Limits.engine(bodyBytes: ModuleJQ.maximumBodyBytes, inputBytes: bodyBytes).memoryBytes
+        ModuleJQ.Limits.engine(bodyBytes: bodyBytes, inputBytes: bodyBytes).memoryBytes
     }
 
      
@@ -180,7 +159,7 @@ enum ModuleJSONRewrite {
     static let paddingBytesEach = 24
 
     private static func run(_ steps: [Step], on value: inout ModuleJSONValue, maximumBodyBytes: Int,
-                            maximumNodes: Int, bodyBytes: Int, budget: inout ModuleRequestBudget) -> Change {
+                            bodyBytes: Int, budget: inout ModuleRequestBudget) -> Change {
         guard !steps.isEmpty else { return .unchanged }
         if budget.isSpent {
             budget.noteStop()
@@ -204,7 +183,7 @@ enum ModuleJSONRewrite {
              
              
              
-            guard let new = step.value ?? step.valueJSON.map({ Self.value($0, maximumBodyBytes: maximumBodyBytes, maximumNodes: maximumNodes) })
+            guard let new = step.value ?? step.valueJSON.map({ Self.value($0, maximumBodyBytes: maximumBodyBytes) })
                     ?? .some(.null) else { return stop() }
              
             guard step.path.count + new.depth <= ModuleJSONText.maximumDepth else { continue }
@@ -218,17 +197,15 @@ enum ModuleJSONRewrite {
      
      
     static func value(_ text: String) -> ModuleJSONValue {
-        value(text, maximumBodyBytes: .max, maximumNodes: .max)!
+        value(text, maximumBodyBytes: .max)!
     }
 
      
-     
-    private static func value(_ text: String, maximumBodyBytes: Int, maximumNodes: Int) -> ModuleJSONValue? {
+    private static func value(_ text: String, maximumBodyBytes: Int) -> ModuleJSONValue? {
         guard text.utf8.count <= maximumBodyBytes else { return nil }
-        switch ModuleJSONText.parse(Data(text.utf8), maximumNodes: maximumNodes) {
+        switch ModuleJSONText.parse(Data(text.utf8), maximumNodes: .max) {
         case .value(let value): return value
-        case .notJSON: return .string(text)
-        case .tooManyNodes: return nil
+        case .notJSON, .tooManyNodes: return .string(text)
         }
     }
 

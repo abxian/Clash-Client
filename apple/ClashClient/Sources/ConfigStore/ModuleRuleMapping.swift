@@ -1125,9 +1125,12 @@ enum ModuleRuleMapping {
      
      
      
+     
+     
     static func plainHTTPHosts(of pattern: String) -> [ModuleHostEntry] {
         var text = Substring(pattern)
-        guard text.hasPrefix("^http:") else { return [] }
+        if let flags = text.range(of: #"^\(\?[A-Za-z]+\)"#, options: .regularExpression) { text = text[flags.upperBound...] }
+        guard text.lowercased().hasPrefix("^http:") else { return [] }
         text = text.dropFirst(6)
         if text.hasPrefix(#"\/\/"#) {
             text = text.dropFirst(4)

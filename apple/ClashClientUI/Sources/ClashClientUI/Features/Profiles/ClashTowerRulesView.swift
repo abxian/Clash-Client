@@ -64,6 +64,11 @@ public struct ClashTowerRulesLibraryView: View {
     public var deleteSource: ((String) -> Void)?
      
      
+    public var copyLink: ((String) -> Void)?
+     
+    public var refreshAll: (() async -> Void)?
+     
+     
      
     public var deletionUndoable = false
     public func deletingWithUndo(_ undoable: Bool = true) -> Self { var copy = self; copy.deletionUndoable = undoable; return copy }
@@ -89,9 +94,10 @@ public struct ClashTowerRulesLibraryView: View {
         isUpdating: Bool = false, updatingCollections: Set<ConfigurationCollection.ID> = [],
         updateCollection: ((ConfigurationCollectionEntry) -> Void)? = nil,
         updateFailed: Bool = false, dismissUpdate: (() -> Void)? = nil, refreshingSchemes: Set<String> = [],
-        deleteSource: ((String) -> Void)? = nil) {
+        deleteSource: ((String) -> Void)? = nil, copyLink: ((String) -> Void)? = nil,
+        refreshAll: (() async -> Void)? = nil) {
         self.updateFailed = updateFailed; self.dismissUpdate = dismissUpdate; self.refreshingSchemes = refreshingSchemes
-        self.deleteSource = deleteSource
+        self.deleteSource = deleteSource; self.copyLink = copyLink; self.refreshAll = refreshAll
         self.updateAll = updateAll; self.updateProgress = updateProgress; self.updateStatus = updateStatus
         self.rename = rename
         self.quickAdd = quickAdd
@@ -127,6 +133,11 @@ public struct ClashTowerRulesLibraryView: View {
         return scheme.label
     }
     private func bundled(_ scheme: ConfigurationRuleScheme) -> Bool { scheme.kind == .builtin }
+     
+    static func link(_ record: ConfigurationSourceRecord?) -> String? {
+        if case .subscription(let link)? = record?.origin { return link }
+        return nil
+    }
      
      
      
@@ -181,7 +192,8 @@ public struct ClashTowerRulesLibraryView: View {
                 }
                 if let updateAll {
                     Section {
-                        ClashConfigurationUpdateButton(title: "Update All Rule Sets", isUpdating: isUpdating, disabled: isUpdating, action: updateAll)
+                         
+                        ClashConfigurationUpdateButton(title: "Update All", isUpdating: isUpdating, disabled: isUpdating, action: updateAll)
                             .accessibilityIdentifier("configuration.library.rules.update-all")
                             .id(Self.updateAllRow)
                     } footer: {
@@ -200,6 +212,9 @@ public struct ClashTowerRulesLibraryView: View {
                         .accessibilityIdentifier("configuration.library.rules.add-card")
                 }
             }
+             
+             
+            .modifier(ClashLibraryPullToUpdate(action: updateAll == nil ? nil : (refreshAll ?? updateAll.map { run in { run() } })))
              
              
              
@@ -372,25 +387,42 @@ public struct ClashTowerRulesLibraryView: View {
             }
         }.buttonStyle(.plain)
             .contextMenu {
-                Button("View Details") { open(scheme.id) }
+                 
+                 
+                 
+                 
+                 
+                 
+                if case .subscription = record(scheme)?.origin {
+                    Button { refresh(scheme.id) } label: {
+                        Label { Text("Update") } icon: { Image(systemName: ClashSymbol.arrowClockwise.rawValue) }
+                    }
+                    .disabled(refreshing)
+                    .accessibilityIdentifier("configuration.rules.library.update")
+                }
+                if let link = Self.link(record(scheme)), let copyLink {
+                    Button { copyLink(link) } label: {
+                        Label { Text("Copy Link") } icon: { Image(systemName: ClashSymbol.link.rawValue) }
+                    }
+                    .accessibilityIdentifier("configuration.rules.library.copy-link")
+                }
                 if rename != nil, Self.canRename(scheme) {
                     Button { renameText = scheme.label; renaming = scheme } label: {
                         Label("Rename…", systemImage: ClashSymbol.pencil.rawValue)
                     }
                     .accessibilityIdentifier("configuration.rules.library.rename")
                 }
-                if case .subscription = record(scheme)?.origin { Button("Refresh Rules") { refresh(scheme.id) }.disabled(refreshing) }
-                if !bundled(scheme) { Button("Delete", role: .destructive) { if deletionUndoable { delete(scheme.id) } else { deleting = scheme } } }
-            }
-            .swipeActions(allowsFullSwipe: false) {
+                Button { open(scheme.id) } label: {
+                    Label { Text("View Details") } icon: { Image(systemName: ClashSymbol.infoCircle.rawValue) }
+                }
                 if !bundled(scheme) {
-                    Button("Delete", role: .destructive) { if deletionUndoable { delete(scheme.id) } else { deleting = scheme } }
-                         
-                         
-                        .tint(.red)
-                        .accessibilityIdentifier("configuration.rules.library.delete")
+                    Button(role: .destructive) { if deletionUndoable { delete(scheme.id) } else { deleting = scheme } } label: {
+                        Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+                    }
                 }
             }
+            .clashSwipeToDelete(identifier: "configuration.rules.library.delete",
+                               bundled(scheme) ? nil : { if deletionUndoable { delete(scheme.id) } else { deleting = scheme } })
     }
 
      
@@ -402,15 +434,22 @@ public struct ClashTowerRulesLibraryView: View {
             count: .format(count == 1 ? "%@ collection" : "%@ collections", [String(count)]),
             showsInfo: false)
             .contextMenu {
-                if deletable { Button("Delete", role: .destructive) { if deletionUndoable { deleteSource?(source.id) } else { deletingSource = source } } }
-            }
-            .swipeActions(allowsFullSwipe: false) {
+                 
+                 
+                if let link = Self.link(source), let copyLink {
+                    Button { copyLink(link) } label: {
+                        Label { Text("Copy Link") } icon: { Image(systemName: ClashSymbol.link.rawValue) }
+                    }
+                    .accessibilityIdentifier("configuration.rules.library.source.copy-link")
+                }
                 if deletable {
-                    Button("Delete", role: .destructive) { if deletionUndoable { deleteSource?(source.id) } else { deletingSource = source } }
-                        .tint(.red)
-                        .accessibilityIdentifier("configuration.rules.library.source.delete")
+                    Button(role: .destructive) { if deletionUndoable { deleteSource?(source.id) } else { deletingSource = source } } label: {
+                        Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+                    }
                 }
             }
+            .clashSwipeToDelete(identifier: "configuration.rules.library.source.delete",
+                               deletable ? { if deletionUndoable { deleteSource?(source.id) } else { deletingSource = source } } : nil)
     }
 
      
@@ -773,7 +812,11 @@ public struct ClashTowerRuleCustomizationView: View {
             ClashTowerReorderButton(identifier: "configuration.rules.focus.reorder")
             #endif
         }
-        if !pushed {
+         
+         
+         
+         
+        if !pushed, !reordering, !reorderingAList {
              
              
             Button { if hasUnsavedChanges { persist(draft, then: close) } else { close() } } label: { ClashActionProgressLabel(.copy("Done"), isBusy: busy) }.foregroundStyle(.tint).disabled(busy || !loadingRuleSets.isEmpty)
@@ -1109,9 +1152,17 @@ public struct ClashTowerRuleCustomizationView: View {
                         .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
                         .moveDisabled(!search.isEmpty)
                         .contextMenu {
-                            Button("Edit Name and Icon") { groupID = group.id; modal = .identity }
-                            Button("Delete", role: .destructive) { deletingGroup = group.id }
+                            Button { groupID = group.id; modal = .identity } label: {
+                                Label { Text("Edit Name and Icon") } icon: { Image(systemName: ClashSymbol.pencil.rawValue) }
+                            }
+                            Button(role: .destructive) { deletingGroup = group.id } label: {
+                                Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+                            }
                         }
+                         
+                         
+                         
+                        .clashSwipeToDelete(reorderingAList ? nil : { deletingGroup = group.id })
                         .accessibilityAction(named: Text("Edit Name and Icon")) { groupID = group.id; modal = .identity }
                 }.onDelete(perform: reorderingAList ? nil : { offsets in
                     guard let index = offsets.first, visibleGroups.indices.contains(index) else { return }
@@ -1219,14 +1270,16 @@ public struct ClashTowerRuleCustomizationView: View {
                         }.buttonStyle(.plain)
                             .accessibilityIdentifier("configuration.rules.local.toggle")
                     }.contextMenu {
-                        Button("Edit Rule Content") { localID = item.id; open(.local) }
-                        Button("Delete Local Rule Set", role: .destructive) { deletingLocal = item }
+                        Button { localID = item.id; open(.local) } label: {
+                            Label { Text("Edit Rule Content") } icon: { Image(systemName: ClashSymbol.pencil.rawValue) }
+                        }
+                         
+                         
+                        Button(role: .destructive) { deletingLocal = item } label: {
+                            Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+                        }
                     }
-                    .swipeActions(allowsFullSwipe: false) {
-                        Button("Delete", role: .destructive) { deletingLocal = item }
-                            .tint(.red)
-                            .accessibilityIdentifier("configuration.rules.local.delete")
-                    }
+                    .clashSwipeToDelete(identifier: "configuration.rules.local.delete") { deletingLocal = item }
                 }
             } header: { HStack { Text("My Rule Sets"); Spacer(); Text(clash: .format("%@ items", [String(localSets.count)])) } }
 
@@ -2616,6 +2669,8 @@ struct ClashLibraryUpdateBar: View {
  
  
  
+ 
+ 
 private struct ClashRuleSetRowUpdate: ViewModifier {
     let entry: ConfigurationCollectionEntry
     let enabled: Bool
@@ -2628,19 +2683,12 @@ private struct ClashRuleSetRowUpdate: ViewModifier {
     func body(content: Content) -> some View {
         if offered, let update {
             content
-                .swipeActions(edge: .trailing) {
-                    Button { update(entry) } label: {
-                        Label(ClashCopy.key("Update"), systemImage: ClashSymbol.arrowClockwise.rawValue)
-                    }
-                    .tint(.blue)
-                    .disabled(!enabled)
-                    .accessibilityIdentifier("configuration.collection.update.\(entry.source.id).\(entry.collection.name)")
-                }
                 .contextMenu {
                     Button { update(entry) } label: {
                         Label(ClashCopy.key("Update"), systemImage: ClashSymbol.arrowClockwise.rawValue)
                     }
                     .disabled(!enabled)
+                    .accessibilityIdentifier("configuration.collection.update.\(entry.source.id).\(entry.collection.name)")
                 }
         } else {
             content

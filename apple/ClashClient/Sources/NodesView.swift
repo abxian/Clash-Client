@@ -319,7 +319,7 @@ private struct NodeDisplaySettingsView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Binding var presentation: NodePresentationSettings
     @Binding var sort: ProxySort
 

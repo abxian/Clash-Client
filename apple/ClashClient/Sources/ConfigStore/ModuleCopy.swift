@@ -57,7 +57,7 @@ extension ModuleIgnoredReason {
             return .app("The %@ setting is missing, so this line was skipped.", arguments: [name])
         case .scriptTurnedOff:
             return .app("This script is turned off in the module.")
-        case .headerOverLimit, .argumentsOverLimit:
+        case .argumentsOverLimit:
             return .app("This module has too much in it, so the extra was skipped.")
         case .scriptDownloadFailed(let why):
              
@@ -91,13 +91,24 @@ extension ModuleIgnoredReason {
                 return .app("The file this line needs isn't on this device, so it was skipped.")
             case .vpnIcon:
                 return .app("The system decides when the VPN icon shows, so this line was skipped.")
-            case .systemProxy, .pingForwarding, .snellVersion, .networkSwitching, .noSuchSetting, .cellularServices,
-                 .dnsScripts, .ruleScripts, .scriptTooLargeHere:
-                 
-                 
-                 
-                 
-                return ModuleCopy.deviceCannot
+             
+             
+            case .systemProxy:
+                return .app("Clash doesn't use a system proxy, so this compatibility mode was skipped.")
+            case .pingForwarding:
+                return .app("Clash always answers pings itself, so this line was skipped.")
+            case .snellVersion:
+                return .app("Snell version 6 isn't supported, so this line was skipped.")
+            case .networkSwitching:
+                return .app("The system decides when Wi-Fi and cellular are used together, so this line was skipped.")
+            case .noSuchSetting:
+                return .app("Clash has no such setting, so this line was skipped.")
+            case .cellularServices:
+                return .app("A Mac has no cellular services, so this line was skipped.")
+            case .dnsScripts:
+                return .app("Clash doesn't run DNS scripts, so this line was skipped.")
+            case .ruleScripts:
+                return .app("Clash doesn't run rule scripts, so this line was skipped.")
             }
         case .waitingForKernel:
              
@@ -114,12 +125,6 @@ extension ModuleIgnoredReason {
             case .verbatim(let text):
                 return .app("This line doesn't work in the app it was written for either (%@), so it was skipped.", arguments: [text])
             }
-         
-         
-        case .answerFileTooLarge:
-            return .app("The file this line returns is too large, so it was skipped.")
-        case .lineTooLong:
-            return .app("This line is too long, so it was skipped.")
         case .policyNotFound(let policy):
             return .app("This rule's destination %@ isn't in the current configuration, so it was skipped.",
                         arguments: [policy])
@@ -326,8 +331,6 @@ extension ModuleChange.Key {
 extension ModuleCopy {
      
     static let deviceSettingsFootnote = AuthoredText.app("These settings return to yours when this module is off.")
-     
-    static let deviceCannot = AuthoredText.app("This device can't do this, so it was skipped.")
      
     static let lanSharingOn = ModuleSentence.app("This module turned on LAN sharing.", arguments: [])
 }

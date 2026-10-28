@@ -686,6 +686,8 @@ enum ModuleLineSyntax {
      
      
      
+     
+     
     private static func scriptAddress(_ path: String, pattern: String = "") -> Result<String, ModuleIgnoredReason> {
         if path.lowercased().contains("boxjs") || pattern.lowercased().contains("boxjs") {
             return .failure(.boxJSNotSupported)
@@ -698,10 +700,6 @@ enum ModuleLineSyntax {
          
          
         guard path.utf8.count <= ModuleParser.maximumShownBytes else { return .failure(.unreadableLine) }
-         
-         
-         
-        guard scheme == "https" else { return .failure(.scriptAddressNotSecure) }
         return .success(path)
     }
 

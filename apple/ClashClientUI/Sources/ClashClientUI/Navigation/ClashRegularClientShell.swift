@@ -718,6 +718,10 @@ public struct ClashRegularClientShell<
                      
                      
                      
+                    .clashPushedTopAccessory(background: background)
+                     
+                     
+                     
                      
                      
                      
@@ -880,6 +884,10 @@ public struct ClashRegularClientShell<
                 )
         }
         .coordinateSpace(name: Self.detailSpace)
+         
+         
+         
+        .environment(\.clashDetailTopAccessoryPlaced, presentedPathBox.path.isEmpty)
     }
 
     private static var detailSpace: String { "clash.regular.detail" }
@@ -1504,9 +1512,15 @@ public struct ClashRegularClientShell<
 
      
      
+     
+     
+     
+     
     @ViewBuilder
     private var detailTopAccessory: some View {
-        if let detailTopAccessoryView { detailTopAccessoryView }
+        if let detailTopAccessoryView, presentedPathBox.isEmpty {
+            detailTopAccessoryView
+        }
     }
 
     private var detailBackground: AnyView {
@@ -1617,6 +1631,13 @@ struct ClashPresentedPathBox {
         get { storage as? NavigationPath ?? NavigationPath() }
         set { storage = newValue }
     }
+
+     
+     
+    var isEmpty: Bool {
+        guard #available(iOS 16.0, macOS 13.0, *) else { return true }
+        return path.isEmpty
+    }
 }
 
 
@@ -1706,5 +1727,20 @@ public extension EnvironmentValues {
     var clashDetailTopAccessory: AnyView? {
         get { self[ClashDetailTopAccessoryKey.self] }
         set { self[ClashDetailTopAccessoryKey.self] = newValue }
+    }
+}
+
+private struct ClashDetailTopAccessoryPlacedKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+     
+     
+     
+     
+    var clashDetailTopAccessoryPlaced: Bool {
+        get { self[ClashDetailTopAccessoryPlacedKey.self] }
+        set { self[ClashDetailTopAccessoryPlacedKey.self] = newValue }
     }
 }

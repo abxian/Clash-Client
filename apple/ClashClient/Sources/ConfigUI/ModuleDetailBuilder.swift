@@ -140,6 +140,8 @@ enum ModuleDetailBuilder {
             needsDecryptionCount: counts.waiting, failureIsSentence: failureIsSentence,
             waitsFor: counts.waiting > 0 ? decryption.wait : nil, unavailableCount: counts.unavailable)
          
+         
+        if case .unknown = record.origin {} else { out.ownName = ModulePageSnapshotBuilder.ownName(record, locale: locale) }
         out.date = written(ir?.manifest.date)
         out.homepage = written(ir?.manifest.homepage)
         out.settings = ir.flatMap { settings($0.manifest, values: record.argumentValues, stored: storedValues, refusal: settingsRefusal) }

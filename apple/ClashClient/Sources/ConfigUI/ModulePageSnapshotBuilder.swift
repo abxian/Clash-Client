@@ -49,6 +49,10 @@ struct ModulePageFacts {
     var isConnected = false
     var isBusy = false
      
+    var switching: [String: Bool] = [:]
+     
+    var decryptionSwitching: Bool?
+     
      
     var storedValues: [String: String] = [:]
      
@@ -94,10 +98,12 @@ enum ModulePageSnapshotBuilder {
              
             return ClashModulesSnapshot(isOn: false, isBusy: facts.isBusy,
                                         certificate: install == nil ? nil : certificate(facts, locale: locale), install: install,
-                                        notices: notices(facts, decryptionOn: false, locale: locale), modules: rows)
+                                        notices: notices(facts, decryptionOn: false, locale: locale), modules: rows,
+                                        switching: facts.switching, decryptionSwitching: facts.decryptionSwitching)
         }
         return ClashModulesSnapshot(isOn: true, isBusy: facts.isBusy, certificate: certificate(facts, locale: locale),
-                                    install: install, notices: notices(facts, decryptionOn: true, locale: locale), modules: rows)
+                                    install: install, notices: notices(facts, decryptionOn: true, locale: locale), modules: rows,
+                                    switching: facts.switching, decryptionSwitching: facts.decryptionSwitching)
     }
 
      
@@ -348,7 +354,9 @@ enum ModulePageSnapshotBuilder {
                 return
             }
             said[text] = out.count
-            out.append(.init(id: id, text: text.displayText, action: action, actionTitle: action.map(title(for:))))
+             
+            out.append(.init(id: id, text: text.displayText, action: action, actionTitle: action.map(title(for:)),
+                             tone: ModuleEngineInsight.Copy.onHold.contains(text) ? .onHold : .attention))
         }
          
         if let failure = facts.actionFailure { add(.modules, "action", actionNotice(failure, facts, locale: locale)) }
@@ -368,8 +376,7 @@ enum ModulePageSnapshotBuilder {
         }
          
          
-         
-        let insight = ModuleEngineInsight.read(facts.isConnected ? facts.report : nil, platform: certificatePlatform(facts.platform))
+        let insight = ModuleEngineInsight.read(facts.isConnected ? facts.report : nil)
         for (index, notice) in insight.notices.enumerated() {
             if tryAgain(notice, rung: insight.rung) {
                 add(.decryption, "memory", notice, action: .retryAfterMemoryStop)
@@ -386,13 +393,14 @@ enum ModulePageSnapshotBuilder {
      
      
      
+     
     static func tryAgain(_ reason: ModuleDegradeReason) -> Bool {
         switch reason {
-        case .stoppedForMemory, .engineUnavailable, .certificateUnusable:
+        case .engineUnavailable, .certificateUnusable:
             return true
-        case .certificateNotTrusted, .certificateMissing, .portsTaken, .noCertificateAddress, .groupsNotAdjustable,
-             .sectionNotAdjustable, .alreadyPublished, .moduleRulesLeftOut, .moduleEntriesLeftOut, .moduleSettingsLeftOut,
-             .engineNameTaken, .notApplied:
+        case .stoppedForMemory, .certificateNotTrusted, .certificateMissing, .portsTaken, .noCertificateAddress,
+             .groupsNotAdjustable, .sectionNotAdjustable, .alreadyPublished, .moduleRulesLeftOut, .moduleEntriesLeftOut,
+             .moduleSettingsLeftOut, .engineNameTaken, .notApplied:
             return false
         }
     }
@@ -400,12 +408,8 @@ enum ModulePageSnapshotBuilder {
      
      
      
-     
     static func tryAgain(_ notice: AuthoredText, rung: ModuleEngineReport.Rung) -> Bool {
-        if rung == .engineStopped, notice == memoryStopNotice || notice == ModuleDegradeReason.stoppedForMemory.authoredText {
-            return true
-        }
-        return notice == ModuleDegradeReason.certificateUnusable.authoredText
+        notice == ModuleDegradeReason.certificateUnusable.authoredText
             || notice == ModuleDegradeReason.engineUnavailable.authoredText
     }
 
@@ -420,12 +424,6 @@ enum ModulePageSnapshotBuilder {
         }
         return failure
     }
-
-     
-     
-     
-     
-    static var memoryStopNotice: AuthoredText { ModuleDegradeReason.stoppedForMemory.authoredText }
 
      
     static func title(for action: ClashModulesSnapshot.NoticeAction) -> ClashDisplayText {
@@ -462,7 +460,7 @@ enum ModulePageSnapshotBuilder {
          
         case .unknown: source = .unknown
         }
-        let name = record.name.isEmpty ? ClashCopy.string(for: Copy.untitledModule.displayText, locale: locale) : record.name
+        let name = record.displayName.isEmpty ? ownName(record, locale: locale) : record.displayName
          
         let failed = record.lastFailure != nil || record.failureFromALaterBuild
         let failure: ClashDisplayText? = failed && source != .local ? "Update failed" : nil
@@ -476,6 +474,12 @@ enum ModulePageSnapshotBuilder {
             ignoredCount: ir?.ignoredCount ?? 0, enabled: record.enabled,
             failure: failure, link: link,
             waitingCount: waiting, waitsFor: waiting > 0 ? decryption.wait : nil)
+    }
+
+     
+     
+    static func ownName(_ record: ModuleRecord, locale: Locale) -> String {
+        record.name.isEmpty ? ClashCopy.string(for: Copy.untitledModule.displayText, locale: locale) : record.name
     }
 
      

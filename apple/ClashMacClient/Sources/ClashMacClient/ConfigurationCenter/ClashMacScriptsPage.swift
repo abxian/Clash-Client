@@ -246,7 +246,8 @@ public struct ClashMacScriptsPage: View {
                          
                          
                          
-                        Button { adding = true } label: { Text(clash: .opens("quick-add.door.create", locale: locale)) }
+                         
+                        Button { adding = true } label: { Text(clash: .opens("New Script", locale: locale)) }
                             .disabled(busy)
                             .accessibilityIdentifier("configuration-center.scripts.add")
                     }
@@ -358,7 +359,7 @@ struct ClashMacScriptAddSheet: View {
             case .link: "URL"
             case .file: "File"
              
-            case .manual: "quick-add.door.create"
+            case .manual: "New Script"
             }
         }
     }

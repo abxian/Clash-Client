@@ -7,6 +7,11 @@ import os
  
  
  
+ 
+ 
+ 
+ 
+ 
 
 struct ModuleMemoryReading: Equatable, Sendable {
      
@@ -14,14 +19,6 @@ struct ModuleMemoryReading: Equatable, Sendable {
      
      
     let headroom: Int64?
-}
-
- 
- 
-enum ModulePressureLevel: Int, Sendable {
-    case normal = 1
-    case warning = 2
-    case critical = 4
 }
 
 enum ModuleMemoryProbe {
@@ -62,14 +59,6 @@ enum ModuleMemoryProbe {
         #else
         return nil
         #endif
-    }
-
-     
-    static func pressureLevel() -> ModulePressureLevel? {
-        var level: Int32 = 0
-        var size = MemoryLayout<Int32>.size
-        guard sysctlbyname("kern.memorystatus_vm_pressure_level", &level, &size, nil, 0) == 0 else { return nil }
-        return ModulePressureLevel(rawValue: Int(level))
     }
 }
 
@@ -113,19 +102,21 @@ final class ModuleSystemPressureSource: ModulePressureSource {
 
 struct ModuleLadderThresholds: Equatable, Sendable {
      
-    var scripts: Int64
-    var bodies: Int64
-    var engine: Int64
+     
+     
+     
+     
+    var floor: Int64
+     
+     
+     
+    var relief: Int64
      
     var assumedLimit: Int64?
      
-    var followsPressureOnly: Bool
      
      
-     
-     
-     
-    var bodiesAtOnceUnderPressure: Int? = nil
+    var relievesOnCriticalOnly: Bool
 
     private static let mib: Int64 = 1 << 20
 
@@ -144,18 +135,15 @@ struct ModuleLadderThresholds: Equatable, Sendable {
      
      
      
-    static let iOS = ModuleLadderThresholds(scripts: 18 * mib, bodies: 12 * mib, engine: 8 * mib,
-                                             assumedLimit: 50 * mib, followsPressureOnly: false)
+     
+     
+     
+    static let iOS = ModuleLadderThresholds(floor: 8 * mib, relief: 14 * mib, assumedLimit: 50 * mib, relievesOnCriticalOnly: false)
      
      
      
      
-     
-     
-     
-     
-    static let macOS = ModuleLadderThresholds(scripts: 0, bodies: 0, engine: 0, assumedLimit: nil, followsPressureOnly: true,
-                                               bodiesAtOnceUnderPressure: 2)
+    static let macOS = ModuleLadderThresholds(floor: 0, relief: 0, assumedLimit: nil, relievesOnCriticalOnly: true)
 
     static var current: ModuleLadderThresholds {
         #if os(macOS)
@@ -164,6 +152,39 @@ struct ModuleLadderThresholds: Equatable, Sendable {
         return .iOS
         #endif
     }
+}
+
+ 
+ 
+ 
+ 
+struct ModuleMemoryShortfall: Equatable, Sendable {
+    let needed: Int64
+    let available: Int64
+    let floor: Int64
+
+    var description: String {
+        let mib = { (bytes: Int64) in String(format: #"%.1f MiB"#, Double(bytes) / 1_048_576) }
+        return #"running it takes about \#(mib(needed)), and \#(mib(available)) is left, \#(mib(floor)) of it kept free"#
+    }
+}
+
+ 
+enum ModuleMemoryRelief: Equatable, Sendable {
+     
+    case tight(ModuleMemoryReading)
+     
+    case beforeSkip
+     
+     
+    case critical(ModuleMemoryReading)
+}
+
+ 
+enum ModuleLadderLowering: Equatable, Sendable {
+     
+     
+    case headroomHeld(ModuleMemoryReading, relief: Int64)
 }
 
 final class ModuleMemoryLadder: ModuleAllowance {
@@ -176,13 +197,11 @@ final class ModuleMemoryLadder: ModuleAllowance {
      
      
      
-     
-    static let criticalRepeat: TimeInterval = 60
-     
+    static let reliefHold: TimeInterval = 60
      
      
      
-    static let normalHold: TimeInterval = 600
+    static let scriptRunCost: Int64 = 1 << 20
 
      
      
@@ -190,17 +209,18 @@ final class ModuleMemoryLadder: ModuleAllowance {
 
     private let thresholds: ModuleLadderThresholds
     private let probe: () -> ModuleMemoryReading
-    private let pressureLevel: () -> ModulePressureLevel?
     private let now: () -> Date
     private let onChange: (Rung, Cause, ModuleMemoryReading) -> Void
     private let onReading: (ModuleMemoryReading) -> Void
      
      
-    private let onLower: (Rung, Cause?) -> Void
+    private let onLower: (Rung, Cause?, ModuleLadderLowering) -> Void
+     
+     
+    private let onRelieve: (ModuleMemoryRelief) -> Void
     private(set) var rung: Rung
      
     private(set) var rungCause: Cause?
-     
      
      
     private(set) var memoryRung: Rung
@@ -209,30 +229,30 @@ final class ModuleMemoryLadder: ModuleAllowance {
      
     private var lastHeadroom: Int64?
      
-    private var criticalSince: Date?
+    private var clearSince: Date?
      
-    private var lastCriticalAt: Date?
      
-    private var normalSince: Date?
+    private var tight = false
      
     private var scriptsMissing = false
     private var pressureSource: ModulePressureSource?
 
      
      
+     
     init(thresholds: ModuleLadderThresholds, startingAt start: Rung = .normal, takenBy cause: Cause? = nil,
          probe: @escaping () -> ModuleMemoryReading = ModuleMemoryProbe.read,
-         pressureLevel: @escaping () -> ModulePressureLevel? = ModuleMemoryProbe.pressureLevel,
          now: @escaping () -> Date = ModuleMemoryLadder.monotonicNow, onChange: @escaping (Rung, Cause, ModuleMemoryReading) -> Void,
          onReading: @escaping (ModuleMemoryReading) -> Void = { _ in },
-         onLower: @escaping (Rung, Cause?) -> Void = { _, _ in }) {
+         onLower: @escaping (Rung, Cause?, ModuleLadderLowering) -> Void = { _, _, _ in },
+         onRelieve: @escaping (ModuleMemoryRelief) -> Void = { _ in }) {
         self.thresholds = thresholds
         self.probe = probe
-        self.pressureLevel = pressureLevel
         self.now = now
         self.onChange = onChange
         self.onReading = onReading
         self.onLower = onLower
+        self.onRelieve = onRelieve
         rung = start
         rungCause = start == .normal ? nil : cause
         memoryRung = cause == .scriptsUnavailable ? .normal : start
@@ -243,10 +263,10 @@ final class ModuleMemoryLadder: ModuleAllowance {
         pressureSource?.cancel()
     }
 
-    var allowsScripts: Bool { rung < .scriptsStopped }
-    var allowsBodies: Bool { rung < .bodiesStopped }
+     
+     
+    var allowsScripts: Bool { !scriptsMissing }
     var allowsDecryption: Bool { rung < .engineStopped }
-    var bodiesAtOnce: Int? { memoryRung >= .scriptsStopped ? thresholds.bodiesAtOnceUnderPressure : nil }
 
     func noteActivity() { evaluate() }
 
@@ -254,119 +274,100 @@ final class ModuleMemoryLadder: ModuleAllowance {
 
      
      
-     
     private func evaluate(forced: Bool) {
+        guard !thresholds.relievesOnCriticalOnly else { return }
         let at = now()
-        let near = lastHeadroom.map { $0 <= thresholds.scripts } ?? false
+        let near = lastHeadroom.map { $0 < thresholds.relief } ?? false
         if !forced, !near, let last = lastReadingAt, at.timeIntervalSince(last) < Self.readingSpacing, at >= last { return }
         lastReadingAt = at
-        guard !thresholds.followsPressureOnly else { return followLevel(at) }
         let reading = probe()
         onReading(reading)
-        guard let headroom = reading.headroom ?? thresholds.assumedLimit.map({ $0 - reading.footprint }) else { return }
+        guard let headroom = headroom(of: reading) else { return }
+        take(headroom, reading, at: at)
+    }
+
+     
+    private func headroom(of reading: ModuleMemoryReading) -> Int64? {
+        reading.headroom ?? thresholds.assumedLimit.map { $0 - reading.footprint }
+    }
+
+     
+     
+     
+     
+    private func take(_ headroom: Int64, _ reading: ModuleMemoryReading, at: Date) {
         lastHeadroom = headroom
-        let target: Rung
-        if headroom <= thresholds.engine {
-            target = .engineStopped
-        } else if headroom <= thresholds.bodies {
-            target = .bodiesStopped
-        } else if headroom <= thresholds.scripts {
-            target = .scriptsStopped
+        if headroom < thresholds.relief {
+            clearSince = nil
+            if !tight {
+                tight = true
+                onRelieve(.tight(reading))
+            }
         } else {
-            target = .normal
+            tight = false
+            if clearSince.map({ at < $0 }) ?? true { clearSince = at }
         }
-        raise(to: target, cause: .memoryHeadroom, reading)
-    }
-
-     
-     
-    private func followLevel(_ at: Date) {
-        if criticalSince != nil, rung < .engineStopped {
-            stillCritical(at)
-            if criticalSince != nil { return }
+        if headroom <= thresholds.floor {
+            raise(to: .engineStopped, cause: .memoryHeadroom, reading)
+        } else if memoryRung > .normal, let since = clearSince, at.timeIntervalSince(since) >= Self.reliefHold {
+            memoryRung = .normal
+            lower(to: scriptsMissing ? .scriptsStopped : .normal, cause: scriptsMissing ? .scriptsUnavailable : nil,
+                  why: .headroomHeld(reading, relief: thresholds.relief))
         }
-        easeIfNormal(at)
-    }
-
-     
-     
-     
-    private func easeIfNormal(_ at: Date) {
-        guard memoryRung > .normal, memoryRung < .engineStopped, pressureLevel() == .normal else {
-            normalSince = nil
-            return
-        }
-        guard let since = normalSince, at >= since else {
-            normalSince = at
-            return
-        }
-        guard at.timeIntervalSince(since) >= Self.normalHold else { return }
-        normalSince = nil
-        memoryRung = .normal
-        lower(to: scriptsMissing ? .scriptsStopped : .normal, cause: scriptsMissing ? .scriptsUnavailable : nil)
     }
 
      
      
      
-    func publication() {
-        guard thresholds.followsPressureOnly, memoryRung >= .engineStopped else { return }
-        memoryRung = .bodiesStopped
-        if criticalSince != nil { criticalSince = now() }
-        lower(to: .bodiesStopped, cause: .memoryPressure)
+     
+     
+     
+     
+    func roomForScript() -> ModuleMemoryShortfall? {
+        guard !thresholds.relievesOnCriticalOnly else { return nil }
+        guard case let (short, reading)? = room(for: Self.scriptRunCost) else { return nil }
+        raise(to: .scriptsStopped, cause: .memoryHeadroom, reading)
+        return short
     }
 
-    private func lower(to target: Rung, cause: Cause?) {
-        guard target < rung else { return }
+     
+     
+    private func room(for cost: Int64) -> (ModuleMemoryShortfall, ModuleMemoryReading)? {
+        func read() -> (Int64, ModuleMemoryReading)? {
+            let at = now()
+            lastReadingAt = at
+            let reading = probe()
+            onReading(reading)
+            guard let headroom = headroom(of: reading) else { return nil }
+            take(headroom, reading, at: at)
+            return (headroom, reading)
+        }
+        guard case let (first, _)? = read(), first - cost < thresholds.floor else { return nil }
+        onRelieve(.beforeSkip)
+        guard case let (again, reading)? = read(), again - cost < thresholds.floor else { return nil }
+        return (ModuleMemoryShortfall(needed: cost, available: again, floor: thresholds.floor), reading)
+    }
+
+     
+     
+    private func lower(to target: Rung, cause: Cause?, why: ModuleLadderLowering) {
+        guard target < rung || (target == rung && cause != rungCause) else { return }
         rung = target
         rungCause = cause
-        onLower(target, cause)
+        onLower(target, cause, why)
     }
 
-     
-     
-     
-    private func stillCritical(_ at: Date) {
-        guard let since = criticalSince, rung < .engineStopped, let level = pressureLevel() else { return }
-        guard level == .critical else {
-            criticalSince = nil
-            return
-        }
-        guard at.timeIntervalSince(since) >= Self.criticalRepeat else { return }
-        let reading = probe()
-        onReading(reading)
-        raise(to: .engineStopped, cause: .memoryPressure, reading)
-    }
-
-     
-     
-     
      
      
      
      
      
     func pressure(_ event: DispatchSource.MemoryPressureEvent) {
-        guard thresholds.followsPressureOnly else { return evaluate(forced: true) }
-        if event.contains(.critical) {
-            normalSince = nil
-            let at = now()
-            if criticalSince == nil { criticalSince = at }
-            let repeated = lastCriticalAt.map { at.timeIntervalSince($0) < Self.criticalRepeat && at >= $0 } ?? false
-            lastCriticalAt = at
-            let reading = probe()
-            onReading(reading)
-            let fallsBack = repeated && pressureLevel() == nil
-            raise(to: fallsBack ? .engineStopped : .bodiesStopped, cause: .memoryPressure, reading)
-        } else if event.contains(.warning) {
-            criticalSince = nil
-            normalSince = nil
-            let reading = probe()
-            onReading(reading)
-            raise(to: .scriptsStopped, cause: .memoryPressure, reading)
-        } else {
-            criticalSince = nil
-        }
+        guard thresholds.relievesOnCriticalOnly else { return evaluate(forced: true) }
+        guard event.contains(.critical) else { return }
+        let reading = probe()
+        onReading(reading)
+        onRelieve(.critical(reading))
     }
 
      
@@ -410,7 +411,6 @@ final class ModuleMemoryLadder: ModuleAllowance {
  
 struct ModuleLadderSeams {
     var probe: () -> ModuleMemoryReading = ModuleMemoryProbe.read
-    var pressureLevel: () -> ModulePressureLevel? = ModuleMemoryProbe.pressureLevel
     var now: () -> Date = ModuleMemoryLadder.monotonicNow
      
     var pressureSource: ((DispatchQueue) -> ModulePressureSource)? = { ModuleSystemPressureSource(queue: $0) }
@@ -477,7 +477,11 @@ enum ModuleEngineBudget {
      
     static let heldPerCompiledRegex: Int64 = 1_843
     static let ruleBytesPerCompiledRegex: Int64 = 30
-    static let compiledRegexesAtMost = Int64(ModuleGatedMatcher.maximumPinned + ModuleRewriteProgram.maximumCarriedRegexes)
+     
+    static let compiledRegexesAtMost: Int64 = {
+        let sum = ModuleGatedMatcher.maximumPinned.addingReportingOverflow(ModuleRewriteProgram.maximumCarriedRegexes)
+        return Int64(sum.overflow ? .max : sum.partialValue)
+    }()
 
      
      
@@ -509,7 +513,11 @@ enum ModuleEngineBudget {
      
      
      
+     
     static func ruleBytes(listsHolding lists: Int64) -> Int {
+        #if os(macOS)
+        return ModuleReader.maximumRuleBytes
+        #else
         let left = steady - lists
         var low = 0, high = ModuleReader.maximumRuleBytes
         guard programHeld(ruleBytes: high) > left else { return high }
@@ -518,10 +526,22 @@ enum ModuleEngineBudget {
             if programHeld(ruleBytes: middle) <= left { low = middle } else { high = middle - 1 }
         }
         return low
+        #endif
     }
 }
 
 extension ModuleEngineAssembly {
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
      
      
      
@@ -547,18 +567,17 @@ extension ModuleEngineAssembly {
             let what: String
             switch rung {
             case .normal: what = "nothing stops"
-            case .scriptsStopped: what = "scripts stop"
-            case .bodiesStopped: what = "scripts and body changes stop"
+            case .scriptsStopped where cause == .scriptsUnavailable: what = "scripts stop"
+            case .scriptsStopped: what = #"a script was skipped for memory; each next one is judged as it starts"#
             case .engineStopped: what = "every new session is relayed untouched"
             }
             let name = cause == .scriptsUnavailable ? "rung" : "memory rung"
             engine.log.say("\(name) \(rung.rawValue) (\(cause.rawValue)), \(what): footprint \(mib(reading.footprint)), headroom \(mib(reading.headroom))")
-            scripts.releaseAll()
+            if cause == .scriptsUnavailable { scripts.releaseAll() } else { relieve(engine: engine, scripts: scripts) }
             if rung >= .engineStopped { engine.passThroughCauses.insert(.memory) }
             engine.interceptor?.shed(for: rung)
             engine.metrics.update {
-                if before < .scriptsStopped { $0.ladderScriptsStoppedTotal += 1 }
-                if before < .bodiesStopped, rung >= .bodiesStopped { $0.ladderBodiesStoppedTotal += 1 }
+                if before < .scriptsStopped, rung == .scriptsStopped { $0.ladderScriptsStoppedTotal += 1 }
                 if before < .engineStopped, rung >= .engineStopped { $0.ladderEngineStoppedTotal += 1 }
             }
             reporter.record {
@@ -583,11 +602,21 @@ extension ModuleEngineAssembly {
      
      
      
-    static func relax(engine: ModuleEngine, reporter: ModuleEngineReporter) -> (ModuleEngineReport.Rung, ModuleEngineReport.RungCause?) -> Void {
-        { [weak engine, weak reporter] rung, cause in
+     
+     
+     
+    static func relax(engine: ModuleEngine, reporter: ModuleEngineReporter)
+        -> (ModuleEngineReport.Rung, ModuleEngineReport.RungCause?, ModuleLadderLowering) -> Void {
+        { [weak engine, weak reporter] rung, cause, why in
             guard let engine, let reporter else { return }
-            let why = rung >= .bodiesStopped ? "a new publication ends rung 3" : "the system's memory pressure stayed normal for 10 minutes"
-            engine.log.say("memory rung \(rung.rawValue) (\(cause?.rawValue ?? "none")): \(why)")
+            let reason: String
+            switch why {
+            case .headroomHeld(let reading, let relief):
+                let mib = { (bytes: Int64?) in bytes.map { String(format: #"%.1f MiB"#, Double($0) / 1_048_576) } ?? #"unknown"# }
+                reason = #"at least \#(mib(relief)) stayed free for \#(Int(ModuleMemoryLadder.reliefHold)) s: footprint \#(mib(reading.footprint)), headroom \#(mib(reading.headroom))"#
+            }
+            engine.log.say("memory rung \(rung.rawValue) (\(cause?.rawValue ?? "none")): \(reason)")
+            let stopEnded = rung < .engineStopped && engine.passThroughCauses.contains(.memory)
             if rung < .engineStopped { engine.passThroughCauses.remove(.memory) }
             reporter.record {
                 $0.rung = rung
@@ -595,7 +624,21 @@ extension ModuleEngineAssembly {
                 $0.rungAt = reporter.now()
                 if rung < .engineStopped, $0.state == .passThrough, !engine.passThroughOnly { $0.state = .running }
             }
+            if stopEnded {
+                engine.queue.async { [weak engine] in engine?.onMemoryStopEnded?() }
+            }
         }
+    }
+
+     
+     
+     
+     
+     
+     
+    static func relieve(engine: ModuleEngine?, scripts: ModuleScriptRunning) {
+        scripts.relieve()
+        (engine?.interceptor as? ModuleInterceptor)?.services.program.dropCachedRegexes()
     }
 }
 #endif

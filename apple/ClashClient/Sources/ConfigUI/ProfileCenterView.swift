@@ -82,7 +82,7 @@ struct ProfileCenterAdapter: View {
     private var alertFailureShowing: Bool { false }
     @State private var exportDocument: ConfigTextDocument?
     @State private var exportName = ""
-    @State private var centerDismiss = ClashDismissHandle()
+    @StateObject private var centerDismiss = ClashDismissHandle()
      
      
     @StateObject private var quickAdd: ProfileQuickAddController
@@ -238,8 +238,11 @@ struct ProfileCenterAdapter: View {
         .task(id: "\(configurationLibrary.generation)|\(providerDownloads)") {
             guard let store = model.configurationLibraryStore else { return }
             let snapshot = configurationLibrary
+            let model = model
             let counts = await Task.detached(priority: .utility) {
-                ConfigurationCollectionContentBridge.downloadedNodeCounts(store, snapshot: snapshot)
+                 
+                ConfigurationCollectionContentBridge.downloadedNodeCounts(store, snapshot: snapshot,
+                                                                         inUse: model.providerCatalogInUse())
             }.value
             if counts != providerNodeCounts { providerNodeCounts = counts }
         }
@@ -351,10 +354,8 @@ struct ProfileCenterAdapter: View {
                                            scanIdentifier: "profile-center.quick-add.scan",
                                            fileIdentifier: "profile-center.quick-add.file",
                                            manualIdentifier: "profile-center.quick-add.manual",
-                                           statusIdentifier: "profile-center.quick-add.status",
-                                           ownRoutingIdentifier: "profile-center.quick-add.use-own-routing"),
-                        onFirstProfileCreated: ownsNavigationContainer ? { centerDismiss() } : nil,
-                        onLibraryChanged: { await rereadCentreLibrary() })
+                                           statusIdentifier: "profile-center.quick-add.status"),
+                        onFirstProfileCreated: ownsNavigationContainer ? { centerDismiss() } : nil)
                          
                         .disabled(model.isUpdatingNodeLibrary)) }
                     : nil,
@@ -1526,7 +1527,7 @@ private struct ProfileSubscriptionSettingsAdapter: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @State private var subscriptionURL: String

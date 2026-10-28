@@ -382,6 +382,12 @@ struct ProviderCatalog: Codable, Equatable {
          
          
          
+        var request: String? {
+            requestFingerprint?.split(separator: "\n", maxSplits: 1).first.map(String.init)
+        }
+         
+         
+         
          
          
          
@@ -471,6 +477,13 @@ struct ProviderCatalog: Codable, Equatable {
      
      
     var seedPaths: [String: String]? = nil
+     
+     
+     
+     
+     
+     
+    var userAgent: String? = nil
 
      
      
@@ -535,7 +548,9 @@ struct ProviderCatalog: Codable, Equatable {
         acquiredAt: [String: Date] = [:],
         routeSetProviders: Set<String> = [],
         coreRouteSeeds: Set<String> = [],
-        seedPaths: [String: String] = [:]
+        seedPaths: [String: String] = [:],
+         
+        userAgent: String? = nil
     ) -> ProviderCatalog {
         let entries = plan.providers.map {
             Entry(
@@ -573,7 +588,8 @@ struct ProviderCatalog: Codable, Equatable {
                 let found = unusableProxyProviders(in: plan)
                 return found.isEmpty ? nil : found
             }(),
-            seedPaths: seedPaths.isEmpty ? nil : seedPaths)
+            seedPaths: seedPaths.isEmpty ? nil : seedPaths,
+            userAgent: userAgent)
     }
 }
 

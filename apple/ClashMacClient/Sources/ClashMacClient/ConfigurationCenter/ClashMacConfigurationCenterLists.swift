@@ -39,6 +39,10 @@ public struct ClashMacConfigurationCenterListActions {
      
     public var updateConfiguration: (@MainActor (Profile.ID) -> Void)? = nil
     public var copyProfileURL: (@MainActor (Profile.ID) -> Void)? = nil
+     
+     
+     
+    public var copySourceLink: (@MainActor (String) -> Void)? = nil
     public var hasProfileURL: @MainActor (Profile.ID) -> Bool = { _ in false }
      
     public var hasLegacyProfileURLs: Bool = false
@@ -344,22 +348,25 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
      
      
      
+     
+     
     @ViewBuilder
     private func configurationMenu(_ profile: ClashProfileSnapshot, index: Int) -> some View {
-                    if !profile.isCurrent {
-                        Button { actions.activate(profile.id) } label: { Text(clash: .copy("Use This Profile")) }
-                    }
                     if actions.hasProfileURL(profile.id) {
                         if let update = actions.updateConfiguration {
-                            Button { update(profile.id) } label: { Text(clash: .copy("Update Source")) }
+                            Button { update(profile.id) } label: { Text(clash: .copy("Update")) }
                                 .disabled(profile.isBusy)
                         }
                         if let copy = actions.copyProfileURL {
-                            Button { copy(profile.id) } label: { Text(clash: .copy("Copy Profile URL")) }
+                            Button { copy(profile.id) } label: { Text(clash: .copy("Copy Link")) }
                         }
+                        Divider()
+                    }
+                    if !profile.isCurrent {
+                        Button { actions.activate(profile.id) } label: { Text(clash: .copy("Use This Profile")) }
                     }
                     if let reorder = actions.reorder, profiles.count > 1 {
-                        Divider()
+                        if !profile.isCurrent { Divider() }
                         Button { reorder(Self.order(profiles, moving: profile.id, by: -1)) } label: { Text(clash: .copy("Move Up")) }
                             .disabled(index == 0)
                         Button { reorder(Self.order(profiles, moving: profile.id, by: 1)) } label: { Text(clash: .copy("Move Down")) }
@@ -530,7 +537,7 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
              
              
             if model.hasLinkedNodes {
-                Button { Task { await model.updateAllSources() } } label: { Text(clash: .copy("Update All Sources")) }
+                Button { Task { await model.updateAllSources() } } label: { Text(clash: .copy("Update All")) }
                     .disabled(updatesAreBusy)
                     .accessibilityIdentifier("configuration-center.nodes.update-all")
             }
@@ -570,11 +577,15 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
                     ClashMacFoldButton(isExpanded: expansion($expandedNodeSets, source.id), title: source.label)
                         .accessibilityIdentifier("configuration-center.nodes.node-sets.\(source.id)")
                 }
+                 
+                 
+                 
+                let linked = ClashMacConfigurationLibraryModel.link(of: source) != nil
                 ClashMacNodeSourceRow(
-                    source: source, isUpdating: model.updatingSourceIDs.contains(source.id), detail: detail
+                    source: source, isUpdating: model.updatingSourceIDs.contains(source.id), detail: detail,
+                    update: linked && source.isRetainedSnapshot != true ? { Task { _ = await model.updateSourceSaying(source.id) } } : nil,
+                    copyLink: linked ? actions.copySourceLink.map { copy in { copy(source.id) } } : nil
                 ) {
-                    Task { _ = await model.updateSourceSaying(source.id) }
-                } delete: {
                     pendingDelete = .source(source.id)
                 }
             }
@@ -663,7 +674,7 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
         if model.hasLinkedRuleSets {
             HStack {
                 Spacer(minLength: 0)
-                Button { Task { await model.updateAllRuleSets() } } label: { Text(clash: .copy("Update All Rule Sets")) }
+                Button { Task { await model.updateAllRuleSets() } } label: { Text(clash: .copy("Update All")) }
                     .disabled(updatesAreBusy)
                     .accessibilityIdentifier("configuration-center.rules.update-all")
             }
@@ -698,6 +709,7 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
                 ClashMacRuleSetSourceRow(
                     source: source, collections: ruleSets[source.id] ?? [],
                     isUpdating: model.updatingSourceIDs.contains(source.id),
+                    copyLink: linked.contains(source.id) ? actions.copySourceLink.map { copy in { copy(source.id) } } : nil,
                     delete: ClashMacConfigurationLibraryModel.canDeleteSource(source) ? { pendingDelete = .source(source.id) } : nil
                 )
             }
@@ -719,12 +731,18 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
      
     @ViewBuilder
     private func schemeMenu(_ scheme: ConfigurationRuleScheme, linked: Set<String>) -> some View {
-        if scheme.isRetainedSnapshot != true, let editScheme = actions.editScheme {
-            Button { editScheme(scheme.id) } label: { Text(clash: .copy("Edit")) }
-            Divider()
-        }
+         
         if linked.contains(scheme.sourceID) {
-            Button { Task { _ = await model.updateSourceSaying(scheme.sourceID, label: scheme.label) } } label: { Text(clash: .copy("Refresh Rules")) }
+            Button { Task { _ = await model.updateSourceSaying(scheme.sourceID, label: scheme.label) } } label: { Text(clash: .copy("Update")) }
+                .accessibilityIdentifier("configuration-center.rules.row.update")
+            if let copy = actions.copySourceLink {
+                Button { copy(scheme.sourceID) } label: { Text(clash: .copy("Copy Link")) }
+                    .accessibilityIdentifier("configuration-center.rules.row.copy-link")
+            }
+        }
+        if scheme.isRetainedSnapshot != true, let editScheme = actions.editScheme {
+            if linked.contains(scheme.sourceID) { Divider() }
+            Button { editScheme(scheme.id) } label: { Text(clash: .copy("Edit")) }
         }
         if scheme.canBeDeleted {
             Divider()
@@ -754,10 +772,7 @@ public struct ClashMacConfigurationCenterListPage<Detail: View>: View {
 
      
     private var linkedSourceIDs: Set<String> {
-        Set(model.snapshot.sources.compactMap { source in
-            if case .subscription = source.origin { return source.id }
-            return nil
-        })
+        Set(model.snapshot.sources.compactMap { source in ClashMacConfigurationLibraryModel.link(of: source) == nil ? nil : source.id })
     }
 
      
@@ -821,7 +836,7 @@ public struct ClashMacObservedLibraryPage<Content: View>: View {
  
 struct ClashMacPopsWhenGone: ViewModifier {
     let gone: Bool
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     func body(content: Content) -> some View {
         content
@@ -942,11 +957,13 @@ struct ClashMacListRow<Content: View>: View {
 
  
  
+ 
 struct ClashMacNodeSourceRow<Detail: View>: View {
     let source: ConfigurationSourceRecord
     let isUpdating: Bool
     let detail: (ClashMacConfigurationCenterItem) -> Detail
-    let update: () -> Void
+    let update: (() -> Void)?
+    let copyLink: (() -> Void)?
     let delete: () -> Void
 
     var body: some View {
@@ -963,8 +980,15 @@ struct ClashMacNodeSourceRow<Detail: View>: View {
                 )
             }
             .contextMenu {
-                Button(action: update) { Text(clash: .copy("Update Source")) }
-                Divider()
+                if let update {
+                    Button(action: update) { Text(clash: .copy("Update")) }
+                        .accessibilityIdentifier("configuration-center.nodes.row.update")
+                }
+                if let copyLink {
+                    Button(action: copyLink) { Text(clash: .copy("Copy Link")) }
+                        .accessibilityIdentifier("configuration-center.nodes.row.copy-link")
+                }
+                if update != nil || copyLink != nil { Divider() }
                 Button(role: .destructive, action: delete) { Text(clash: .copy("Delete")) }
             }
             .accessibilityIdentifier("configuration-center.nodes.row.\(source.id)")
@@ -1101,10 +1125,12 @@ struct ClashMacRuleSetRow<Detail: View>: View {
  
  
  
+ 
 struct ClashMacRuleSetSourceRow: View {
     let source: ConfigurationSourceRecord
     let collections: [ConfigurationCollectionEntry]
     let isUpdating: Bool
+    let copyLink: (() -> Void)?
     let delete: (() -> Void)?
 
     var body: some View {
@@ -1115,6 +1141,11 @@ struct ClashMacRuleSetSourceRow: View {
                 busy: isUpdating
             )
             .contextMenu {
+                if let copyLink {
+                    Button(action: copyLink) { Text(clash: .copy("Copy Link")) }
+                        .accessibilityIdentifier("configuration-center.rules.source.copy-link")
+                    if delete != nil { Divider() }
+                }
                 if let delete {
                     Button(role: .destructive, action: delete) { Text(clash: .copy("Delete")) }
                         .accessibilityIdentifier("configuration-center.rules.source.delete")

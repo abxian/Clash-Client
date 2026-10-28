@@ -211,32 +211,38 @@ struct StorageMaintenance {
 
      
      
+    static let ownWorkingDirectories: Set<String> = [
+        "store", "configuration-library", "geodata", "payloads", "provider-runtime",
+        "compiled-geoip", "compiled-geosite", "active", "proxies", "adblock",
+        "internal-diagnostics", "tv-sources", "tv-rule-cache",
+         
+        "rules",
+    ]
+
+     
+     
+     
+     
      
      
      
      
      
     func retiredDashboardDirectories() -> [URL] {
-        let own: Set<String> = [
-            "store", "configuration-library", "geodata", "payloads", "provider-runtime",
-            "compiled-geoip", "compiled-geosite", "active", "proxies",
-        ]
-        let entries = (try? fileManager.contentsOfDirectory(
-            at: working, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-        )) ?? []
-        return entries
-            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            .filter { !own.contains($0.lastPathComponent) }
-            .filter { directory in
-                if fileManager.fileExists(atPath: directory.appendingPathComponent("index.html").path) { return true }
-                let children = (try? fileManager.contentsOfDirectory(
-                    at: directory, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-                )) ?? []
-                return children.contains {
-                    fileManager.fileExists(atPath: $0.appendingPathComponent("index.html").path)
-                }
-            }
-            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        guard case .success(let references) = storedReferences() else { return [] }
+        let home = working.standardizedFileURL.path
+        var folders = Set<String>()
+        for written in references.dashboards {
+            let target = (written.hasPrefix("/") ? URL(fileURLWithPath: written) : working.appendingPathComponent(written))
+                .standardizedFileURL.path
+            guard target.hasPrefix(home + "/"),
+                  let folder = target.dropFirst(home.count + 1).split(separator: "/").first.map(String.init),
+                  !Self.ownWorkingDirectories.contains(folder) else { continue }
+            let directory = working.appendingPathComponent(folder, isDirectory: true)
+            guard (try? directory.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { continue }
+            folders.insert(folder)
+        }
+        return folders.sorted().map { working.appendingPathComponent($0, isDirectory: true) }
     }
 
      

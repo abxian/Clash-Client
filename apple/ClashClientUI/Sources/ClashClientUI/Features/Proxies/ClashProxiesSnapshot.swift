@@ -661,7 +661,7 @@ public struct ClashProxiesSnapshot: Codable, Equatable, Sendable {
      
      
      
-    public let actionRefusals: [String: String]
+    public let actionRefusals: [String: ClashGroupActionRefusal]
 
      
      
@@ -716,7 +716,7 @@ public struct ClashProxiesSnapshot: Codable, Equatable, Sendable {
         catalogState: ClashProxiesCatalogState? = nil,
         canRefreshCatalog: Bool? = nil,
         canUnpinGroups: Bool? = nil,
-        actionRefusals: [String: String] = [:],
+        actionRefusals: [String: ClashGroupActionRefusal] = [:],
         editableMembers: Set<String> = [],
         rememberedOpenGroup: String? = nil,
         readerFoldedAll: Bool? = nil,
@@ -861,6 +861,18 @@ public struct ClashProxiesSnapshot: Codable, Equatable, Sendable {
         return ungrouped.filter {
             $0.name.localizedCaseInsensitiveContains(needle)
         }
+    }
+
+     
+     
+     
+    public func shownMembers(matching query: String) -> [ClashProxiesShownMembers] {
+        var shown = groups(matching: query).map {
+            ClashProxiesShownMembers(group: $0.name, members: $0.members.map(\.name))
+        }
+        let loose = ungroupedNodes(matching: query).map(\.name)
+        if !loose.isEmpty { shown.append(ClashProxiesShownMembers(group: "", members: loose)) }
+        return shown
     }
 
      
@@ -1061,6 +1073,20 @@ public enum ClashProxyBrowsing {
 
      
      
+    public static func memberAnchor(group: String, member: String) -> AnyHashable {
+        "proxies.member.\(group)\u{1F}\(member)"
+    }
+
+     
+     
+    public static func locatableSelection(of group: ClashProxyGroupSnapshot) -> String? {
+        guard !group.isEmpty, let now = group.currentSelection,
+              group.members.contains(where: { $0.name == now }) else { return nil }
+        return now
+    }
+
+     
+     
      
      
      
@@ -1115,5 +1141,56 @@ public enum ClashProxyBrowsing {
         isSearching: Bool
     ) -> Bool {
         isSearching || expanded.contains(group)
+    }
+}
+
+ 
+ 
+ 
+public struct ClashProxiesShownMembers: Codable, Equatable, Sendable {
+    public let group: String
+    public let members: [String]
+
+    public init(group: String, members: [String]) {
+        self.group = group
+        self.members = members
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+public struct ClashGroupActionRefusal: Codable, Hashable, Sendable {
+    public enum RefusedVerb: String, Codable, Hashable, Sendable {
+         
+        case select
+         
+        case unfix
+    }
+
+    public let verb: RefusedVerb
+     
+    public let coreSentence: String?
+     
+    public let appSentence: ClashDisplayText?
+
+    public init(verb: RefusedVerb, coreSentence: String?, appSentence: ClashDisplayText?) {
+        self.verb = verb
+        self.coreSentence = coreSentence
+        self.appSentence = appSentence
+    }
+
+     
+    public var result: ClashDisplayText {
+        if let appSentence { return appSentence }
+        switch verb {
+        case .select: return "Couldn't switch to this node"
+        case .unfix: return "Couldn't resume automatic selection"
+        }
     }
 }

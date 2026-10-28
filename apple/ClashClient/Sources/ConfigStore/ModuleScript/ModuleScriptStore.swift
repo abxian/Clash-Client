@@ -12,21 +12,8 @@ import Foundation
  
  
  
+ 
 final class ModuleScriptStore {
-    struct Limits: Equatable, Sendable {
-         
-        var valueBytes: Int
-         
-        var totalBytes: Int
-
-         
-         
-        static var platformDefault: Limits {
-            let table = ModuleScriptLimitsTable.current
-            return Limits(valueBytes: table.storeValueBytes, totalBytes: table.storeTotalBytes)
-        }
-    }
-
      
     struct Owner: Equatable, Sendable {
         var family: ModuleScriptFamily
@@ -47,8 +34,6 @@ final class ModuleScriptStore {
     }
 
      
-    static let quotaExceeded = #"$persistentStore: quota exceeded"#
-     
      
      
     static let directoryName = #"module-scripts/store"#
@@ -63,14 +48,12 @@ final class ModuleScriptStore {
     }
 
     let directory: URL
-    let limits: Limits
     private let log: (String) -> Void
     private let known = NSLock()
     private var knownTotal: Int?
 
-    init(directory: URL, limits: Limits = .platformDefault, log: @escaping (String) -> Void) {
+    init(directory: URL, log: @escaping (String) -> Void) {
         self.directory = directory
-        self.limits = limits
         self.log = log
     }
 
@@ -155,12 +138,6 @@ final class ModuleScriptStore {
         let sizes = loadSizes()
         guard let data = try? JSONEncoder().encode(Entry(scope: slot.scope, key: slot.key, value: value)) else { return false }
         let others = sizes.filter { $0.key != url.lastPathComponent }.values.reduce(0, +)
-        guard value.utf8.count <= limits.valueBytes, others + data.count <= limits.totalBytes else {
-            note(sizes.values.reduce(0, +))
-            log(#"\#(Self.quotaExceeded) (\#(slot.scope) \#(slot.key): \#(value.utf8.count) bytes; the store holds "#
-                + #"\#(others) of \#(limits.totalBytes) bytes, one value at most \#(limits.valueBytes))"#)
-            return false
-        }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try data.write(to: url, options: Self.writeOptions)

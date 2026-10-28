@@ -609,6 +609,46 @@ public extension View {
     }
 }
 
+extension View {
+     
+     
+     
+     
+     
+     
+    func clashPushedTopAccessory(background: Color) -> some View {
+        modifier(ClashPushedTopAccessory(background: background))
+    }
+}
+
+private struct ClashPushedTopAccessory: ViewModifier {
+    let background: Color
+#if os(macOS)
+    @Environment(\.clashDetailTopAccessory) private var accessory
+    @Environment(\.clashDetailTopAccessoryPlaced) private var placed
+#endif
+
+     
+     
+     
+     
+    @ViewBuilder
+    func body(content: Content) -> some View {
+#if os(macOS)
+        let draws = accessory != nil && !placed
+        VStack(spacing: 0) {
+            if draws, let accessory { accessory }
+            content.environment(\.clashDetailTopAccessoryPlaced, true)
+        }
+        .background {
+            if draws { background.ignoresSafeArea() }
+        }
+#else
+        content
+#endif
+    }
+}
+
 private struct ClashPushedDetailPageModifier: ViewModifier {
 #if os(macOS)
     private var isRegular: Bool { true }
@@ -690,6 +730,8 @@ private struct ClashPushedDetailPageModifier: ViewModifier {
              
              
             .environment(\.clashNavigationDepth, (inheritedDepth ?? 0) + 1)
+             
+            .clashPushedTopAccessory(background: canvas ?? fallbackCanvas)
         }
 #else
         if isRegular {

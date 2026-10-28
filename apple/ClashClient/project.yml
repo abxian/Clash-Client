@@ -223,6 +223,7 @@ targets:
     - path: ../ClashClientUI/Sources/ClashClientUI/Features/Widgets/ClashWidgetInterfaceAccounting.swift
       group: Shared
     - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelRouteShaping.swift
+    - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelOutboundMode.swift
     - path: Resources/PrivacyInfo.xcprivacy
       buildPhase: resources
     - path: ../../Vendor/ClashAdapter/Sources/ClashAdapter
@@ -625,6 +626,7 @@ targets:
       group: Shared
     - Shared
     - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelRouteShaping.swift
+    - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelOutboundMode.swift
     - path: Resources/PrivacyInfo.xcprivacy
       buildPhase: resources
     - path: ../../Vendor/ClashAdapter/Sources/ClashAdapter
@@ -850,6 +852,7 @@ targets:
       - Info.plist
     - Shared
     - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelRouteShaping.swift
+    - path: ../ClashClientUI/Sources/ClashClientUI/Features/Tunnel/ClashTunnelOutboundMode.swift
     - path: Resources/PrivacyInfo.xcprivacy
       buildPhase: resources
     - path: ../../Vendor/ClashAdapter/Sources/ClashAdapter

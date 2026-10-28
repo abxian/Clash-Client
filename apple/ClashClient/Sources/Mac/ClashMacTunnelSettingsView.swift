@@ -25,6 +25,11 @@ struct ClashMacTunnelSettingsView: View {
     @State private var hasLoaded = false
     @State private var isApplying = false
     @State private var error = ""
+     
+     
+     
+    @State private var moduleSets: [ModuleDeviceSettingKey: ModuleDeviceSettingNote] = [:]
+    @Environment(\.locale) private var locale
 
     var body: some View {
         ClashMacSettingsFormContainer {
@@ -44,7 +49,10 @@ struct ClashMacTunnelSettingsView: View {
             } header: {
                 Text("Include All Networks")
             } footer: {
-                Text("If YES, all network traffic is routed through the tunnel, with some exclusions.")
+                VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
+                    Text("If YES, all network traffic is routed through the tunnel, with some exclusions.")
+                    moduleNote(.includeAllNetworks)
+                }
             }
 
             Section {
@@ -54,7 +62,10 @@ struct ClashMacTunnelSettingsView: View {
             } header: {
                 Text("Include Local Networks")
             } footer: {
-                Text("If YES, all traffic destined for local networks will be included from the tunnel.")
+                VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
+                    Text("If YES, all traffic destined for local networks will be included from the tunnel.")
+                    moduleNote(.includeLocalNetworks)
+                }
             }
 
             if #available(macOS 13.3, *) {
@@ -65,7 +76,10 @@ struct ClashMacTunnelSettingsView: View {
                 } header: {
                     Text("Include APNs")
                 } footer: {
-                    Text("If YES, the network traffic for the Apple Push Notification service (APNs) will be included from the tunnel.")
+                    VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
+                        Text("If YES, the network traffic for the Apple Push Notification service (APNs) will be included from the tunnel.")
+                        moduleNote(.includeAPNs)
+                    }
                 }
             }
 
@@ -75,7 +89,10 @@ struct ClashMacTunnelSettingsView: View {
             } header: {
                 Text("Hide VPN Icon")
             } footer: {
-                Text("If YES, the VPN badge stays off the status bar: the tunnel leaves 0.0.0.0/31 and ::/127 outside its routes. Takes effect on the next connection.")
+                VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
+                    Text("If YES, the VPN badge stays off the status bar: the tunnel leaves 0.0.0.0/31 and ::/127 outside its routes. Takes effect on the next connection.")
+                    moduleNote(.hideVPNIcon)
+                }
             }
 
             Section {
@@ -92,6 +109,7 @@ struct ClashMacTunnelSettingsView: View {
                 VStack(alignment: .leading, spacing: ClashTheme.Spacing.tight) {
                     Text("If YES, the tunnel does not take the default route and installs a split route table instead, so HomeKit accessories on the local network keep answering. Internet Sharing does not work while this is on. Takes effect on the next connection.")
                     Text("Turn this on only if HomeKit accessories stop responding. Not needed when the configuration sets tun.strict-route.")
+                    moduleNote(.homeKitCompatibility)
                 }
             }
 
@@ -121,6 +139,19 @@ struct ClashMacTunnelSettingsView: View {
         }
         .onChange(of: vpn.tunnelSettings) { settings in
             draft = settings
+        }
+        .task { moduleSets = await ModuleDeviceSettingNote.published() }
+    }
+
+     
+     
+     
+    @ViewBuilder
+    private func moduleNote(_ key: ModuleDeviceSettingKey) -> some View {
+        if let set = moduleSets[key] {
+            Text(clash: .format("Module “%@” sets “%@”, which runs over this.",
+                               [set.module, ClashCopy.string(for: .copy(set.isOn ? "On" : "Off"), locale: locale)]))
+                .accessibilityIdentifier("tunnel.module-note.\(key.rawValue)")
         }
     }
 

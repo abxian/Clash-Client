@@ -73,15 +73,19 @@ struct ConnectionsView: View {
         ) { symbol in
             ClashSymbolImage(symbol: symbol)
         }
-        .onAppear {
+         
+         
+         
+         
+        .clashOnScreen { onScreen in
             guard autoStart else { return }
-            model.start(
-                commandConnected: command.isConnected
-            )
-        }
-        .onDisappear {
-            guard autoStart else { return }
-            model.stop()
+            if onScreen {
+                model.start(
+                    commandConnected: command.isConnected
+                )
+            } else {
+                model.stop()
+            }
         }
         .onChange(of: command.isConnected) { connected in
             guard autoStart else { return }

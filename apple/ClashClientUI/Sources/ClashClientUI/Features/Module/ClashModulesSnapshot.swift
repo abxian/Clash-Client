@@ -85,6 +85,7 @@ public struct ClashModulesSnapshot: Equatable, Sendable {
 
     public enum NoticeAction: Equatable, Sendable {
          
+         
         case retryAfterMemoryStop
          
          
@@ -94,16 +95,26 @@ public struct ClashModulesSnapshot: Equatable, Sendable {
      
      
     public struct Notice: Equatable, Sendable, Identifiable {
+         
+         
+        public enum Tone: Equatable, Sendable {
+            case attention
+            case onHold
+        }
+
         public var id: String
         public var text: ClashDisplayText
         public var action: NoticeAction?
         public var actionTitle: ClashDisplayText?
+        public var tone: Tone
 
-        public init(id: String, text: ClashDisplayText, action: NoticeAction? = nil, actionTitle: ClashDisplayText? = nil) {
+        public init(id: String, text: ClashDisplayText, action: NoticeAction? = nil, actionTitle: ClashDisplayText? = nil,
+                    tone: Tone = .attention) {
             self.id = id
             self.text = text
             self.action = action
             self.actionTitle = actionTitle
+            self.tone = tone
         }
     }
 
@@ -218,9 +229,48 @@ public struct ClashModulesSnapshot: Equatable, Sendable {
      
      
     public var editor: ClashModuleEditorSnapshot?
+     
+     
+     
+     
+    public var switching: [String: Bool]
+     
+     
+     
+     
+    public var decryptionSwitching: Bool?
+     
+     
+    public var batch: Batch?
+
+     
+    public struct Batch: Equatable, Sendable {
+        public var done: Int
+        public var total: Int
+        public var isRunning: Bool
+
+        public init(done: Int, total: Int, isRunning: Bool) {
+            self.done = done
+            self.total = total
+            self.isRunning = isRunning
+        }
+    }
+
+     
+    public var canRefreshAll: Bool { modules.contains { $0.link != nil } }
+
+     
+     
+    func order(moving id: String, by offset: Int) -> [String]? {
+        var ids = modules.map(\.id)
+        guard let at = ids.firstIndex(of: id), ids.indices.contains(at + offset) else { return nil }
+        ids.swapAt(at, at + offset)
+        return ids
+    }
 
     public init(isOn: Bool = false, isBusy: Bool = false, certificate: Certificate? = nil, install: Install? = nil,
-                notices: [Notice] = [], modules: [ModuleRow] = [], editor: ClashModuleEditorSnapshot? = nil) {
+                notices: [Notice] = [], modules: [ModuleRow] = [], editor: ClashModuleEditorSnapshot? = nil,
+                switching: [String: Bool] = [:], batch: Batch? = nil, decryptionSwitching: Bool? = nil) {
         self.isOn = isOn
         self.isBusy = isBusy
         self.certificate = certificate
@@ -228,6 +278,9 @@ public struct ClashModulesSnapshot: Equatable, Sendable {
         self.notices = notices
         self.modules = modules
         self.editor = editor
+        self.switching = switching
+        self.batch = batch
+        self.decryptionSwitching = decryptionSwitching
     }
 
     public static let off = ClashModulesSnapshot()
@@ -290,6 +343,15 @@ public enum ClashModulesAction: Equatable, Sendable {
     case resetArguments(module: String)
      
     case refreshPanel(id: String)
+     
+     
+    case renameModule(id: String, name: String)
+     
+     
+    case moveModules([String])
+     
+     
+    case refreshAll
      
      
     case panelsAppeared(module: String)
@@ -403,6 +465,10 @@ public struct ClashModuleDetailSnapshot: Equatable, Sendable {
     public var source: ClashModuleSource
     public var updatedAt: Date?
     public var enabled: Bool
+     
+     
+     
+    public var switching: Bool?
     public var effectiveCount: Int
     public var ignoredCount: Int
     public var failure: ClashDisplayText?
@@ -429,6 +495,11 @@ public struct ClashModuleDetailSnapshot: Equatable, Sendable {
     public var unavailableCount: Int
      
     public var panels: [Panel] = []
+     
+     
+     
+     
+    public var ownName: String? = nil
 
     public init(id: String, name: String, summary: String?, author: String?, source: ClashModuleSource,
                 updatedAt: Date?, enabled: Bool, effectiveCount: Int, ignoredCount: Int, failure: ClashDisplayText?,

@@ -108,8 +108,15 @@ extension ProfilesViewModel {
              
              
              
-            try await registerLegacyConfigurationSources()
-            outline = try await configurationOutlineReading(profileID, customRules: profile.override.appendRules.count)
+             
+             
+             
+            do { try await registerLegacyConfigurationSources() } catch {
+                ClashLogStore.shared.append(#"configuration page: registering before reading its own file failed: \#(error.localizedDescription)"#,
+                                            stream: .app)
+            }
+            outline = try await configurationOutlineReading(profileID, customRules: profile.override.appendRules.count,
+                                                            readingItsOwnFile: true)
         }
         let rows = outline.rows
         let snapshot = try await Task.detached(priority: .userInitiated) { try library.snapshot() }.value
@@ -922,7 +929,11 @@ enum ConfigurationKeyOwner: String, Equatable, Sendable, CaseIterable {
  
  
 enum ConfigurationLANShareStatus {
-    static func words(override: KernelLANShareOverride, document: OrderedJSON) -> ClashDisplayText {
+     
+     
+     
+    static func words(override: KernelLANShareOverride, document: OrderedJSON,
+                      modules: KernelLANShareOverride = KernelLANShareOverride()) -> ClashDisplayText {
         func port(_ key: String) -> Int32? {
             switch document.node(at: [key]) {
             case .scalar(let token)?: return Int32(token)
@@ -935,12 +946,13 @@ enum ConfigurationLANShareStatus {
         case .scalar("true")?, .string("true")?: written = true
         default: written = false
         }
-        guard override.allowLAN ?? written else { return .copy("Off") }
+        guard override.allowLAN ?? modules.allowLAN ?? written else { return .copy("Off") }
          
          
-        let open = [override.mixedPort ?? port("mixed-port"), override.httpPort ?? port("port"),
-                    override.socksPort ?? port("socks-port")]
-            .compactMap { $0 }.first { (1...65535).contains($0) }
+        let mixed: Int32? = override.mixedPort ?? modules.mixedPort ?? port("mixed-port")
+        let http: Int32? = override.httpPort ?? modules.httpPort ?? port("port")
+        let socks: Int32? = override.socksPort ?? modules.socksPort ?? port("socks-port")
+        let open = [mixed, http, socks].compactMap { $0 }.first { (1...65535).contains($0) }
         return open.map { .format("On · %@", [String($0)]) } ?? .copy("Off")
     }
 
@@ -1027,5 +1039,93 @@ final class KeptRulesPager: ObservableObject {
             if opening == task { opening = nil }
             throw error
         }
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+struct ScriptedSettings: Equatable, Sendable {
+    let with: OrderedJSON
+    let without: OrderedJSON
+
+     
+     
+    func change(at path: [String]) -> OrderedJSON?? {
+        let after = with.node(at: path)
+        return after == without.node(at: path) ? nil : .some(after)
+    }
+
+     
+    func changes(within path: [String]) -> Bool {
+        with.node(at: path) != without.node(at: path)
+    }
+
+     
+    static let bulk: Set<String> = ["proxies", "proxy-groups", "rules", "proxy-providers", "rule-providers", "sub-rules"]
+
+     
+    static func runs(on profile: Profile) -> Bool {
+        (profile.overwriteMode == .script && profile.selectedScriptID != nil) || profile.postMergeScriptID != nil
+            || ScriptSettings.enabled()
+    }
+
+     
+    static func make(raw: String, profile: Profile) -> ScriptedSettings? {
+        let unchanged: (String?, String, String) throws -> String = { _, yaml, _ in yaml }
+        guard let scripted = try? ProfileRuntimeConfigBuilder.buildProduction(raw: raw, profile: profile),
+              let plain = try? ProfileRuntimeConfigBuilder.build(
+                  raw: raw, profile: profile, globalOverride: GlobalConfig.load(), runtimeOverride: FlClashRuntimeConfig.load(),
+                  profileScript: unchanged, configScript: { yaml, _ in yaml }, postMergeScript: unchanged),
+              let with = settings(of: scripted), let without = settings(of: plain) else { return nil }
+        return with == without ? nil : ScriptedSettings(with: with, without: without)
+    }
+
+    private static func settings(of yaml: String) -> OrderedJSON? {
+        guard case .object(let pairs)? = try? OrderedJSON.parse(ConfigTransforms.yamlToJSON(yaml)) else { return nil }
+        return .object(pairs.filter { !bulk.contains($0.key) })
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+enum ConfigurationRunsOverNote {
+     
+     
+     
+    static func words(path: [String], field: ConfigurationField?, opensPage: Bool, document: OrderedJSON,
+                      modules: ModuleGlobalManifest?, held: Set<String>, scripted: ScriptedSettings?,
+                      locale: Locale, copy: ConfigurationFieldCopy = .shared) -> ClashDisplayText? {
+        func value(_ written: OrderedJSON?) -> String {
+            ClashCopy.string(for: ConfigurationValueWords.summary(written, field: field, locale: locale, copy: copy, marksDefault: false),
+                             locale: locale)
+        }
+        if let modules {
+            if let note = modules.settingNote(at: path, in: document, held: held) {
+                switch note.effect {
+                case .sets(let written):
+                    return .format("Module “%@” sets “%@”, which runs over this.", [note.module, value(written)])
+                case .adds(let count):
+                    return .format("Module “%@” adds %@ more.", [note.module, String(count)])
+                }
+            }
+            if opensPage, let module = modules.moduleWriting(within: path) {
+                return .format("Module “%@” changes settings in here.", [module])
+            }
+        }
+        if let scripted {
+             
+             
+            if opensPage { return scripted.changes(within: path) ? .copy("A script changes settings in here.") : nil }
+            if let change = scripted.change(at: path) {
+                return .format("A script sets “%@”, which runs over this.", [value(change)])
+            }
+        }
+        return nil
     }
 }

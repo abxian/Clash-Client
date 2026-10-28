@@ -12,7 +12,7 @@ struct ProfileResourcesView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     private let summary: ProfileResourceSummary?
     private let summaryError: ProfileResourceSummaryError?
 
@@ -233,7 +233,7 @@ struct ProfileProviderDefinitionsView: View {
     let save: (ProfileProviderDefinitionsDraft) throws -> Void
 
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ProfileProviderDefinitionsDraft?
 
     @State private var editor: ProviderEditorSelection?
@@ -421,7 +421,7 @@ struct ProfileProviderDefinitionsView: View {
                     .accessibilityIdentifier(
                         "provider-definitions.\(kind.rawValue).\(record.name)"
                     )
-                    .swipeActions(edge: .trailing) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             remove(record)
                         } label: {
@@ -584,7 +584,7 @@ struct ProfileProviderDefinitionEditorView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
     @StateObject private var draft: ProfileProviderDefinitionEditorDraft
@@ -882,9 +882,10 @@ private struct ProviderDefinitionCatalogRow: View {
 
     var body: some View {
         control
-            .swipeActions(edge: .trailing) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if access.isWritten, !["payload", "header", "path"].contains(row.path.first ?? "") || row.path.count > 1 {
-                    Button { access.useDefault() } label: { Text(clash: .copy("Use Default")) }
+                    Button { access.useDefault() } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
+                        .tint(.orange)
                 }
             }
     }

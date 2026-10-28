@@ -119,6 +119,11 @@ final class ModulePageModel: ObservableObject {
         var copy: @MainActor (String) -> Void = { ClashClipboard.copy($0, feedback: nil, operation: "modules.detail.copy") }
          
          
+        var copyLink: @MainActor (String, ClashFeedbackCenter?) -> Void = {
+            ClashClipboard.copy($0, feedback: $1, noun: "Module Link", operation: "modules.module.copy-link")
+        }
+         
+         
          
          
         var runPanelScript: @MainActor (_ module: String, _ script: String, _ byReader: Bool) async -> ModuleAppScriptResult? = { _, _, _ in nil }
@@ -166,7 +171,7 @@ final class ModulePageModel: ObservableObject {
     static let shared = ModulePageModel(dependencies: .production())
 
     @Published private(set) var snapshot = ClashModulesSnapshot.off
-    @Published private(set) var details: [String: ClashModuleDetailSnapshot] = [:]
+    @Published private(set) var details = Details()
     @Published private(set) var isAdding = false
     @Published var addRefusal: ClashDisplayText?
     let entrySource = ModuleEntrySource()
@@ -175,7 +180,32 @@ final class ModulePageModel: ObservableObject {
 
     private let deps: Dependencies?
     private var busy = false
+     
+     
+     
+     
+     
+    private var switching: [String: Bool] = [:]
+     
+    private var switchQueue: Task<Void, Never>?
+     
+     
+     
+     
+    private var written: Set<String> = []
+     
+     
+    private var decryptionSwitching: Bool?
+    private var decryptionWritten = false
+     
+     
+     
+     
+    private var shownArguments: [String: [String: String?]] = [:]
+    private var argumentsWritten: Set<String> = []
     private var updating: Set<String> = []
+     
+    private var batch: ClashModulesSnapshot.Batch?
     private var editor: ClashModuleEditorSnapshot?
     private var actionFailure: AuthoredText?
     private var actionModuleID: String?
@@ -188,6 +218,8 @@ final class ModulePageModel: ObservableObject {
     private var panelsRefreshing: Set<String> = []
     private var panelsFailed: Set<String> = []
     private var certificateFailure: AuthoredText?
+     
+    private var readFailure: AuthoredText?
      
      
     private var keychainFallback: (certificate: String?, at: ModuleKeychainFallback)?
@@ -293,24 +325,50 @@ final class ModulePageModel: ObservableObject {
     private func readOnce() async {
         guard let deps else {
             snapshot = .off
-            details = [:]
+            details = Details()
             entrySource.set(nil)
             return
         }
         reloads += 1
         let woke = readinessWoke
         readinessWoke = false
+         
+        let settled = written
+        let decryptionSettled = decryptionWritten
+        let argumentsSettled = argumentsWritten
         let state: ModuleState
         do {
             state = try await deps.modules.state()
+            readFailure = nil
+            written.subtract(settled)
+            for id in settled { switching[id] = nil }
+            if decryptionSettled {
+                decryptionWritten = false
+                decryptionSwitching = nil
+            }
+            argumentsWritten.subtract(argumentsSettled)
+            for id in argumentsSettled { shownArguments[id] = nil }
         } catch {
-            actionFailure = ModuleStore.authoredText(for: error)
-            state = ModuleState()
+             
+             
+             
+             
+             
+             
+            readFailure = ModuleStore.authoredText(for: error)
+             
+             
+            let readBefore = lastFacts != nil
+            var facts = lastFacts ?? ModulePageFacts(platform: deps.platform, state: ModuleState())
+            facts.actionFailure = actionFailure ?? readFailure
+            facts.isConnected = deps.isConnected()
+            facts.isBusy = busy
+            facts.switching = switching
+            facts.decryptionSwitching = decryptionSwitching
+            publish(facts, entry: readBefore)
+            return
         }
-        var irs: [String: ModuleIR] = [:]
-        for record in state.modules {
-            if let ir = await deps.modules.publishedModule(record.id) { irs[record.id] = ir }
-        }
+        let irs = await deps.modules.publishedModules(state.modules.map(\.id))
         let container = deps.container
         let certificates = deps.certificates
         let enabled = state.enabled
@@ -378,11 +436,13 @@ final class ModulePageModel: ObservableObject {
         }
         facts.report = read.report
         facts.summary = read.summary
-        facts.actionFailure = actionFailure
+        facts.actionFailure = actionFailure ?? readFailure
         facts.actionModuleID = actionModuleID
         facts.certificateFailure = certificateFailure
         facts.isConnected = deps.isConnected()
         facts.isBusy = busy
+        facts.switching = switching
+        facts.decryptionSwitching = decryptionSwitching
         facts.sources = read.sources
         facts.storedValues = read.storedValues
         facts.settingsFailure = settingsFailure
@@ -470,17 +530,65 @@ final class ModulePageModel: ObservableObject {
     }
 
      
-    private func publish(_ facts: ModulePageFacts) {
+     
+     
+     
+     
+    private func publish(_ facts: ModulePageFacts, entry: Bool = true) {
         generation += 1
         lastFacts = facts
         var page = ModulePageSnapshotBuilder.page(facts, locale: locale)
         page.editor = editor
-        snapshot = page
-        details = Dictionary(uniqueKeysWithValues: facts.state.modules.map { record in
-            (record.id, ModuleDetailBuilder.detail(record: record, facts: facts, source: facts.sources[record.id],
-                                                          isUpdating: updating.contains(record.id), locale: locale))
-        })
-        entrySource.set(ModulePageSnapshotBuilder.entry(facts))
+        page.batch = batch
+        if page != snapshot { snapshot = page }
+        let details = Details(facts: facts, updating: updating, switching: switching, shownArguments: shownArguments,
+                              locale: locale)
+        if details != self.details { self.details = details }
+        if entry { entrySource.set(ModulePageSnapshotBuilder.entry(facts)) }
+    }
+
+     
+     
+     
+    struct Details: Equatable {
+        fileprivate var facts: ModulePageFacts?
+        fileprivate var updating: Set<String> = []
+        fileprivate var switching: [String: Bool] = [:]
+        fileprivate var shownArguments: [String: [String: String?]] = [:]
+        fileprivate var locale = Locale.current
+
+        subscript(id: String) -> ClashModuleDetailSnapshot? {
+            guard let facts, var record = facts.state.modules.first(where: { $0.id == id }) else { return nil }
+             
+            for (name, value) in shownArguments[id] ?? [:] { record.argumentValues[name] = value }
+            var detail = ModuleDetailBuilder.detail(record: record, facts: facts, source: facts.sources[id],
+                                                    isUpdating: updating.contains(id), locale: locale)
+            detail.switching = switching[id]
+            return detail
+        }
+
+         
+         
+         
+         
+         
+        static func == (lhs: Details, rhs: Details) -> Bool {
+            guard lhs.updating == rhs.updating, lhs.switching == rhs.switching, lhs.shownArguments == rhs.shownArguments,
+                  lhs.locale == rhs.locale else { return false }
+            guard let a = lhs.facts, let b = rhs.facts else { return lhs.facts == nil && rhs.facts == nil }
+            func omitted(_ facts: ModulePageFacts) -> [ModuleEngineReport.OmittedModule]? {
+                facts.isConnected ? facts.report?.omittedModules : nil
+            }
+            return a.isConnected == b.isConnected
+                && ModulePageSnapshotBuilder.decryption(a) == ModulePageSnapshotBuilder.decryption(b)
+                && omitted(a) == omitted(b)
+                && a.summary == b.summary
+                && a.storedValues == b.storedValues
+                && a.settingsModuleID == b.settingsModuleID && a.settingsFailure == b.settingsFailure
+                && a.panelResults == b.panelResults && a.panelsRefreshing == b.panelsRefreshing
+                && a.panelsFailed == b.panelsFailed
+                && a.state == b.state && a.sources == b.sources && a.modules == b.modules
+        }
     }
 
      
@@ -519,19 +627,26 @@ final class ModulePageModel: ObservableObject {
         facts.summary = summary
         facts.isConnected = connected
         facts.isBusy = busy
+        facts.switching = switching
+        facts.decryptionSwitching = decryptionSwitching
         publish(facts)
     }
 
      
 
-    func perform(_ action: ClashModulesAction) {
+     
+     
+    func perform(_ action: ClashModulesAction, feedback: ClashFeedbackCenter? = nil) {
         guard let deps else { return }
         switch action {
         case .setEnabled(let on):
              
              
             ModuleDecryptionChoice.record(on ? .followsTrust : .offByReader, in: deps.certificates.locations)
+            decryptionSwitching = on
+            snapshot.decryptionSwitching = on
             run {
+                defer { self.decryptionWritten = true }
                 guard on else { return try await deps.modules.setEnabled(false) }
                  
                  
@@ -540,16 +655,17 @@ final class ModulePageModel: ObservableObject {
                 try await self.turnDecryptionOn(deps)
             }
         case .setModule(let id, let enabled):
-            run(module: id) { try await deps.modules.setModule(id, enabled: enabled) }
+            switchModule(id, enabled: enabled, deps)
         case .removeModule(let id):
             run(module: id) { try await deps.modules.remove(id) }
         case .refreshModule(let id):
              
             guard !updating.contains(id) else { return }
             updating.insert(id)
-            details[id]?.isUpdating = true
+            details.updating.insert(id)
             run(module: id) {
-                _ = await deps.modules.refresh(id)
+                 
+                _ = await deps.modules.refresh(id, readerAsked: true)
                 self.updating.remove(id)
             }
         case .certificate(let kind):
@@ -582,17 +698,66 @@ final class ModulePageModel: ObservableObject {
             editor = nil
             publishEditor()
         case .copy(let words):
-            deps.copy(words)
-        case .setArgument(let id, let name, let value):
              
-            run(module: id, settings: true) { try await deps.modules.setArgumentValue(value, for: name, module: id) }
+             
+            if snapshot.modules.contains(where: { $0.link == words }) {
+                deps.copyLink(words, feedback)
+            } else {
+                deps.copy(words)
+            }
+        case .setArgument(let id, let name, let value):
+            shownArguments[id, default: [:]][name] = .some(value)
+            details.shownArguments = shownArguments
+             
+            run(module: id, settings: true) {
+                defer { self.argumentsWritten.insert(id) }
+                try await deps.modules.setArgumentValue(value, for: name, module: id)
+            }
         case .resetArguments(let id):
             run(module: id, settings: true) { try await deps.modules.resetArguments(module: id) }
         case .refreshPanel(let key):
             refreshPanel(key, byReader: true, deps)
         case .panelsAppeared(let id):
             refreshDuePanels(of: id, deps)
+        case .renameModule(let id, let name):
+            run(module: id) { try await deps.modules.rename(id, to: name) }
+        case .moveModules(let ids):
+            run { try await deps.modules.move(ids) }
+        case .refreshAll:
+            track(Task { @MainActor in await self.refreshAll() })
         }
+    }
+
+     
+     
+     
+     
+    func refreshAll() async {
+        guard let deps, batch?.isRunning != true else { return }
+        let ids = (lastFacts?.state.modules ?? []).filter { if case .url = $0.origin { return true } else { return false } }.map(\.id)
+        guard !ids.isEmpty else { return }
+        setBatch(.init(done: 0, total: ids.count, isRunning: true))
+        for (index, id) in ids.enumerated() {
+            updating.insert(id)
+            _ = await deps.modules.refresh(id, readerAsked: true)
+            updating.remove(id)
+            setBatch(.init(done: index + 1, total: ids.count, isRunning: true))
+        }
+        await reload()
+        let finished = ClashModulesSnapshot.Batch(done: ids.count, total: ids.count, isRunning: false)
+        setBatch(finished)
+        track(Task { @MainActor in
+            try? await Task.sleep(nanoseconds: Self.batchLingersNanoseconds)
+            if self.batch == finished { self.setBatch(nil) }
+        })
+    }
+
+     
+    static let batchLingersNanoseconds: UInt64 = 3_000_000_000
+
+    private func setBatch(_ value: ClashModulesSnapshot.Batch?) {
+        batch = value
+        snapshot.batch = value
     }
 
      
@@ -814,16 +979,28 @@ final class ModulePageModel: ObservableObject {
      
      
      
-    func add(_ input: ModuleAddModuleSheet.Input) async -> Bool {
+    func add(_ input: ModuleAddModuleSheet.Input, name: String = "") async -> Bool {
         guard let deps else { return false }
         isAdding = true
         addRefusal = nil
         defer { isAdding = false }
         do {
+            let record: ModuleRecord
             switch input {
             case .link(let link):
-                _ = try await deps.modules.add(url: ModuleInstallLink.moduleLink(in: link) ?? link)
-            case .text(let text): _ = try await deps.modules.add(text: text)
+                record = try await deps.modules.add(url: ModuleInstallLink.moduleLink(in: link) ?? link)
+            case .text(let text): record = try await deps.modules.add(text: text)
+            }
+             
+             
+             
+             
+            if !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                do {
+                    try await deps.modules.rename(record.id, to: name)
+                } catch {
+                    ClashLogStore.shared.append(#"modules: the name typed for \#(record.id) was not kept: \#(error.localizedDescription)"#, stream: .app)
+                }
             }
         } catch {
             addRefusal = ModuleStore.authoredText(for: error).displayText
@@ -897,6 +1074,33 @@ final class ModulePageModel: ObservableObject {
             busy = false
             await reload()
         }
+        track(task)
+    }
+
+     
+     
+     
+    private func switchModule(_ id: String, enabled: Bool, _ deps: Dependencies) {
+        guard switching[id] == nil else { return }
+        switching[id] = enabled
+        snapshot.switching = switching
+        details.switching = switching
+        actionFailure = nil
+        actionModuleID = nil
+        let previous = switchQueue
+        let task = Task { @MainActor in
+            await previous?.value
+            do {
+                try await deps.modules.setModule(id, enabled: enabled)
+            } catch {
+                actionFailure = ModuleStore.authoredText(for: error)
+                actionModuleID = id
+                ClashLogStore.shared.append(#"modules page action failed: \#(error.localizedDescription)"#, stream: .app)
+            }
+            written.insert(id)
+            await reload()
+        }
+        switchQueue = task
         track(task)
     }
 

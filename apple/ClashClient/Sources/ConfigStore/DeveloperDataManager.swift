@@ -9,18 +9,23 @@ struct DeveloperDataManager {
     private let containerURL: URL
     private let defaults: UserDefaults
     private let credentials: CredentialStore
+     
+     
+    private let moduleLocations: ModuleEngineLocations
     private let fileManager: FileManager
 
     init?(
         containerURL: URL? = ClashAppIdentifiers.appGroupContainer,
         defaults: UserDefaults = GlobalConfig.appGroupDefaults,
         credentials: CredentialStore = CredentialStore(),
+        moduleLocations: ModuleEngineLocations? = nil,
         fileManager: FileManager = .default
     ) {
         guard let containerURL else { return nil }
         self.containerURL = containerURL
         self.defaults = defaults
         self.credentials = credentials
+        self.moduleLocations = moduleLocations ?? .of(containerURL)
         self.fileManager = fileManager
     }
 
@@ -59,6 +64,9 @@ struct DeveloperDataManager {
             defaults.removeObject(forKey: key)
         }
         try credentials.removeAll()
+         
+         
+        ModuleCAKeychain.delete(moduleLocations)
         URLCache.shared.removeAllCachedResponses()
     }
 

@@ -745,10 +745,15 @@ enum ClashTVProviderMaterializer {
         guard let one = try? first.seekToEnd(), let two = try? second.seekToEnd(), one == two,
               (try? first.seek(toOffset: 0)) != nil, (try? second.seek(toOffset: 0)) != nil else { return false }
         while true {
-            let left = (try? first.read(upToCount: 1 << 20)) ?? Data()
-            let right = (try? second.read(upToCount: 1 << 20)) ?? Data()
-            guard left == right else { return false }
-            if left.isEmpty { return true }
+             
+             
+            let same: Bool? = autoreleasepool {
+                let left = (try? first.read(upToCount: 1 << 20)) ?? Data()
+                let right = (try? second.read(upToCount: 1 << 20)) ?? Data()
+                guard left == right else { return false }
+                return left.isEmpty ? true : nil
+            }
+            if let same { return same }
         }
     }
 }

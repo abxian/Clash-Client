@@ -32,7 +32,17 @@ enum ModuleRuleSetSyntax {
      
      
      
+     
+     
+     
+     
+     
+     
+    #if os(macOS)
+    static let maximumHeldWeight = Int.max
+    #else
     static let maximumHeldWeight = 40_000
+    #endif
      
      
     static let regexWeight = 20
@@ -44,11 +54,21 @@ enum ModuleRuleSetSyntax {
      
      
      
+     
+     
+    #if os(macOS)
+    static let maximumListRuleBytes = Int.max
+    #else
     static let maximumListRuleBytes = 32 * 1024
+    #endif
      
      
      
+    #if os(macOS)
+    static let maximumModuleKeptBytes = Int.max
+    #else
     static let maximumModuleKeptBytes = 240 * 1024
+    #endif
      
      
     static let maximumListBytes = 16 << 20

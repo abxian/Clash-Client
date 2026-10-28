@@ -83,6 +83,9 @@ enum NodeLibraries {
          
          
         var ruleIndexNames: Set<String> = []
+         
+         
+        var dashboards: Set<String> = []
 
          
         func keptLibraries(in directory: URL) -> Set<String> {
@@ -126,6 +129,22 @@ enum NodeLibraries {
      
      
      
+    static func dashboardPath(_ rest: String) -> String? {
+        var value = rest.trimmingCharacters(in: .whitespaces)
+        if let quote = value.first, quote == "'" || quote == "\"" {
+            guard let close = value.lastIndex(of: quote), close > value.startIndex else { return nil }
+            value = String(value[...close])
+        } else if let comment = value.range(of: #" #"#) {
+            value = String(value[..<comment.lowerBound])
+        }
+        guard case .some(.some(let path)) = ConfigTransforms.nodeLibraryPathField(#"path: "# + value) else { return nil }
+        let trimmed = path.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty || trimmed == #"~"# || trimmed == #"null"# ? nil : trimmed
+    }
+
+     
+     
+     
      
      
      
@@ -134,6 +153,7 @@ enum NodeLibraries {
         let handle = try FileHandle(forReadingFrom: file)
         defer { try? handle.close() }
         let seedMarker = Array(ProviderSeeds.referenceMarker.utf8)
+        let dashboardOpener = Array(#"external-ui:"#.utf8)
 
          
          
@@ -200,6 +220,10 @@ enum NodeLibraries {
         func line(_ bytes: ArraySlice<UInt8>, isLineStart: Bool) {
             seeds(in: bytes)
             for index in tracked.indices { line(bytes, isLineStart: isLineStart, reference: &tracked[index]) }
+            if isLineStart, bytes.starts(with: dashboardOpener),
+               let path = dashboardPath(String(decoding: bytes.dropFirst(dashboardOpener.count), as: UTF8.self)) {
+                references.dashboards.insert(path)
+            }
         }
 
          
@@ -372,16 +396,21 @@ enum NodeLibraries {
         func modified(_ url: URL) -> Date {
             (try? files.attributesOfItem(atPath: url.path)[.modificationDate]) as? Date ?? .distantPast
         }
+         
+         
+        func lastUsed(_ url: URL) -> Date {
+            max(modified(url), modified(url.appendingPathExtension(Self.proofExtension)))
+        }
         var items: [URL] = []
         let libraries = directory(container: container)
         let kept = Set(references.keptLibraries(in: libraries).union(references.keptRuleIndexes(in: libraries))
             .map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path })
         for name in (try? files.contentsOfDirectory(atPath: libraries.path)) ?? []
-        where name.hasPrefix("nodes-") || (name.hasPrefix(ruleIndexPrefix) && name.hasSuffix(".index")) {
+        where Self.isLibraryOrIndex(name) {
             let url = libraries.appendingPathComponent(name)
             guard !kept.contains(url.resolvingSymlinksInPath().path) else { continue }
             let lifetime = name.hasPrefix("nodes-p") ? catalogLibraryLifetime : unstoredGrace
-            if now.timeIntervalSince(modified(url)) >= lifetime { items.append(url) }
+            if now.timeIntervalSince(lastUsed(url)) >= lifetime { items.append(url) }
         }
         let seeds = ProviderSeeds.directory(workingDirectory: container.appendingPathComponent("working", isDirectory: true))
         for name in (try? files.contentsOfDirectory(atPath: seeds.path)) ?? []
@@ -390,6 +419,18 @@ enum NodeLibraries {
             if now.timeIntervalSince(modified(url)) >= ProviderSeeds.unnamedGrace { items.append(url) }
         }
         return items
+    }
+
+     
+     
+    static let proofExtension = "proof"
+
+     
+     
+     
+    static func isLibraryOrIndex(_ name: String) -> Bool {
+        guard !name.hasSuffix("." + proofExtension), !name.contains(".clashsum-") else { return false }
+        return name.hasPrefix("nodes-") || (name.hasPrefix(ruleIndexPrefix) && name.hasSuffix(".index"))
     }
 
      

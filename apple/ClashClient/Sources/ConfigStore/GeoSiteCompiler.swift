@@ -77,7 +77,10 @@ extension GeoSiteCompiler {
                 if namesGeo(piece) { kept.append(String(decoding: piece, as: UTF8.self)) }
                 piece.removeAll(keepingCapacity: true)
             }
-            while let chunk = try? handle.read(upToCount: chunkBytes), !chunk.isEmpty {
+             
+             
+            while autoreleasepool(invoking: { () -> Bool in
+                guard let chunk = try? handle.read(upToCount: chunkBytes), !chunk.isEmpty else { return false }
                 chunk.withUnsafeBytes { bytes in
                     var start = 0
                     for index in 0..<bytes.count where endsReference(bytes[index]) {
@@ -87,7 +90,8 @@ extension GeoSiteCompiler {
                     }
                     piece.append(contentsOf: bytes[start..<bytes.count])
                 }
-            }
+                return true
+            }) {}
             finish()
         }
         return kept.joined(separator: "\n")

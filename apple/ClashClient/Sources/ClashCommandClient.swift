@@ -609,6 +609,13 @@ final class ClashCommandClient: ObservableObject, ProxyShareCommanding {
      
      
     private var pendingCompileRun: UInt64 = 0
+     
+     
+     
+    private var pendingCompilesHandedOn: Set<String> = []
+     
+     
+    var takesWhatTheCompileCouldNotTake: (@MainActor ([PendingProviderCompile.Held]) -> Void)?
     private var wantsConnection = false
     private var reconnectBackoff = ClashReconnectBackoff()
     private var isConnecting = false
@@ -2590,7 +2597,7 @@ return
 
      
      
-    static func urlTestCategory(
+    nonisolated static func urlTestCategory(
         errno: String,
         kind: String,
         message: String
@@ -2622,7 +2629,7 @@ return
         return urlTestFailureCategory(message)
     }
 
-    static func urlTestFailureCategory(_ description: String) -> String {
+    nonisolated static func urlTestFailureCategory(_ description: String) -> String {
         let value = description.lowercased()
          
          
@@ -4180,9 +4187,12 @@ extension ClashCommandClient {
      
     func compilePendingProviders(container: URL) async -> [PendingProviderCompile] {
         let working = container.appendingPathComponent("working", isDirectory: true)
+        let read = ProviderRefreshState.read(workingDirectory: working)
+         
+        pendingCompilesHandedOn.formIntersection(PendingProviderCompile.heldKeys(in: read))
         guard isConnected,
-              let state = ProviderRefreshState.read(workingDirectory: working),
-              PendingProviderCompile.waits(in: state),
+              let state = read,
+              PendingProviderCompile.waits(in: state, excluding: pendingCompilesHandedOn),
               let sha256 = state.running?.configSHA256,
               let configuration = await Task.detached(priority: .utility, operation: {
                   NodeLibraries.storedConfiguration(sha256: sha256, container: container)
@@ -4196,6 +4206,14 @@ extension ClashCommandClient {
                     "pending compile  \(item.kind):\(item.name)  result=\(item.result?.rawValue ?? "-")"
                         + (item.error.map { "  error=\($0)" } ?? ""),
                     stream: .app)
+            }
+             
+             
+             
+            let handedOn = PendingProviderCompile.couldNotTake(compiled, in: state)
+            if !handedOn.isEmpty, let takes = takesWhatTheCompileCouldNotTake {
+                pendingCompilesHandedOn.formUnion(handedOn.map(\.key))
+                takes(handedOn)
             }
             return compiled
         } catch {
@@ -4231,7 +4249,8 @@ extension ClashCommandClient {
                 _ = await self.compilePendingProviders(container: container)
                 if self.pendingCompileAgain { continue }
                 let working = container.appendingPathComponent("working", isDirectory: true)
-                guard PendingProviderCompile.waits(in: ProviderRefreshState.read(workingDirectory: working)) else { break }
+                guard PendingProviderCompile.waits(in: ProviderRefreshState.read(workingDirectory: working),
+                                                   excluding: self.pendingCompilesHandedOn) else { break }
                 try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
             }
             if let self, self.pendingCompileRun == run { self.pendingCompileFollowUp = nil }

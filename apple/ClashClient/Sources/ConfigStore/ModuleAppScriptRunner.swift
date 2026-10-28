@@ -70,9 +70,7 @@ struct ModuleAppScriptResult: Equatable, Sendable {
          
         case paused
          
-        case tooLarge
-         
-        case busy
+        case lowMemory
          
         case other
 
@@ -80,8 +78,7 @@ struct ModuleAppScriptResult: Equatable, Sendable {
             switch reason {
             case .quarantined: self = .quarantined
             case .stopped: self = .paused
-            case .sourceTooLarge: self = .tooLarge
-            case .busy: self = .busy
+            case .lowMemory: self = .lowMemory
             case .phaseMismatch, .cancelled, .sourceMissing, .sourceMismatch: self = .other
             }
         }
@@ -181,20 +178,16 @@ final class ModuleAppScriptCookieJars: ModuleAppScriptCookieKeeping, @unchecked 
 final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable {
      
      
-     
-    typealias Limits = ModuleScriptLimitsTable.Run
-
-     
-     
     let configuration: URLSessionConfiguration
-    private let limits: Limits
     private let session: URLSession
     private let transfers: Transfers
     private let cookies: (any ModuleAppScriptCookieKeeping)?
     private let through: @Sendable () -> (any ModuleScriptNetworking)?
     private let log: @Sendable (String) -> Void
 
-    init(configuration given: URLSessionConfiguration = .ephemeral, limits: Limits = ModuleScriptLimitsTable.current.appRun,
+     
+     
+    init(configuration given: URLSessionConfiguration = .ephemeral, memory: ModuleScriptMemory = .process,
          cookies: (any ModuleAppScriptCookieKeeping)? = ModuleAppScriptCookieJars(),
          through: @escaping @Sendable () -> (any ModuleScriptNetworking)? = { nil },
          log: @escaping @Sendable (String) -> Void) {
@@ -205,11 +198,10 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         self.configuration = configuration
-        self.limits = limits
         self.cookies = cookies
         self.through = through
         self.log = log
-        transfers = Transfers(limits: limits)
+        transfers = Transfers(memory: memory)
         session = URLSession(configuration: configuration, delegate: transfers, delegateQueue: nil)
     }
 
@@ -239,9 +231,6 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
         guard let url = URL(string: request.url), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.host?.isEmpty == false else {
             return fail(#"not an http or https address: \#(request.url)"#)
-        }
-        if let body = request.body, body.count > limits.maximumRequestBodyBytes {
-            return fail(#"the body is \#(body.count) bytes, past this run's \#(limits.maximumRequestBodyBytes); not sent"#)
         }
          
          
@@ -361,7 +350,6 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
             let completion: @Sendable (Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) -> Void
             var response: HTTPURLResponse?
             var body = Data()
-            var redirects = 0
 
             init(_ asked: Asked, completion: @escaping @Sendable (Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) -> Void) {
                 self.asked = asked
@@ -369,11 +357,11 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
             }
         }
 
-        private let limits: Limits
+        private let memory: ModuleScriptMemory
         private let lock = NSLock()
         private var running: [Int: Transfer] = [:]
 
-        init(limits: Limits) { self.limits = limits }
+        init(memory: ModuleScriptMemory) { self.memory = memory }
 
         func begin(_ task: URLSessionDataTask, _ asked: Asked, seconds: Double?,
                    completion: @escaping @Sendable (Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) -> Void) {
@@ -406,16 +394,22 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
             return running[id]
         }
 
-        private func pastLimit(_ transfer: Transfer) -> ModuleScriptNetworkFailure {
+        private func noRoom(_ transfer: Transfer, _ bytes: Int64) -> ModuleScriptNetworkFailure {
             ModuleScriptNetworkFailure(
-                message: #"the response from \#(transfer.asked.url) is past \#(limits.maximumResponseBodyBytes) bytes; not read"#)
+                message: #"not enough memory is left for the response from \#(transfer.asked.url) "#
+                    + #"(\#(bytes) bytes, \#(memory.spareBytes ?? 0) left past the floor); not read"#)
+        }
+
+         
+        private func room(for bytes: Int64) -> Bool {
+            memory.allows(Int(clamping: bytes) * ModuleScriptMemory.bytesPerReceivedByte)
         }
 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse,
                         completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
             guard let transfer = transfer(dataTask.taskIdentifier) else { return completionHandler(.cancel) }
-            if response.expectedContentLength > Int64(limits.maximumResponseBodyBytes) {
-                end(dataTask.taskIdentifier, .failure(pastLimit(transfer)))
+            if response.expectedContentLength > 0, !room(for: response.expectedContentLength) {
+                end(dataTask.taskIdentifier, .failure(noRoom(transfer, response.expectedContentLength)))
                 return completionHandler(.cancel)
             }
             lock.lock()
@@ -428,11 +422,12 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
         func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
             guard let transfer = transfer(dataTask.taskIdentifier) else { return }
             lock.lock()
-            let past = transfer.body.count + data.count > limits.maximumResponseBodyBytes
+            let total = Int64(transfer.body.count + data.count)
+            let past = !room(for: total)
             if !past { transfer.body.append(data) }
             lock.unlock()
             guard past else { return }
-            end(dataTask.taskIdentifier, .failure(pastLimit(transfer)))
+            end(dataTask.taskIdentifier, .failure(noRoom(transfer, total)))
             dataTask.cancel()
         }
 
@@ -440,8 +435,9 @@ final class ModuleAppScriptNetwork: ModuleScriptNetworking, @unchecked Sendable 
                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
             guard let transfer = transfer(task.taskIdentifier) else { return completionHandler(nil) }
             lock.lock()
-            transfer.redirects += 1
-            let follows = transfer.asked.followsRedirects && transfer.redirects <= limits.maximumRedirects
+             
+             
+            let follows = transfer.asked.followsRedirects
              
              
             if !follows { transfer.response = response }
@@ -793,7 +789,7 @@ final class ModuleAppScriptRunner: ObservableObject {
         }
         defer { running.remove(entry.id) }
         var declaration = ModuleScriptDeclaration(
-            name: script.script.name, kind: Self.hostKind(script.script), family: script.family, syntax: .classic,
+            name: script.script.name, kind: Self.hostKind(script.script), family: script.family,
             scriptPath: script.script.scriptURL, sourceFile: script.sourceFile, sourceSHA256: script.sha256,
             requiresBody: false, binaryBodyMode: false, timeout: script.script.timeout.map(Double.init),
             argument: Self.argument(script.script))

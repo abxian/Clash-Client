@@ -30,9 +30,8 @@ enum ModuleStashParser {
      
     struct Arguments {
          
-        var defaults: [String: OrderedJSON?] = [:]
          
-        var overLimit = false
+        var defaults: [String: OrderedJSON?] = [:]
          
          
         private var bounds: [String: (integer: Bool, maxLength: Int?)] = [:]
@@ -40,14 +39,6 @@ enum ModuleStashParser {
         init(_ value: OrderedJSON?) {
             guard case .object(let declared)? = value else { return }
             for (name, declaration) in declared {
-                 
-                var given: OrderedJSON?
-                if case .object(let fields) = declaration { given = fields.first { $0.key == "default" }?.value }
-                let size = name.utf8.count + 1 + (given.map { ModuleStashParser.scalar($0) ?? $0.serialized() }?.utf8.count ?? 0)
-                guard defaults.count < ModuleParser.maximumArguments, size <= ModuleParser.maximumArgumentBytes else {
-                    overLimit = true
-                    continue
-                }
                 guard case .object(let fields) = declaration else {
                     defaults[name] = .some(nil)
                     continue
@@ -193,14 +184,7 @@ enum ModuleStashParser {
         manifest.format = .stash
          
          
-        var longHeaders: [String] = []
-        func header(_ key: String) -> String? {
-            guard let text = scalar(value(key)) else { return nil }
-            let cut = ModuleParser.prefix(text, bytes: key == "desc" ? ModuleParser.maximumDescriptionBytes
-                                                                            : ModuleParser.maximumArgumentBytes)
-            if cut.utf8.count < text.utf8.count { longHeaders.append(key) }
-            return cut
-        }
+        func header(_ key: String) -> String? { scalar(value(key)) }
         manifest.name = header("name")
         manifest.desc = header("desc")
         manifest.author = header("author")
@@ -217,13 +201,6 @@ enum ModuleStashParser {
         manifest.arguments = arguments.declared
         arguments.apply(argumentValues)
         var ir = ModuleIR.empty(manifest)
-        for key in longHeaders {
-            ir.ignored.append(ModuleIgnoredEntry(text: key, reason: .headerOverLimit, origin: ModuleLineOrigin(section: key, line: 0)))
-        }
-        if arguments.overLimit {
-            ir.ignored.append(ModuleIgnoredEntry(text: "arguments", reason: .argumentsOverLimit,
-                                                  origin: ModuleLineOrigin(section: "arguments", line: 0)))
-        }
 
          
          

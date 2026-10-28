@@ -11,7 +11,20 @@ public extension ConfigurationSourcePayload {
          
          
         if record.rulesWrittenInOriginal == true { return true }
-        guard let document = try? OrderedJSON.topLevel(documentJSON),
+        return Self.hasOwnRules(try? OrderedJSON.topLevel(documentJSON))
+    }
+
+     
+     
+     
+    var routing: (suppliesOwnRouting: Bool, resolvesItsNodesItself: Bool) {
+        let document = try? OrderedJSON.topLevel(documentJSON)
+        return (record.rulesWrittenInOriginal == true || Self.hasOwnRules(document),
+                Self.namesItsNodesResolver(document))
+    }
+
+    private static func hasOwnRules(_ document: OrderedJSON.TopLevel?) -> Bool {
+        guard let document,
               case .array(let rules)? = try? document.value("rules") else { return false }
         return rules.contains { rule in
             guard case .string(let line) = rule else { return false }
@@ -19,6 +32,77 @@ public extension ConfigurationSourcePayload {
                 .map { $0.trimmingCharacters(in: .whitespaces).uppercased() } ?? ""
             return !type.isEmpty && type != "MATCH"
         }
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    var resolvesItsNodesItself: Bool {
+        Self.namesItsNodesResolver(try? OrderedJSON.topLevel(documentJSON))
+    }
+
+    private static func namesItsNodesResolver(_ document: OrderedJSON.TopLevel?) -> Bool {
+        guard let document, case .object(let dns)? = try? document.value("dns") else { return false }
+        if let servers = dns.last(where: { $0.key == "proxy-server-nameserver" })?.value,
+           leavesTheDevice(servers) { return true }
+         
+         
+        let domains = dns.filter { $0.key == "nameserver-policy" || $0.key == "proxy-server-nameserver-policy" }
+            .flatMap { entry -> [(key: String, value: OrderedJSON)] in
+                if case .object(let policy) = entry.value { return policy } else { return [] }
+            }
+            .filter { leavesTheDevice($0.value) }
+            .flatMap { $0.key.split(separator: ",") }
+            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
+            .filter { !$0.isEmpty && !$0.contains(":") }
+        guard !domains.isEmpty, case .array(let proxies)? = try? document.value("proxies") else { return false }
+        return proxies.contains { proxy in
+            guard case .object(let fields) = proxy,
+                  case .string(let server)? = fields.last(where: { $0.key == "server" })?.value else { return false }
+            let host = server.trimmingCharacters(in: .whitespaces).lowercased()
+            return domains.contains { covers($0, host) }
+        }
+    }
+
+     
+    private static func leavesTheDevice(_ servers: OrderedJSON) -> Bool {
+        let entries: [OrderedJSON]
+        switch servers {
+        case .array(let list): entries = list
+        case .string: entries = [servers]
+        default: return false
+        }
+        return entries.contains { entry in
+            guard case .string(let raw) = entry else { return false }
+            let server = raw.trimmingCharacters(in: .whitespaces).lowercased()
+            return !server.isEmpty && server != "system" && !server.hasPrefix("dhcp://")
+        }
+    }
+
+     
+     
+     
+    private static func covers(_ pattern: String, _ host: String) -> Bool {
+        if pattern.hasPrefix("+.") {
+            let domain = pattern.dropFirst(2)
+            return host == domain || host.hasSuffix("." + domain)
+        }
+        if pattern.hasPrefix(".") { return host.hasSuffix(pattern) }
+        if pattern.hasPrefix("*.") {
+            let suffix = pattern.dropFirst(1)
+            return host.hasSuffix(suffix) && !host.dropLast(suffix.count).contains(".")
+                && host.count > suffix.count
+        }
+        return host == pattern
     }
 }
 
@@ -38,16 +122,39 @@ public extension ConfigurationCreationDraft {
      
      
      
+     
+     
+     
+     
+     
     mutating func acceptNewImport(_ payload: ConfigurationSourcePayload,
-                                  suppliesOwnRouting: Bool? = nil) throws {
+                                  suppliesOwnRouting: Bool? = nil,
+                                  resolvesItsNodesItself: Bool? = nil) throws {
         guard payload.record.suppliesNodes,
               payload.record.nodeCount > 0 || payload.record.providerCount > 0 else {
             throw ConfigurationLibraryError.missingNodes
         }
         let isEmpty = selectedSourceIDs.isEmpty && newSources.isEmpty
-        let isFile: Bool = { if case .file = payload.record.origin { return true }; return false }()
-        if isEmpty, isFile, suppliesOwnRouting ?? payload.suppliesOwnRouting { useOriginal(payload) }
-        else { try acceptInitialNodeImport(payload) }
+        if isEmpty, Self.runsAsWritten(payload, suppliesOwnRouting: suppliesOwnRouting,
+                                       resolvesItsNodesItself: resolvesItsNodesItself) {
+            useOriginal(payload)
+        } else { try acceptInitialNodeImport(payload) }
+    }
+
+     
+     
+     
+    static func runsAsWritten(_ payload: ConfigurationSourcePayload, suppliesOwnRouting: Bool? = nil,
+                              resolvesItsNodesItself: Bool? = nil) -> Bool {
+        switch payload.record.origin {
+        case .file:
+            return suppliesOwnRouting ?? payload.suppliesOwnRouting
+        case .subscription:
+            return (resolvesItsNodesItself ?? payload.resolvesItsNodesItself)
+                && (suppliesOwnRouting ?? payload.suppliesOwnRouting)
+        default:
+            return false
+        }
     }
 
      

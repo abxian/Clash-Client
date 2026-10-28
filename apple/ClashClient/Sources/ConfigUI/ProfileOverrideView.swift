@@ -25,7 +25,7 @@ struct ProfileOverrideView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @State private var patchText: String
@@ -760,12 +760,8 @@ struct ProfileOverrideView: View {
             Button { beginRename(script) } label: { Label("Rename…", systemImage: ClashSymbol.pencil.name) }
                 .accessibilityIdentifier("profile.override.script.rename")
         }
-        .swipeActions(allowsFullSwipe: false) {
-            Button("Delete", role: .destructive) { removeScriptWithUndo(script) }
-                 
-                 
-                .tint(.red)
-        }
+         
+        .clashSwipeToDelete { removeScriptWithUndo(script) }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             Button { beginRename(script) } label: { Label("Rename…", systemImage: ClashSymbol.pencil.name) }
                 .tint(.gray)
@@ -946,28 +942,20 @@ struct ProfileOverrideView: View {
             }
              
              
-             
-             
-            HStack(alignment: .top, spacing: ClashTheme.Spacing.compact) {
-                Button {
-                    showsScriptFileImporter = true
-                } label: {
-                    Label(ClashCopy.key("Import"), systemImage: ClashSymbol.arrowUpDocument.name)
-                }
-                .accessibilityIdentifier("profile.override.script.add.file")
-                Button {
-                    addingScriptSheet = true
-                } label: {
-                     
-                    Label(ClashCopy.key("quick-add.door.create"), systemImage: ClashSymbol.pencilLine.name)
-                }
-                .accessibilityIdentifier("profile.override.script.add")
+            Button {
+                showsScriptFileImporter = true
+            } label: {
+                Label(ClashCopy.key("Import File"), systemImage: ClashSymbol.arrowUpDocument.name)
             }
-            .labelStyle(QuickAddDoorLabelStyle())
-            .buttonStyle(.plain)
-            .foregroundStyle(.tint)
             .disabled(importingScript)
-            .padding(.vertical, ClashTheme.Spacing.tight)
+            .accessibilityIdentifier("profile.override.script.add.file")
+            Button {
+                addingScriptSheet = true
+            } label: {
+                Label(ClashCopy.key("New Script"), systemImage: ClashSymbol.docBadgePlus.name)
+            }
+            .disabled(importingScript)
+            .accessibilityIdentifier("profile.override.script.add")
         } header: {
             ClashConfigurationLibraryHeader(title: .copy("Add Script"))
         }
@@ -2385,7 +2373,7 @@ private struct ChainBuilder: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var entry = ""
     @State private var exitNode = ""
 
@@ -2531,7 +2519,7 @@ private struct ChainEndPicker: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
     @State private var query = ""
 
@@ -2630,7 +2618,7 @@ private struct ProxyDialerEditor: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @State private var selection: String
@@ -2894,7 +2882,7 @@ private struct ProxyIdentityMigrationView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @State private var selection: String

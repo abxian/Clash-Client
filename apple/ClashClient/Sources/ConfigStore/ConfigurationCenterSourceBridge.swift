@@ -984,9 +984,20 @@ enum ConfigurationCollectionContentBridge {
         var fromLibrary: Set<String> = []
          
         var byCore: Set<String> = []
-        var isEmpty: Bool { forced.isEmpty && fromLibrary.isEmpty && byCore.isEmpty }
+         
+         
+         
+         
+         
+        var failedAsAsked: Set<String> = []
+        var isEmpty: Bool { forced.isEmpty && fromLibrary.isEmpty && byCore.isEmpty && failedAsAsked.isEmpty }
     }
 
+     
+     
+     
+     
+     
      
      
      
@@ -1014,7 +1025,8 @@ enum ConfigurationCollectionContentBridge {
     static func runningTake(updated: [ConfigurationCollectionEntry], failed: [ConfigurationCollectionEntry],
                             coreOwned: [ConfigurationCollectionEntry] = [],
                             catalog: ProviderCatalog, coreFetched: Set<String>, index given: RunningIndex? = nil,
-                            copyRequest: (ConfigurationCollectionEntry) -> String? = ConfigurationCollectionContentBridge.libraryCopyRequest(of:)) -> RunningTake {
+                            copyRequest: (ConfigurationCollectionEntry) -> String? = ConfigurationCollectionContentBridge.libraryCopyRequest(of:),
+                            failedRequest: ((ConfigurationCollectionEntry) -> String?)? = nil) -> RunningTake {
         let index = given ?? runningIndex(catalog)
         func running(_ entries: [ConfigurationCollectionEntry]) -> Set<String> {
             entries.reduce(into: Set<String>()) { $0.formUnion(index.providers(of: $1)) }
@@ -1027,13 +1039,30 @@ enum ConfigurationCollectionContentBridge {
         for entry in updated {
             guard let copy = copyRequest(entry) else { continue }
             for name in index.providers(of: entry) where fresh.contains(name) {
-                if let request = records[name]?.payloadRequest, request != copy { headed.insert(name) }
+                 
+                 
+                 
+                 
+                if let request = records[name]?.request ?? records[name]?.payloadRequest, request != copy { headed.insert(name) }
             }
         }
         let owned = running(coreOwned)
-        let forced = running(failed).union(owned.subtracting(fresh)).union(headed).subtracting(coreFetched)
+         
+         
+        let asked = failedRequest ?? { entry in
+            catalog.userAgent.flatMap {
+                ConfigurationCollectionContentBridge.libraryRequest(of: entry, userAgent: ClientUserAgent.sanitized($0))
+            }
+        }
+        var asAsked: Set<String> = []
+        for entry in failed {
+            guard let request = asked(entry) else { continue }
+            for name in index.providers(of: entry) where records[name]?.request == request { asAsked.insert(name) }
+        }
+        let forced = running(failed).subtracting(asAsked).union(owned.subtracting(fresh)).union(headed).subtracting(coreFetched)
         return RunningTake(forced: forced, fromLibrary: fresh.subtracting(forced),
-                           byCore: running(updated + failed).union(owned).intersection(coreFetched))
+                           byCore: running(updated + failed).union(owned).intersection(coreFetched),
+                           failedAsAsked: asAsked.subtracting(fresh).subtracting(forced).subtracting(coreFetched))
     }
 
      
@@ -1316,7 +1345,9 @@ enum ConfigurationCollectionContentBridge {
      
      
      
-    private static func requestIdentities(ofHTTP definitions: [String: [String: Any]]) -> [String: String] {
+     
+    private static func requestIdentities(ofHTTP definitions: [String: [String: Any]],
+                                          userAgent: String?) -> [String: String] {
         var identities: [String: String] = [:]
         var headed: [String: Any] = [:]
         for (name, definition) in definitions {
@@ -1324,7 +1355,7 @@ enum ConfigurationCollectionContentBridge {
             if let header = definition["header"] {
                 headed[name] = ["type": "http", "url": url, "header": header]
             } else {
-                identities[name] = ProviderRequestIdentity.bare(url: url)
+                identities[name] = ProviderRequestIdentity.of(url: url, headers: userAgent.map { ["User-Agent": [$0]] } ?? [:])
             }
         }
          
@@ -1332,7 +1363,8 @@ enum ConfigurationCollectionContentBridge {
         let root: [String: Any] = ["proxy-providers": headed]
         if !headed.isEmpty, JSONSerialization.isValidJSONObject(root),
            let data = try? JSONSerialization.data(withJSONObject: root, options: [.withoutEscapingSlashes]),
-           let plan = try? ConfigTransforms.planResources(mergedYAML: String(decoding: data, as: UTF8.self)) {
+           let plan = try? ConfigTransforms.planResources(mergedYAML: String(decoding: data, as: UTF8.self))
+            .carrying(userAgent: userAgent) {
             for provider in plan.providers where provider.kind == "proxy" {
                 identities[provider.name] = ProviderRequestIdentity.of(provider)
             }
@@ -1346,8 +1378,13 @@ enum ConfigurationCollectionContentBridge {
         let definitionsText = yaml.utf8.count > NodesInventoryProjection.wholeReadBytes
             ? ConfigurationSections.droppingLong(["proxies", "rules"], from: yaml) ?? yaml
             : yaml
-        let definitions = ConfigTransforms.parsedRoot(forYAML: definitionsText)?.root["proxy-providers"] as? [String: [String: Any]] ?? [:]
-        var requests = requestIdentities(ofHTTP: definitions.filter { $0.value["type"] as? String == "http" })
+        let root = ConfigTransforms.parsedRoot(forYAML: definitionsText)?.root
+        let definitions = root?["proxy-providers"] as? [String: [String: Any]] ?? [:]
+         
+         
+        var requests = requestIdentities(ofHTTP: definitions.filter { $0.value["type"] as? String == "http" },
+                                         userAgent: ClientUserAgent.choice(ClientUserAgent.written(in: root),
+                                                                           identity: ClientUserAgent.downloadIdentity()))
         var publishedFiles: [String: URL] = [:]
         for (name, definition) in definitions where definition["type"] as? String == "file" {
             guard let path = definition["path"] as? String else { continue }
@@ -1474,11 +1511,16 @@ enum ConfigurationCollectionContentBridge {
      
      
      
+     
+     
+     
     static func fetchNeverFetchedNodeCollections(_ library: ConfigurationLibraryStore,
+                                                 inUse: ProviderCatalog? = nil,
                                                  downloader: HTTPFetching = ResourceDownloader(),
                                                  credentials: CredentialStore = CredentialStore()) async -> Int {
         guard let snapshot = try? library.snapshot(),
               let entries = try? library.collectionCatalog(snapshot) else { return 0 }
+        let userAgents = CollectionUserAgents(inUse: inUse)
         let nodeCollections = entries.filter {
             $0.id.kind == .nodes && $0.collection.type == "http"
                 && $0.source.suppliesNodes && $0.source.isRetainedSnapshot != true
@@ -1487,7 +1529,9 @@ enum ConfigurationCollectionContentBridge {
         var fetched = 0
         for entry in nodeCollections {
             if Task.isCancelled { break }
-            guard let request = try? runtimeRequest(for: entry), let location = entry.collection.location,
+            let userAgent = userAgents.of(entry)
+            guard let request = try? runtimeRequest(for: entry, userAgent: userAgent, identity: userAgents.identity),
+                  let location = entry.collection.location,
                   !ProviderFetchedByCore.applies(toProxy: request.provider.proxy) else { continue }
              
             let identity = ProviderRequestIdentity.of(request.provider)
@@ -1500,6 +1544,7 @@ enum ConfigurationCollectionContentBridge {
             ProviderDownloadActivity.begin([location])
             do {
                 try await download(entry, root: request.root, provider: request.provider,
+                                   userAgent: userAgent ?? userAgents.identity,
                                    downloader: downloader, credentials: credentials)
                 ProviderDownloadActivity.end(location, failure: nil)
                 fetched += 1
@@ -1524,9 +1569,14 @@ enum ConfigurationCollectionContentBridge {
      
      
      
-    private static func runtimeRequest(for entry: ConfigurationCollectionEntry) throws
+     
+     
+     
+    private static func runtimeRequest(for entry: ConfigurationCollectionEntry, userAgent: String?,
+                                       identity: String) throws
         -> (root: OrderedJSON, provider: RemoteResourcePlan.Provider) {
-        try planned(entry, definition: definition(of: entry, carrying: ["header", "proxy", "age-secret-key"]))
+        try planned(entry, definition: definition(of: entry, carrying: ["header", "proxy", "age-secret-key"]),
+                    userAgent: userAgent, identity: identity)
     }
 
      
@@ -1538,10 +1588,12 @@ enum ConfigurationCollectionContentBridge {
         return definition
     }
 
-    private static func planned(_ entry: ConfigurationCollectionEntry, definition: OrderedJSON) throws
+    private static func planned(_ entry: ConfigurationCollectionEntry, definition: OrderedJSON,
+                                userAgent: String?, identity: String) throws
         -> (root: OrderedJSON, provider: RemoteResourcePlan.Provider) {
         let root = OrderedJSON.object([(entry.id.kind.rawValue, .object([(entry.collection.name, definition)]))])
         let plan = try ConfigTransforms.planResources(mergedYAML: root.serialized())
+            .carrying(userAgent: ClientUserAgent.choice(userAgent, identity: identity))
         let kind = entry.id.kind == .nodes ? "proxy" : "rule"
         guard let provider = plan.providers.first(where: { $0.name == entry.collection.name && $0.kind == kind }) else {
             throw ConfigurationLibraryError.unreadable
@@ -1551,12 +1603,62 @@ enum ConfigurationCollectionContentBridge {
 
      
      
-    private static func requestIdentity(of entry: ConfigurationCollectionEntry) -> String? {
+     
+    private static func requestIdentity(of entry: ConfigurationCollectionEntry, userAgent: String?,
+                                        identity: String) -> String? {
         guard let location = entry.collection.location else { return nil }
-        guard entry.collection.definition.topLevelValue("header") != nil else {
+        guard entry.collection.definition.topLevelValue("header") != nil
+                || ClientUserAgent.choice(userAgent, identity: identity) != nil else {
             return ProviderRequestIdentity.bare(url: location)
         }
-        return (try? runtimeRequest(for: entry)).map { ProviderRequestIdentity.of($0.provider) }
+        return (try? runtimeRequest(for: entry, userAgent: userAgent, identity: identity))
+            .map { ProviderRequestIdentity.of($0.provider) }
+    }
+
+     
+     
+     
+     
+    static func libraryRequest(of entry: ConfigurationCollectionEntry, userAgent: String?,
+                               identity: String = ClientUserAgent.downloadIdentity()) -> String? {
+        guard entry.collection.type == "http" else { return nil }
+        if entry.id.kind == .nodes {
+            return (try? runtimeRequest(for: entry, userAgent: userAgent, identity: identity))
+                .map { ProviderRequestIdentity.of($0.provider) }
+        }
+        return (try? entry.collection.browserDownloadDefinition())
+            .flatMap { try? planned(entry, definition: $0, userAgent: userAgent, identity: identity) }
+            .map { ProviderRequestIdentity.of($0.provider) }
+    }
+
+     
+     
+     
+     
+     
+     
+     
+    struct CollectionUserAgents {
+        let inUse: ProviderCatalog?
+        let identity: String
+        private let running: RunningIndex?
+
+        init(inUse: ProviderCatalog?, identity: String = ClientUserAgent.downloadIdentity()) {
+            self.inUse = inUse
+            self.identity = identity
+            running = inUse.map(ConfigurationCollectionContentBridge.runningIndex)
+        }
+
+         
+         
+         
+         
+        func of(_ entry: ConfigurationCollectionEntry) -> String? {
+            if let inUse, let recorded = inUse.userAgent, let running, !running.providers(of: entry).isEmpty {
+                return ClientUserAgent.sanitized(recorded)
+            }
+            return ClientUserAgent.sanitized(entry.sourceUserAgent)
+        }
     }
 
      
@@ -1569,8 +1671,10 @@ enum ConfigurationCollectionContentBridge {
      
      
     static func downloadedNodeCounts(_ library: ConfigurationLibraryStore,
-                                     snapshot: ConfigurationLibrarySnapshot) -> [String: Int] {
+                                     snapshot: ConfigurationLibrarySnapshot,
+                                     inUse: ProviderCatalog? = nil) -> [String: Int] {
         guard let entries = try? library.collectionCatalog(snapshot) else { return [:] }
+        let userAgents = CollectionUserAgents(inUse: inUse)
         let nodeCollections = entries.filter { $0.id.kind == .nodes && $0.collection.type == "http" }
         var newest: [String: (Date, Int)] = [:]
         var unrecorded: [String: (Date, Int)] = [:]
@@ -1586,7 +1690,7 @@ enum ConfigurationCollectionContentBridge {
         guard !newest.isEmpty else { return [:] }
         var counts: [String: Int] = [:]
         for entry in nodeCollections {
-            guard let identity = requestIdentity(of: entry),
+            guard let identity = requestIdentity(of: entry, userAgent: userAgents.of(entry), identity: userAgents.identity),
                   let copy = newest[identity] ?? entry.collection.location.flatMap({
                       unrecorded[$0.trimmingCharacters(in: .whitespacesAndNewlines)]
                   }) else { continue }
@@ -1604,8 +1708,12 @@ enum ConfigurationCollectionContentBridge {
      
      
      
+     
+     
+     
     static func keepInLibrary(_ downloads: [(provider: RemoteResourcePlan.Provider, file: URL, count: Int,
                                              usage: ConfigurationSubscriptionUsage?)],
+                              userAgent: String? = nil, identity: String = ClientUserAgent.downloadIdentity(),
                               workingDirectory: URL) {
         guard !downloads.isEmpty else { return }
         let library = ConfigurationLibraryStore(directory: workingDirectory.appendingPathComponent("configuration-library"))
@@ -1617,17 +1725,17 @@ enum ConfigurationCollectionContentBridge {
         }
         var held = requestsAnswered(by: nodeCollections)
         for download in downloads {
-            let identity = ProviderRequestIdentity.of(download.provider)
-            guard !held.contains(identity),
+            let downloaded = ProviderRequestIdentity.of(download.provider)
+            guard !held.contains(downloaded),
                   let entry = nodeCollections.first(where: {
                       $0.collection.location?.trimmingCharacters(in: .whitespacesAndNewlines) == download.provider.url
-                          && requestIdentity(of: $0) == identity
+                          && requestIdentity(of: $0, userAgent: userAgent, identity: identity) == downloaded
                   }),
                   let bytes = try? Data(contentsOf: download.file, options: .mappedIfSafe),
                   (try? store(bytes, count: download.count, subscriptionUsage: download.usage,
-                              requestIdentity: identity, in: entry)) != nil
+                              requestIdentity: downloaded, in: entry)) != nil
             else { continue }
-            held.insert(identity)
+            held.insert(downloaded)
         }
     }
 
@@ -1652,10 +1760,19 @@ enum ConfigurationCollectionContentBridge {
         case local
     }
 
+     
+     
+     
+     
+     
+     
     @discardableResult
-    static func refresh(_ entry: ConfigurationCollectionEntry, source: ConfigurationSourcePayload, downloader: HTTPFetching = ResourceDownloader(),
+    static func refresh(_ entry: ConfigurationCollectionEntry, source: ConfigurationSourcePayload,
+                        inUse: ProviderCatalog? = nil, downloader: HTTPFetching = ResourceDownloader(),
                         credentials: CredentialStore = CredentialStore()) async throws -> CollectionRefresh {
         guard entry.collection.type == "http" else { return .local }
+        let userAgents = CollectionUserAgents(inUse: inUse)
+        let userAgent = userAgents.of(entry)
          
          
          
@@ -1667,9 +1784,10 @@ enum ConfigurationCollectionContentBridge {
          
          
         if entry.id.kind == .nodes {
-            let request = try runtimeRequest(for: entry)
+            let request = try runtimeRequest(for: entry, userAgent: userAgent, identity: userAgents.identity)
             guard !ProviderFetchedByCore.applies(toProxy: request.provider.proxy) else { return .coreOwned }
             try await download(entry, root: request.root, provider: request.provider,
+                               userAgent: userAgent ?? userAgents.identity,
                                downloader: downloader, credentials: credentials)
             return .downloaded
         }
@@ -1677,8 +1795,10 @@ enum ConfigurationCollectionContentBridge {
          
          
         guard entry.collection.fetchingOutbound == nil else { return .coreOwned }
-        let request = try planned(entry, definition: entry.collection.browserDownloadDefinition())
+        let request = try planned(entry, definition: entry.collection.browserDownloadDefinition(),
+                                  userAgent: userAgent, identity: userAgents.identity)
         try await download(entry, root: request.root, provider: request.provider,
+                           userAgent: userAgent ?? userAgents.identity,
                            downloader: downloader, credentials: credentials)
         return .downloaded
     }
@@ -1687,7 +1807,7 @@ enum ConfigurationCollectionContentBridge {
      
      
     private static func download(_ entry: ConfigurationCollectionEntry, root: OrderedJSON,
-                                 provider: RemoteResourcePlan.Provider,
+                                 provider: RemoteResourcePlan.Provider, userAgent: String,
                                  downloader: HTTPFetching, credentials: CredentialStore) async throws {
         let directory = directory(entry)
         let stage = directory.appendingPathComponent(UUID().uuidString)
@@ -1695,7 +1815,8 @@ enum ConfigurationCollectionContentBridge {
         let result = try await ProviderMaterializer(downloader: downloader, credentials: credentials)
             .materializeDetailed(plan: .init(providers: [provider]), into: stage, publishedProvidersDir: stage,
                 maxBytesEach: 32 * 1024 * 1024, forceRefresh: [provider.name],
-                ageSecretKeys: try ConfigTransforms.providerAgeSecretKeys(mergedYAML: root.serialized()))
+                ageSecretKeys: try ConfigTransforms.providerAgeSecretKeys(mergedYAML: root.serialized()),
+                userAgent: userAgent)
         if let warning = result.validationWarnings.first {
             throw AuthoredError(text: ProviderMaterializer.failureText(of: warning.note))
         }

@@ -144,7 +144,8 @@ enum ModuleEngineFiles {
         }
         defer { try? handle.close() }
         do {
-            let data = try handle.read(upToCount: maximumBytes + 1) ?? Data()
+             
+            let data = try (maximumBytes == .max ? handle.readToEnd() : handle.read(upToCount: maximumBytes + 1)) ?? Data()
             return data.count > maximumBytes ? .tooLarge(limit: maximumBytes) : .data(data)
         } catch {
             return .failed("\(error)")
@@ -288,7 +289,12 @@ struct ModuleEnginePlan: Equatable, Sendable {
      
     static let retained = 4
      
+     
+    #if os(macOS)
+    static let maximumBytes = Int.max
+    #else
     static let maximumBytes = 256 * 1024
+    #endif
      
      
      
@@ -302,8 +308,19 @@ struct ModuleEnginePlan: Equatable, Sendable {
      
      
      
+     
+     
+     
+     
+     
+     
+    #if os(macOS)
+    static let maximumListEntries = Int.max
+    static let maximumListBytes = Int.max
+    #else
     static let maximumListEntries = 20_000
     static let maximumListBytes = 640 * 1024
+    #endif
 
      
     struct Entry: Equatable, Sendable {
@@ -1044,8 +1061,8 @@ struct ModuleEngineCounters: Codable, Equatable, Sendable {
      
      
      
+     
     var ladderScriptsStoppedTotal = 0
-    var ladderBodiesStoppedTotal = 0
     var ladderEngineStoppedTotal = 0
      
      
@@ -1111,7 +1128,6 @@ struct ModuleEngineCounters: Codable, Equatable, Sendable {
         case plainSessionsCappedTotal = "plain_sessions_capped_total"
         case capRefusalsTotal = "cap_refusals_total"
         case ladderScriptsStoppedTotal = "ladder_scripts_stopped_total"
-        case ladderBodiesStoppedTotal = "ladder_bodies_stopped_total"
         case ladderEngineStoppedTotal = "ladder_engine_stopped_total"
         case tlsNameMismatchRelayedTotal = "tls_name_mismatch_relayed_total"
         case proxyAuthRefusedTotal = "proxy_auth_refused_total"
@@ -1175,7 +1191,6 @@ extension ModuleEngineCounters {
         (.plainSessionsCappedTotal, \.plainSessionsCappedTotal),
         (.capRefusalsTotal, \.capRefusalsTotal),
         (.ladderScriptsStoppedTotal, \.ladderScriptsStoppedTotal),
-        (.ladderBodiesStoppedTotal, \.ladderBodiesStoppedTotal),
         (.ladderEngineStoppedTotal, \.ladderEngineStoppedTotal),
         (.tlsNameMismatchRelayedTotal, \.tlsNameMismatchRelayedTotal),
         (.proxyAuthRefusedTotal, \.proxyAuthRefusedTotal),
@@ -1307,14 +1322,19 @@ struct ModuleEngineReport: Codable, Equatable, Sendable {
     }
 
      
+     
+     
+     
+     
+     
     enum Rung: Int, Codable, Comparable, Sendable {
         case normal = 0
         case scriptsStopped = 1
-        case bodiesStopped = 2
         case engineStopped = 3
 
         static func < (lhs: Rung, rhs: Rung) -> Bool { lhs.rawValue < rhs.rawValue }
 
+         
          
          
          
@@ -1324,9 +1344,9 @@ struct ModuleEngineReport: Codable, Equatable, Sendable {
         }
     }
 
+     
     enum RungCause: String, Codable, Sendable {
         case memoryHeadroom
-        case memoryPressure
          
         case scriptsUnavailable
     }

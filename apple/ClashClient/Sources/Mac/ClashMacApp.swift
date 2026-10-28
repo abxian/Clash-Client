@@ -274,6 +274,13 @@ struct ClashMacApp: App {
             .environment(\.clashShellLayout, .regularSidebar)
             .environment(\.clashThroughputUnit, throughputUnit)
             .environment(\.clashFeedback, model.feedback)
+             
+             
+             
+             
+             
+             
+            .environment(\.clashMacEditorSyntax, model.editorSyntax)
             .environment(\.externalControllerCore, ExternalControllerCore.mac(vpn: model.vpn, profiles: model.profiles))
              
              
@@ -1166,6 +1173,10 @@ private final class ClashMacSceneModel: ObservableObject {
      
      
     private var cardModeWatcher: ClashWidgetModeChoiceWatcher?
+     
+     
+     
+    private var modulesListenerKeys = KernelLANShareOverride()
 
     @Published private(set) var snapshot: AppleClientSnapshot = .empty
      
@@ -1926,6 +1937,25 @@ private final class ClashMacSceneModel: ObservableObject {
 
      
      
+     
+     
+     
+     
+     
+     
+    func updateSourceAndItsCollections(_ id: String, replacingRules: Bool = false, at version: String? = nil) async throws {
+        guard var source = configurationLibrary.snapshot.sources.first(where: { $0.id == id }) else {
+            throw ConfigurationLibraryError.unreadable
+        }
+        if let version { source.version = version }
+        let outcome = try await ConfigurationSourceUpdate.run(source, replacingRules: replacingRules, model: profiles,
+                                                               locale: preferences.language.locale,
+                                                               changed: { _ in }, status: { _ in })
+        if !outcome.failures.isEmpty { configurationLibrary.report(outcome.failures.joined(separator: "\n")) }
+    }
+
+     
+     
     private func configurationLibraryActions() -> ClashMacConfigurationLibraryActions {
         let profiles = self.profiles
         var actions = ClashMacConfigurationLibraryActions(
@@ -1950,16 +1980,13 @@ private final class ClashMacSceneModel: ObservableObject {
             deleteSource: { id, generation in
                 try await profiles.deleteConfigurationSource(id, generation: generation)
             },
-            updateSource: { id in
+            updateSource: { [weak self] id in
                  
                  
                  
                  
-                var thrown: Error?
-                await profiles.pageLibraryWrite {
-                    do { try await profiles.refreshConfigurationSource(id) } catch { thrown = error }
-                }
-                if let thrown { throw thrown }
+                 
+                try await self?.updateSourceAndItsCollections(id)
             },
             deleteRuleScheme: { id, generation in
                 try await profiles.deleteConfigurationRuleScheme(id, generation: generation)
@@ -2050,15 +2077,11 @@ private final class ClashMacSceneModel: ObservableObject {
             }
             return outcome
         }
-        actions.updateSourceReplacingRules = { id, version in
+        actions.updateSourceReplacingRules = { [weak self] id, version in
              
              
-            var thrown: Error?
-            await profiles.pageLibraryWrite {
-                do { _ = try await profiles.refreshConfigurationSource(id, replaceEditedRules: true, expectedVersion: version) }
-                catch { thrown = error }
-            }
-            if let thrown { throw thrown }
+             
+            try await self?.updateSourceAndItsCollections(id, replacingRules: true, at: version)
         }
          
          
@@ -2271,7 +2294,7 @@ private final class ClashMacSceneModel: ObservableObject {
             }
             var libraryFailure: Error?
             var refreshed = ConfigurationCollectionContentBridge.CollectionRefresh.downloaded
-            do { refreshed = try await ConfigurationCollectionContentBridge.refresh(entry, source: source) }
+            do { refreshed = try await ConfigurationCollectionContentBridge.refresh(entry, source: source, inUse: profiles.providerCatalogInUse()) }
             catch { libraryFailure = error }
              
              
@@ -3150,6 +3173,16 @@ private final class ClashMacSceneModel: ObservableObject {
             self.feedback.say(ClashMacFeedbackSentences.copied("Profile URL", id: "configuration.copy-link"),
                                operation: "configuration.copy-link")
         }
+         
+        actions.copySourceLink = { [weak self] id in
+            guard let self,
+                  let source = self.configurationLibrary.snapshot.sources.first(where: { $0.id == id }),
+                  let link = ClashMacConfigurationLibraryModel.link(of: source) else { return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(link, forType: .string)
+            self.feedback.say(ClashMacFeedbackSentences.copied("Link", id: "configuration-center.copy-link"),
+                               operation: "configuration-center.copy-link")
+        }
         actions.hasProfileURL = { [weak self] id in self?.profileURL(of: id.rawValue) != nil }
         actions.hasLegacyProfileURLs = profiles.profiles.contains { profile in if case .url = profile.source { return true }; return false }
          
@@ -3631,6 +3664,7 @@ private final class ClashMacSceneModel: ObservableObject {
         var settings = ClashMacSettingsSectionActions(
             load: { [weak self] section in
                 let page = try await profiles.loadConfigurationEditorPage(profileID: id.rawValue)
+                self?.modulesListenerKeys = await profiles.publishedModules()?.listenerKeys ?? KernelLANShareOverride()
                 let catalog = try? await ProfilesViewModel.loadSyntaxCatalog()
                 var scheme: String?
                 var copies: (scheme: String, configuration: String)?
@@ -3663,7 +3697,8 @@ private final class ClashMacSceneModel: ObservableObject {
                 document.ownDNSSwitch = page.ownDNSSwitch
                  
                  
-                if self?.vpn.tunnelSettings.includeAllNetworks == true { document.activeConditions.insert("includeAllNetworks") }
+                 
+                document.activeConditions.formUnion(profiles.platformConditionsHolding())
                 document.owners = list.flatMap { self?.keyOwners(for: section, original: original, profileID: id, list: $0) } ?? [:]
                  
                  
@@ -3687,6 +3722,21 @@ private final class ClashMacSceneModel: ObservableObject {
             }
         )
         settings.setOwnDNSSwitch = { on in try profiles.updateOwnDNSSwitch(profileID: id.rawValue, on: on) }
+         
+         
+         
+        settings.runsOver = { [weak self] in
+            async let modules = profiles.publishedModules()
+            async let scripted = profiles.scriptedSettings(profileID: id.rawValue)
+            let (published, built) = await (modules, scripted)
+            guard published != nil || built != nil else { return nil }
+            let held = profiles.keysHeldOverModules(profileID: id.rawValue)
+            let locale = self?.preferences.language.locale ?? .current
+            return { path, field, opensPage, running in
+                ConfigurationRunsOverNote.words(path: path, field: field, opensPage: opensPage, document: running,
+                                                modules: published, held: held, scripted: built, locale: locale)
+            }
+        }
          
          
         settings.geoValues = { resource in
@@ -3728,10 +3778,13 @@ private final class ClashMacSceneModel: ObservableObject {
         let profiles = self.profiles
         return ClashMacLANShareEntry(
             keys: ConfigurationSectionKeys.lanShareKeys,
-            status: { document in
+            status: { [weak self] document in
                 let override = profiles.profiles.first { $0.id == id.rawValue }
                     .map { KernelLANShareOverride(patch: OverridePatch(patchJSON: $0.override.patchJSON)) }
-                return ConfigurationLANShareStatus.words(override: override ?? KernelLANShareOverride(), document: document)
+                 
+                 
+                return ConfigurationLANShareStatus.words(override: override ?? KernelLANShareOverride(), document: document,
+                                                         modules: self?.modulesListenerKeys ?? KernelLANShareOverride())
             },
             page: { [weak self] in self?.lanSharePage(profileID: id) ?? AnyView(EmptyView()) }
         )
@@ -3748,14 +3801,15 @@ private final class ClashMacSceneModel: ObservableObject {
      
     private func lanSharePage(profileID id: ClashClientKit.Profile.ID) -> AnyView {
         AnyView(ClashMacLANSharePage(profiles: profiles, proxyShare: proxyShare, profileID: id.rawValue,
-                                    rows: lanShareSettingsRows(id: id)))
+                                    rows: ProxyShareSettingsRows(from: self, profileID: id.rawValue,
+                                                                 rows: lanShareSettingsRows(id: id))))
     }
 
      
      
      
-    private var activeLANShareSettingsRows: (([String]) -> AnyView)? {
-        { [weak self] keys in
+    private var activeLANShareSettingsRows: ProxyShareSettingsRows? {
+        ProxyShareSettingsRows(from: self) { [weak self] keys in
             guard let self else { return AnyView(EmptyView()) }
             return AnyView(ClashMacActiveLANShareRows(profiles: self.profiles) { [weak self] id in
                 self?.lanShareSettingsRows(id: id)(keys) ?? AnyView(EmptyView())
@@ -4169,6 +4223,15 @@ private final class ClashMacSceneModel: ObservableObject {
                 _ = try await profiles.saveConfigurationSourceSettings(latest.id, draft: draft, generation: current.generation)
                 await library.reload()
             }
+        }
+         
+         
+        actions.sourceIsViewOnly = { [profiles] in
+            guard let appProfile = profiles.profiles.first(where: { $0.id == id.rawValue }) else { return false }
+            let workingDir = profiles.workingDir
+            return await Task.detached(priority: .userInitiated) {
+                ProfilesViewModel.sourceIsTooLargeToReadWhole(appProfile, workingDir: workingDir)
+            }.value
         }
         return actions
     }
@@ -6077,6 +6140,13 @@ private final class ClashMacSceneModel: ObservableObject {
         }
          
          
+        command.takesWhatTheCompileCouldNotTake = { [weak self] held in
+            guard let self, !Self.withholdsTunnelHousekeeping,
+                  let container = ClashAppIdentifiers.appGroupContainer else { return }
+            self.profiles.publishWhatOnlyAPublicationTakes(container: container, handedOn: held)
+        }
+         
+         
          
          
          
@@ -7636,10 +7706,11 @@ private final class ClashMacSceneModel: ObservableObject {
          
         if !Self.withholdsTunnelHousekeeping {
             pendingCompileWatcher.start(directory: ProviderRefreshStateWatcher.stateDirectory) { [weak self] in
-                guard let self, let container = ClashAppIdentifiers.appGroupContainer,
-                      PendingProviderCompile.waits(in: ProviderRefreshState.read(
-                          workingDirectory: container.appendingPathComponent("working", isDirectory: true)))
-                else { return }
+                guard let self, let container = ClashAppIdentifiers.appGroupContainer else { return }
+                let state = ProviderRefreshState.read(
+                    workingDirectory: container.appendingPathComponent("working", isDirectory: true))
+                guard PendingProviderCompile.waits(in: state)
+                        || !PendingProviderCompile.waitingForAPublication(in: state).isEmpty else { return }
                 startPendingCompiles()
             }
         }
@@ -7660,6 +7731,7 @@ private final class ClashMacSceneModel: ObservableObject {
      
      
      
+     
     func appCameToFront() async {
         guard !Self.withholdsTunnelHousekeeping else { return }
          
@@ -7671,6 +7743,9 @@ private final class ClashMacSceneModel: ObservableObject {
          
         if profiles.hasLoadedProfiles {
             await profiles.republishIfLibraryGone()
+             
+             
+            profiles.recomposeIfModulesMovedSincePublication()
         }
         startPendingCompiles()
     }
@@ -7713,6 +7788,7 @@ private final class ClashMacSceneModel: ObservableObject {
         guard !Self.withholdsTunnelHousekeeping, command.isConnected,
               let container = ClashAppIdentifiers.appGroupContainer else { return }
         command.startPendingCompiles(container: container)
+        profiles.publishWhatOnlyAPublicationTakes(container: container)
     }
 
      
@@ -8409,11 +8485,11 @@ private struct ClashMacLANSharePage: View {
     @ObservedObject var profiles: ProfilesViewModel
     let proxyShare: ProxyShareModel
     let profileID: String
-    let rows: ([String]) -> AnyView
+    let rows: ProxyShareSettingsRows
 
     var body: some View {
         if profiles.activeProfileID == profileID {
-            ProxyShareView(model: proxyShare).environment(\.proxyShareSettingsRows, rows)
+            ProxyShareView(model: proxyShare).equatable().environment(\.proxyShareSettingsRows, rows)
         } else {
             ProxyShareMacConfigurationPage(profiles: profiles, profileID: profileID)
                 .environment(\.proxyShareSettingsRows, rows)

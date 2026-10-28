@@ -310,6 +310,55 @@ enum ModuleHTTPParser {
     }
 
      
+     
+    static let maximumMethodBytes = 32
+
+     
+     
+     
+     
+     
+    static func mayBeRequest(_ data: Data) -> Bool {
+        let bytes = data.drop { $0 == 0x0D || $0 == 0x0A }
+        var index = bytes.startIndex
+        var method = 0
+        while index < bytes.endIndex, bytes[index] != 0x20 {
+            guard isTokenCharacter(Character(Unicode.Scalar(bytes[index]))) else { return false }
+            method += 1
+            guard method <= maximumMethodBytes else { return false }
+            index += 1
+        }
+        guard index < bytes.endIndex else { return true }
+        guard method > 0 else { return false }
+        index += 1
+        var target = 0
+        while index < bytes.endIndex, bytes[index] != 0x20 {
+            guard bytes[index] > 0x20, bytes[index] != 0x7F else { return false }
+            target += 1
+            index += 1
+        }
+        guard index < bytes.endIndex else { return true }
+        guard target > 0 else { return false }
+        index += 1
+         
+        let version = Array("HTTP/1.".utf8)
+        for expected in version {
+            guard index < bytes.endIndex else { return true }
+            guard bytes[index] == expected else { return false }
+            index += 1
+        }
+        guard index < bytes.endIndex else { return true }
+        guard bytes[index] == 0x30 || bytes[index] == 0x31 else { return false }
+        index += 1
+        guard index < bytes.endIndex else { return true }
+        if bytes[index] == 0x0D {
+            index += 1
+            guard index < bytes.endIndex else { return true }
+        }
+        return bytes[index] == 0x0A
+    }
+
+     
     static func isTokenCharacter(_ character: Character) -> Bool {
         guard let value = character.asciiValue else { return false }
         switch value {

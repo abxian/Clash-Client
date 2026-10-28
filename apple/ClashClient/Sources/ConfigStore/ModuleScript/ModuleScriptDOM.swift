@@ -50,6 +50,7 @@ enum ModuleScriptDOM {
      
      
      
+     
     @discardableResult
     static func install(into context: JSContext, maximumSourceBytes: Int? = nil) -> Bool {
         let handler = context.exceptionHandler

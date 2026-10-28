@@ -855,6 +855,44 @@
       "zh-Hant": "劫持的位址"
     }
   },
+  "listeners[*].dns-mode": {
+    "presets": [
+      {
+        "value": "disabled",
+        "label": {
+          "en": "Don't Set",
+          "zh-Hans": "不设置",
+          "zh-Hant": "不設定"
+        }
+      },
+      {
+        "value": "native",
+        "label": {
+          "en": "System DNS",
+          "zh-Hans": "设为系统 DNS",
+          "zh-Hant": "設為系統 DNS"
+        }
+      },
+      {
+        "value": "hijack",
+        "label": {
+          "en": "System DNS, Others Taken Too",
+          "zh-Hans": "设为系统 DNS，其他的也接过来",
+          "zh-Hant": "設為系統 DNS，其他的也接過來"
+        }
+      }
+    ],
+    "summary": {
+      "en": "Whether the tunnel becomes the system's DNS, and whether DNS sent past it to other networks is taken too.",
+      "zh-Hans": "是否把隧道设成系统 DNS，以及是否把绕开它发往其他网络的 DNS 查询也接过来。",
+      "zh-Hant": "是否把通道設成系統 DNS，以及是否把繞開它送往其他網路的 DNS 查詢也接過來。"
+    },
+    "title": {
+      "en": "DNS Mode",
+      "zh-Hans": "DNS 模式",
+      "zh-Hant": "DNS 模式"
+    }
+  },
   "listeners[*].down": {
     "example": "100",
     "summary": {

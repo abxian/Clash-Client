@@ -123,7 +123,9 @@ public struct ClashMacSourceImportSheet: View {
             case .nodes: "Node"
              
              
-            case .manual: "quick-add.door.create"
+             
+             
+            case .manual: "quick-add.new.rules"
             }
         }
     }

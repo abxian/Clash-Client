@@ -3,6 +3,11 @@ import SwiftUI
 
  
  
+public enum ClashModulesAddMode: String, Equatable, Identifiable, Sendable {
+    case link, manual
+    public var id: String { rawValue }
+}
+
  
  
  
@@ -11,17 +16,33 @@ import SwiftUI
  
  
  
-public struct ClashModulesView<AddModule: View>: View {
+ 
+ 
+ 
+ 
+public struct ClashModulesView<AddModule: View, QuickAdd: View>: View {
     private let snapshot: ClashModulesSnapshot
     private let perform: (ClashModulesAction) -> Void
     private let detail: (String) -> ClashModuleDetailSnapshot?
-    private let addModule: (_ dismiss: @escaping () -> Void) -> AddModule
+    private let addModule: (_ mode: ClashModulesAddMode, _ dismiss: @escaping () -> Void) -> AddModule
+     
+     
+    private let quickAdd: (_ open: @escaping (ClashModulesAddMode) -> Void) -> QuickAdd
+     
+     
+    private let pullToUpdate: (() async -> Void)?
      
      
     private let opensAddModule: Bool
 
-    @State private var showsAddModule = false
+    @State private var addMode: ClashModulesAddMode?
+    @State private var showsReorder = false
     @State private var openedModule: ClashModulesOpenedModule?
+     
+     
+     
+     
+    @State private var pendingDeletion: ClashModulesSnapshot.ModuleRow?
      
      
     @StateObject private var certificateFeed: ClashModulesCertificateFeed
@@ -33,12 +54,16 @@ public struct ClashModulesView<AddModule: View>: View {
         perform: @escaping (ClashModulesAction) -> Void,
         detail: @escaping (String) -> ClashModuleDetailSnapshot?,
         opensAddModule: Bool = false,
-        @ViewBuilder addModule: @escaping (_ dismiss: @escaping () -> Void) -> AddModule
+        pullToUpdate: (() async -> Void)? = nil,
+        @ViewBuilder quickAdd: @escaping (_ open: @escaping (ClashModulesAddMode) -> Void) -> QuickAdd,
+        @ViewBuilder addModule: @escaping (_ mode: ClashModulesAddMode, _ dismiss: @escaping () -> Void) -> AddModule
     ) {
         self.snapshot = snapshot
         self.perform = perform
         self.detail = detail
         self.opensAddModule = opensAddModule
+        self.pullToUpdate = pullToUpdate
+        self.quickAdd = quickAdd
         self.addModule = addModule
         _certificateFeed = StateObject(wrappedValue: ClashModulesCertificateFeed(snapshot))
     }
@@ -52,14 +77,37 @@ public struct ClashModulesView<AddModule: View>: View {
             if !snapshot.notices.isEmpty {
                 noticesSection
             }
-            modulesSection
+            if !snapshot.modules.isEmpty {
+                modulesSection
+            }
+            if snapshot.canRefreshAll {
+                updateAllSection
+            }
+            quickAdd { addMode = $0 }
         }
         .modifier(ClashModulesFormStyle())
+        .modifier(ClashLibraryPullToUpdate(action: snapshot.canRefreshAll ? pullToUpdate : nil))
         .clashPageTitle("Modules")
+        .clashToolbarUnlessInPanel {
+#if os(macOS)
+            ToolbarItemGroup(placement: .primaryAction) {
+                macToolbarControls
+            }
+#else
+            ToolbarItem(placement: .primaryAction) {
+                toolbarControls
+            }
+#endif
+        }
         .onChange(of: snapshot) { certificateFeed.take($0) }
-        .onAppear { if opensAddModule { showsAddModule = true } }
+        .clashDeleteConfirmation(pendingDeletion?.name ?? "", isPresented: Binding(
+            get: { pendingDeletion != nil }, set: { if !$0 { pendingDeletion = nil } }),
+            actionTitle: .copy("Delete Module"), identifier: "modules.module.delete.confirm") {
+            if let doomed = pendingDeletion { perform(.removeModule(id: doomed.id)) }
+        }
+        .onAppear { if opensAddModule { addMode = .link } }
         .onChange(of: opensAddModule) { opens in
-            if opens { showsAddModule = true }
+            if opens { addMode = .link }
         }
         .sheet(item: $openedModule) { opened in
              
@@ -69,8 +117,12 @@ public struct ClashModulesView<AddModule: View>: View {
             }
             .clashModalPresentation(Self.detailPresentation)
         }
-        .sheet(isPresented: $showsAddModule) {
-            addModule { showsAddModule = false }
+        .sheet(item: $addMode) { mode in
+            addModule(mode) { addMode = nil }
+                .clashModalPresentation(.form)
+        }
+        .sheet(isPresented: $showsReorder) {
+            ClashModulesReorderView(modules: snapshot.modules, perform: perform) { showsReorder = false }
                 .clashModalPresentation(.form)
         }
         .modifier(ClashModulesEditorPresentation(editor: newModuleEditor, perform: perform))
@@ -103,7 +155,9 @@ public struct ClashModulesView<AddModule: View>: View {
      
     private var decryptionSection: some View {
         Section {
-            Toggle(isOn: Binding(get: { snapshot.isOn }, set: { perform(.setEnabled($0)) })) {
+             
+             
+            Toggle(isOn: Binding(get: { snapshot.decryptionSwitching ?? snapshot.isOn }, set: { perform(.setEnabled($0)) })) {
                 Text("HTTPS Decryption")
             }
             .modifier(ClashModulesSwitchStyle())
@@ -147,10 +201,17 @@ public struct ClashModulesView<AddModule: View>: View {
             ForEach(snapshot.notices) { notice in
                 Label {
                     Text(clash: notice.text)
+                        .foregroundStyle(notice.tone == .onHold ? .secondary : .primary)
                         .fixedSize(horizontal: false, vertical: true)
                 } icon: {
-                    Image(systemName: ClashSymbol.exclamationmarkTriangleFill.rawValue)
-                        .foregroundStyle(Color.orange)
+                     
+                    if notice.tone == .onHold {
+                        Image(systemName: ClashSymbol.pauseCircleFill.rawValue)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: ClashSymbol.exclamationmarkTriangleFill.rawValue)
+                            .foregroundStyle(Color.orange)
+                    }
                 }
                 .accessibilityIdentifier("modules.notice.\(notice.id)")
                 if let action = notice.action {
@@ -165,28 +226,113 @@ public struct ClashModulesView<AddModule: View>: View {
         }
     }
 
+     
+     
+    private var toolbarControls: some View {
+        let reorders = snapshot.modules.count > 1
+        return ControlGroup {
+            if reorders {
+                Button {
+                    showsReorder = true
+                } label: {
+                    Image(systemName: ClashSymbol.arrowUpArrowDown.rawValue)
+                        .clashToolbarGlyph()
+                        .clashToolbarCapsuleEnd(.leading)
+                }
+                .accessibilityLabel(Text("Reorder Modules"))
+                .accessibilityIdentifier("modules.reorder")
+                ClashToolbarDivider()
+            }
+            Button {
+                addMode = .link
+            } label: {
+                Image(systemName: ClashSymbol.plusCircle.rawValue)
+                    .clashToolbarGlyph()
+                    .clashToolbarCapsuleEnd(reorders ? .trailing : [])
+            }
+            .accessibilityLabel(Text("Add Module"))
+            .accessibilityIdentifier("modules.add.toolbar")
+        }
+        .disabled(snapshot.isBusy)
+        .clashReaderControlGroupStyle()
+    }
+
+#if os(macOS)
+     
+     
+     
+    @ViewBuilder
+    private var macToolbarControls: some View {
+        Button {
+            addMode = .link
+        } label: {
+            Label { Text("Add Module") } icon: { Image(systemName: ClashSymbol.plus.rawValue) }
+        }
+        .help(Text("Add Module"))
+        .disabled(snapshot.isBusy)
+        .accessibilityIdentifier("modules.add.toolbar")
+        if snapshot.canRefreshAll {
+            Button {
+                perform(.refreshAll)
+            } label: {
+                Label { Text("Update All") } icon: { Image(systemName: ClashSymbol.arrowTriangle2Circlepath.rawValue) }
+            }
+            .help(Text("Update All"))
+            .disabled(snapshot.isBusy || snapshot.batch?.isRunning == true)
+            .accessibilityIdentifier("modules.update-all")
+        }
+    }
+#endif
+
     private var modulesSection: some View {
          
+         
+         
         let paths = ClashModulesSnapshot.ModuleRow.distinguishingPaths(snapshot.modules)
+        let shared = Set(Dictionary(grouping: snapshot.modules, by: \.name).filter { $0.value.count > 1 }.keys)
+        let rows = ForEach(snapshot.modules) { row in
+            moduleRow(row, path: paths[row.id] ?? (shared.contains(row.name) ? Self.sourceName(row, locale: locale) : nil))
+        }
+#if os(macOS)
+         
+         
         return Section {
-            ForEach(snapshot.modules) { row in
-                moduleRow(row, path: paths[row.id])
-            }
-            ClashAddRow(Text("Add Module")) {
-                showsAddModule = true
-            }
-            .disabled(snapshot.isBusy)
-            .accessibilityIdentifier("modules.modules.add")
-             
-             
-            ClashAddRow(Text("New Module"), symbol: .docBadgePlus, action: { perform(.newModule) }) {
-                ClashModulesNewModuleLabel()
-            }
-            .disabled(snapshot.isBusy)
-            .accessibilityIdentifier("modules.modules.new")
+            rows
+        } header: {
+            Text("Modules")
+        } footer: {
+            if let batch = snapshot.batch { batchCount(batch) }
+        }
+#else
+        return Section {
+            rows
         } header: {
             Text("Modules")
         }
+#endif
+    }
+
+     
+     
+     
+    @ViewBuilder
+    private var updateAllSection: some View {
+#if !os(macOS)
+        Section {
+            ClashConfigurationUpdateButton(title: "Update All", updatingTitle: "Updating…",
+                                           isUpdating: snapshot.batch?.isRunning == true,
+                                           disabled: snapshot.isBusy, action: { perform(.refreshAll) })
+                .accessibilityIdentifier("modules.update-all")
+        } footer: {
+            if let batch = snapshot.batch { batchCount(batch) }
+        }
+#endif
+    }
+
+    private func batchCount(_ batch: ClashModulesSnapshot.Batch) -> some View {
+        Text(verbatim: "\(batch.done) / \(batch.total)")
+            .monospacedDigit()
+            .accessibilityIdentifier("modules.update-status")
     }
 
      
@@ -213,95 +359,109 @@ public struct ClashModulesView<AddModule: View>: View {
                 }
             }
         }
+         
+         
+         
         .contextMenu {
+#if os(macOS)
+            macRowMenu(row)
+#else
+            if let link = row.link {
+                Button {
+                    perform(.refreshModule(id: row.id))
+                } label: {
+                    Label { Text("Update") } icon: { Image(systemName: ClashSymbol.arrowClockwise.rawValue) }
+                }
+                .accessibilityIdentifier("modules.module.update")
+                Button {
+                    perform(.copy(link))
+                } label: {
+                    Label { Text("Copy Link") } icon: { Image(systemName: ClashSymbol.link.rawValue) }
+                }
+                .accessibilityIdentifier("modules.module.copy-link")
+            }
             Button(role: .destructive) {
-                perform(.removeModule(id: row.id))
+                pendingDeletion = row
             } label: {
-                Text("Delete")
+                Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
             }
+#endif
         }
-        .modifier(ClashModulesDeleteSwipe { perform(.removeModule(id: row.id)) })
+        .modifier(ClashModulesDeleteSwipe { pendingDeletion = row })
     }
 
-     
-     
-    private func moduleLines(_ row: ClashModulesSnapshot.ModuleRow, path: String?) -> some View {
-        VStack(alignment: .leading, spacing: ClashTheme.Spacing.compact) {
-            Text(verbatim: row.name)
-                .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-            if let path {
-                Text(unhyphenated: path)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? nil : 2)
-                    .truncationMode(.middle)
-            }
-            if dynamicTypeSize.isAccessibilitySize {
-                 
-                if let source = Self.sourceName(row, locale: locale) {
-                    Text(unhyphenated: source)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                if let updated = Self.updatedLine(row, locale: locale) {
-                    Text(verbatim: updated)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                sourceLines(row)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            Text(verbatim: Self.entriesLine(row, locale: locale))
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-             
-            if row.failure != nil {
-                Text("Update failed")
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
+#if os(macOS)
      
      
      
      
     @ViewBuilder
-    private func sourceLines(_ row: ClashModulesSnapshot.ModuleRow) -> some View {
-        let updated = Self.updatedLine(row, locale: locale)
-        if let source = Self.sourceName(row, locale: locale) {
-            if let updated {
-                if #available(iOS 16.0, *) {
-                    ViewThatFits(in: .horizontal) {
-                        Text(unhyphenated: source + " · " + updated)
-                            .lineLimit(1)
-                        stackedSourceLines(source, updated)
-                    }
-                } else {
-                    stackedSourceLines(source, updated)
-                }
-            } else {
-                Text(unhyphenated: source)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
+    private func macRowMenu(_ row: ClashModulesSnapshot.ModuleRow) -> some View {
+        if let link = row.link {
+            Button {
+                perform(.refreshModule(id: row.id))
+            } label: {
+                Text("Update")
             }
-        } else if let updated {
-             
-            Text(verbatim: updated)
-                .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("modules.module.update")
+            Button {
+                perform(.copy(link))
+            } label: {
+                Text("Copy Link")
+            }
+            .accessibilityIdentifier("modules.module.copy-link")
+        }
+        if snapshot.modules.count > 1 {
+            Divider()
+            Button {
+                if let order = snapshot.order(moving: row.id, by: -1) { perform(.moveModules(order)) }
+            } label: {
+                Text("Move Up")
+            }
+            .disabled(snapshot.order(moving: row.id, by: -1) == nil)
+            .accessibilityIdentifier("modules.module.move-up")
+            Button {
+                if let order = snapshot.order(moving: row.id, by: 1) { perform(.moveModules(order)) }
+            } label: {
+                Text("Move Down")
+            }
+            .disabled(snapshot.order(moving: row.id, by: 1) == nil)
+            .accessibilityIdentifier("modules.module.move-down")
+        }
+        Divider()
+         
+        Button(role: .destructive) {
+            pendingDeletion = row
+        } label: {
+            Text("Delete")
         }
     }
+#endif
 
-    private func stackedSourceLines(_ source: String, _ updated: String) -> some View {
-        VStack(alignment: .leading, spacing: ClashTheme.Spacing.compact) {
-            Text(unhyphenated: source)
-                .lineLimit(2)
+     
+     
+     
+     
+     
+     
+    private func moduleLines(_ row: ClashModulesSnapshot.ModuleRow, path: String?) -> some View {
+        let wraps = dynamicTypeSize.isAccessibilitySize
+        return VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: row.name)
+                .font(.body)
+                .lineLimit(wraps ? nil : 1)
+                .truncationMode(.tail)
+            Text(verbatim: [path, Self.entriesLine(row, locale: locale)].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(wraps ? nil : 1)
                 .truncationMode(.middle)
-            Text(verbatim: updated)
-                .fixedSize(horizontal: false, vertical: true)
+             
+            if row.failure != nil {
+                Text("Update failed")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
         }
     }
 
@@ -318,12 +478,15 @@ public struct ClashModulesView<AddModule: View>: View {
     }
 
     private func moduleSwitch(_ row: ClashModulesSnapshot.ModuleRow) -> some View {
-        Toggle(isOn: Binding(get: { row.enabled }, set: { perform(.setModule(id: row.id, enabled: $0)) })) {
+         
+         
+        let flipped = snapshot.switching[row.id]
+        return Toggle(isOn: Binding(get: { flipped ?? row.enabled }, set: { perform(.setModule(id: row.id, enabled: $0)) })) {
             Text(verbatim: row.name)
         }
         .modifier(ClashModulesSwitchStyle())
         .labelsHidden()
-        .disabled(snapshot.isBusy)
+        .disabled(snapshot.isBusy || flipped != nil)
         .accessibilityIdentifier("modules.module.toggle.\(row.id)")
     }
 
@@ -369,32 +532,6 @@ public struct ClashModulesView<AddModule: View>: View {
             ClashModuleCountLine.parts(kept: row.effectiveCount + waiting, waiting: waiting, waitsFor: row.waitsFor,
                                        enabled: row.enabled, details: false, locale: locale),
             locale: locale)
-    }
-}
-
- 
- 
- 
- 
- 
-struct ClashModulesNewModuleLabel: View {
-    var body: some View {
-        HStack(spacing: ClashTheme.Spacing.row) {
-            Image(systemName: ClashSymbol.plusCircleFill.rawValue)
-                .font(.title3)
-                .hidden()
-                .overlay(
-                    Image(systemName: ClashSymbol.docBadgePlus.rawValue)
-                        .font(.title3)
-                )
-                .accessibilityHidden(true)
-            Text("New Module")
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.tint)
-        .padding(.vertical, 6)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
     }
 }
 
@@ -449,19 +586,78 @@ struct ClashModulesFormStyle: ViewModifier {
 }
 
  
+ 
 struct ClashModulesDeleteSwipe: ViewModifier {
     let delete: () -> Void
 
     func body(content: Content) -> some View {
 #if os(iOS)
-        content.swipeActions(edge: .trailing) {
-            Button(role: .destructive, action: delete) {
-                Text("Delete")
-            }
-            .accessibilityIdentifier("modules.module.delete")
-        }
+        content.clashSwipeToDelete(identifier: "modules.module.delete", delete)
 #else
         content
 #endif
+    }
+}
+
+ 
+ 
+ 
+ 
+struct ClashModulesReorderView: View {
+    let perform: (ClashModulesAction) -> Void
+    let close: () -> Void
+    @State private var modules: [ClashModulesSnapshot.ModuleRow]
+
+    init(modules: [ClashModulesSnapshot.ModuleRow], perform: @escaping (ClashModulesAction) -> Void,
+         close: @escaping () -> Void) {
+        self.perform = perform
+        self.close = close
+        _modules = State(initialValue: modules)
+    }
+
+    var body: some View {
+        ClashSingleColumnNavigationContainer {
+            List {
+                ForEach(Array(modules.enumerated()), id: \.element.id) { index, module in
+                    Text(verbatim: module.name)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, minHeight: ClashTheme.Control.fullWidthRowMinHeightOnItsOwnPlatform,
+                               alignment: .leading)
+                        .contentShape(Rectangle())
+                        .accessibilityHint("Drag to reorder")
+                        .accessibilityAction(named: "Move Up") { move(at: index, offset: -1) }
+                        .accessibilityAction(named: "Move Down") { move(at: index, offset: 1) }
+                        .contextMenu {
+                            Button("Move Up") { move(at: index, offset: -1) }
+                                .disabled(index == modules.startIndex)
+                            Button("Move Down") { move(at: index, offset: 1) }
+                                .disabled(index == modules.index(before: modules.endIndex))
+                        }
+                        .accessibilityIdentifier("modules.reorder.row.\(module.id)")
+                }
+                .onMove { source, destination in
+                    modules.move(fromOffsets: source, toOffset: destination)
+                    perform(.moveModules(modules.map(\.id)))
+                }
+            }
+            .clashExplicitReorderMode()
+            .clashPageTitle("Reorder Modules")
+            .clashToolbarUnlessInPanel {
+                ToolbarItem(placement: .cancellationAction) {
+                    ClashSheetCloseButton {
+                        close()
+                    }
+                }
+            }
+            .clashProductModalRoot(title: "Reorder Modules")
+        }
+        .accessibilityIdentifier("modules.reorder.screen")
+    }
+
+    private func move(at index: Int, offset: Int) {
+        let destination = index + offset
+        guard modules.indices.contains(index), modules.indices.contains(destination) else { return }
+        modules.swapAt(index, destination)
+        perform(.moveModules(modules.map(\.id)))
     }
 }

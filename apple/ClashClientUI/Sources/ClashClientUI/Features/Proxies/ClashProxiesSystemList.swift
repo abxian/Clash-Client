@@ -35,6 +35,10 @@ struct ClashProxiesSystemList<Icon: View>: View {
      
      
     @State private var choiceRefusal: ClashProxyChoiceRefusalNote?
+     
+    @State private var refusalDetail: ClashGroupRefusalDetail?
+     
+    @State private var locateRequest: ClashProxyLocateRequest?
     @Environment(\.locale) private var locale
     let palette: ClashProductPalette
      
@@ -76,6 +80,58 @@ struct ClashProxiesSystemList<Icon: View>: View {
     }
 
     private var listBody: some View {
+        refusalSheet(ScrollViewReader { reader in
+            listContent
+                .onChange(of: locateRequest) { request in
+                    guard let request else { return }
+                     
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (request.opened ? 0.2 : 0)) {
+                        withAnimation {
+                            reader.scrollTo(ClashProxyBrowsing.memberAnchor(group: request.group, member: request.member),
+                                            anchor: .center)
+                        }
+                    }
+                }
+        })
+    }
+
+     
+    private func refusalSheet<Content: View>(_ content: Content) -> some View {
+        content.sheet(item: $refusalDetail) { detail in
+            ClashGroupRefusalDetailView(detail: detail)
+                .clashModalPresentation(.form)
+        }
+    }
+
+     
+     
+    @ViewBuilder
+    private func refusalLine(_ refusal: ClashGroupActionRefusal, group: String) -> some View {
+        let line = Text(clash: refusal.result)
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        if refusal.coreSentence != nil {
+            Button {
+                refusalDetail = ClashGroupRefusalDetail(group: group, refusal: refusal)
+            } label: {
+                HStack(spacing: ClashTheme.Spacing.compact) {
+                    line
+                    Image(systemName: "info.circle")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("proxies.refusal.\(group)")
+        } else {
+            line.accessibilityIdentifier("proxies.refusal.\(group)")
+        }
+    }
+
+    private var listContent: some View {
         List {
             switch snapshot.proxies.effectiveCatalogState {
             case .disconnected:
@@ -187,10 +243,27 @@ struct ClashProxiesSystemList<Icon: View>: View {
                 icon: { AnyView(icon($0)) },
                 latencyPulse: latencyPulse,
                 toggle: toggle,
-                test: { send(.testGroup(name: group.name)) },
+                 
+                 
+                test: {
+                    if isSearching {
+                        send(.testShown([ClashProxiesShownMembers(group: group.name,
+                                                                  members: group.members.map(\.name))]))
+                    } else {
+                        send(.testGroup(name: group.name))
+                    }
+                },
                 showsUnpin: snapshot.proxies.offersUnpin(for: group),
                 unpin: { send(.unpin(group: group.name)) },
-                countSlot: countSlot
+                countSlot: countSlot,
+                 
+                locate: ClashProxyBrowsing.locatableSelection(of: group).map { member in
+                    {
+                        let opened = !isOpen
+                        if opened { toggle() }
+                        locateRequest = ClashProxyLocateRequest(group: group.name, member: member, opened: opened)
+                    }
+                }
             )
             .equatable()
         }
@@ -205,8 +278,9 @@ struct ClashProxiesSystemList<Icon: View>: View {
              
              
              
-            if let message = snapshot.proxies.actionRefusals[group.name]
-                ?? (choiceRefusal?.group == group.name ? choiceRefusal?.message : nil) {
+            if let refusal = snapshot.proxies.actionRefusals[group.name] {
+                refusalLine(refusal, group: group.name)
+            } else if choiceRefusal?.group == group.name, let message = choiceRefusal?.message {
                 Text(clash: .copy(message))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -227,6 +301,25 @@ struct ClashProxiesSystemList<Icon: View>: View {
          
          
         ForEach(memberOrder(group)) { member in
+            memberRow(member, in: group, current: current)
+                .id(ClashProxyBrowsing.memberAnchor(group: group.name, member: member.name))
+        }
+         
+         
+        if !group.hasEveryMember, !isSearching {
+            Button {
+                send(.loadMembers(group: group.name))
+            } label: {
+                Text(clash: .format("Show all %@ nodes", [group.memberCount.formatted(.number.locale(locale))]))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .foregroundStyle(.tint)
+            .accessibilityIdentifier("proxies.showAll.\(group.name)")
+        }
+    }
+
+    private func memberRow(_ member: ClashProxyMemberSnapshot, in group: ClashProxyGroupSnapshot,
+                           current: String?) -> some View {
             ClashProxyMemberListRow(
                 row: ClashProxyFrozenRow(member, in: group, of: snapshot.proxies),
                 initialLatency: snapshot.proxies
@@ -272,19 +365,6 @@ struct ClashProxiesSystemList<Icon: View>: View {
             )
             .equatable()
         }
-         
-         
-        if !group.hasEveryMember, !isSearching {
-            Button {
-                send(.loadMembers(group: group.name))
-            } label: {
-                Text(clash: .format("Show all %@ nodes", [group.memberCount.formatted(.number.locale(locale))]))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .foregroundStyle(.tint)
-            .accessibilityIdentifier("proxies.showAll.\(group.name)")
-        }
-    }
 
     private var ungroupedSection: some View {
         let nodes = snapshot.proxies.ungroupedNodes(matching: query)
@@ -604,6 +684,7 @@ struct ClashProxyMemberListRow: View, Equatable {
 
     @State private var liveLatency: ClashProxyLatencyState?
     @State private var liveRoute: String?
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var shownLatency: ClashProxyLatencyState {
         liveLatency ?? initialLatency
@@ -644,43 +725,29 @@ struct ClashProxyMemberListRow: View, Equatable {
                              
                             ClashRegionalFlag.label(row.name, pointSize: 15, relativeTo: .subheadline)
                                 .font(.subheadline)
-                                .lineLimit(1)
+                                 
+                                 
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
                                 .truncationMode(.middle)
                             subtitle
+                            if dynamicTypeSize.isAccessibilitySize {
+                                latencyControl(stacked: true)
+                            }
                         }
                     } else {
-                        ClashRegionalFlag.label(row.name, pointSize: 15, relativeTo: .subheadline)
-                            .font(.subheadline)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
+                        VStack(alignment: .leading, spacing: 2) {
+                            ClashRegionalFlag.label(row.name, pointSize: 15, relativeTo: .subheadline)
+                                .font(.subheadline)
+                                .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                                .truncationMode(.middle)
+                            if dynamicTypeSize.isAccessibilitySize {
+                                latencyControl(stacked: true)
+                            }
+                        }
                     }
                     Spacer(minLength: 8)
-                     
-                     
-                    if showsLatency {
-                        if let testNode {
-                             
-                             
-                             
-                             
-                             
-                             
-                             
-                             
-                             
-                             
-                             
-                            Button {
-                                if canTest, shownLatency != .testing { testNode() }
-                            } label: {
-                                latencyBadge
-                                    .frame(minWidth: ClashTheme.Control.proxyRowTrailingControlWidth, maxHeight: .infinity, alignment: .trailing)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
-                        } else {
-                            latencyBadge
-                        }
+                    if !dynamicTypeSize.isAccessibilitySize {
+                        latencyControl(stacked: false)
                     }
                 }
                 .contentShape(Rectangle())
@@ -748,6 +815,49 @@ struct ClashProxyMemberListRow: View, Equatable {
                 .buttonStyle(.borderless)
                 .accessibilityLabel(Text(ClashCopy.key("Node Details")))
                 .accessibilityIdentifier("proxies.member.info.\(row.name)")
+            }
+        }
+    }
+
+     
+     
+    @ViewBuilder
+    private func latencyControl(stacked: Bool) -> some View {
+         
+         
+        if showsLatency {
+            if let testNode {
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                 
+                Button {
+                    if canTest, shownLatency != .testing { testNode() }
+                } label: {
+                    if stacked {
+                         
+                         
+                         
+                         
+                        latencyBadge
+                            .frame(minWidth: ClashTheme.Control.proxyRowTrailingControlWidth, minHeight: ClashTheme.Control.minimumHitTarget, alignment: .leading)
+                            .contentShape(Rectangle())
+                    } else {
+                        latencyBadge
+                            .frame(minWidth: ClashTheme.Control.proxyRowTrailingControlWidth, maxHeight: .infinity, alignment: .trailing)
+                            .contentShape(Rectangle())
+                    }
+                }
+                .buttonStyle(.plain)
+            } else {
+                latencyBadge
             }
         }
     }
@@ -832,6 +942,7 @@ struct ClashProxyMemberListRow: View, Equatable {
              
             HStack(spacing: 4) {
                 Text(clash: .verbatim(row.type.uppercased()))
+                    .fixedSize()
                 ClashRegionalFlag.label("· \(route)", pointSize: 11, relativeTo: .caption2)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -872,6 +983,8 @@ struct ClashProxyMemberListRow: View, Equatable {
                 .font(.caption2.weight(.semibold))
                 .monospacedDigit()
                  
+                .fixedSize()
+                 
                  
                 .foregroundStyle(
                     shownLatency.tier == .fast
@@ -900,6 +1013,15 @@ struct ClashProxyMemberListRow: View, Equatable {
     }
 }
 
+ 
+ 
+struct ClashProxyLocateRequest: Equatable {
+    let group: String
+    let member: String
+    let opened: Bool
+    let id = UUID()
+}
+
 struct ClashProxyGroupHeaderRow: View, Equatable {
     nonisolated static func == (a: Self, b: Self) -> Bool {
          
@@ -914,6 +1036,7 @@ struct ClashProxyGroupHeaderRow: View, Equatable {
             && a.drawsDisclosure == b.drawsDisclosure
             && a.showsUnpin == b.showsUnpin
             && a.countSlot == b.countSlot
+            && (a.locate == nil) == (b.locate == nil)
     }
 
     let group: ClashProxyGroupSnapshot
@@ -942,6 +1065,9 @@ struct ClashProxyGroupHeaderRow: View, Equatable {
     let unpin: () -> Void
      
     var countSlot = "000"
+     
+     
+    var locate: (() -> Void)? = nil
 
      
      
@@ -1018,6 +1144,7 @@ struct ClashProxyGroupHeaderRow: View, Equatable {
         }
     }
 
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var live: LiveLatency?
 
     private var latency: ClashProxyLatencyState {
@@ -1030,134 +1157,31 @@ struct ClashProxyGroupHeaderRow: View, Equatable {
 
     var body: some View {
         let _ = ClashPerf.count("proxies.list.header")
-        return HStack(spacing: 8) {
-            Button(action: toggle) {
-                HStack(spacing: ClashTheme.Spacing.row) {
-                     
-                     
-                     
-                     
-                     
-                    groupIcon
-                    VStack(alignment: .leading, spacing: 2) {
-                        ClashRegionalFlag.label(group.name, pointSize: 17, relativeTo: .body)
-                            .font(.body.weight(.semibold))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        HStack(spacing: 4) {
-                            Text(clash: .verbatim(group.type.uppercased()))
-                            if group.isEmpty {
-                                Text(clash: .copy("· No nodes"))
-                            } else if let now = group.currentSelection {
-                                ClashRegionalFlag.label("· \(now)", pointSize: 11, relativeTo: .caption2)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            if !group.isEmpty,
-                               case .measured(let milliseconds) = latency {
-                                Text(clash: .verbatim("(\(milliseconds) ms)"))
-                                    .monospacedDigit()
-                                    .foregroundStyle(ClashProxyLatencyPalette.color(milliseconds))
-                                    .accessibilityLabel("\(milliseconds)ms")
-                            }
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        if group.isEmpty, let note = group.emptyNote {
-                             
-                             
-                            Text(clash: .verbatim(note))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                                .accessibilityIdentifier("proxies.group.emptyNote.\(group.name)")
-                        }
-                    }
-                    Spacer(minLength: 8)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityIdentifier("proxies.group.\(group.name)")
-
-             
-             
-             
-            if showsUnpin {
-                Button(action: unpin) {
-                    Text("Unfix")
-                        .font(.caption.weight(.semibold))
-                        .frame(height: 44)
-                        .contentShape(Rectangle().inset(by: -8))
-                }
-                .buttonStyle(.borderless)
-                .accessibilityIdentifier("proxies.unfix.\(group.name)")
-            }
-
-             
-             
-             
-             
-             
-             
-            Button(action: test) {
-                Group {
-                    if latency == .testing {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: ClashSymbol.bolt.rawValue)
-                             
-                             
-                            .font(.body)
-                    }
-                }
+        return Group {
+            if dynamicTypeSize.isAccessibilitySize {
                  
                  
                  
-                .frame(width: 28, height: 44)
-                .contentShape(Rectangle().inset(by: -8))
-            }
-            .buttonStyle(.borderless)
-            .disabled(!canTest)
-            .accessibilityLabel("Test \(group.name)")
-            .accessibilityIdentifier("proxies.testGroup.\(group.name)")
-
-             
-             
-             
-            Button(action: toggle) {
-                HStack(spacing: 4) {
-                     
-                     
-                     
-                     
-                     
-                    Text(clash: .verbatim(countSlot))
-                        .font(.body)
-                        .monospacedDigit()
-                        .hidden()
-                        .overlay(alignment: .trailing) {
-                            Text(clash: .verbatim(
-                                group.memberCount > 999 ? "999+" : "\(group.memberCount)"
-                            ))
-                            .font(.body)
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                            .lineLimit(1)
-                            .fixedSize()
-                        }
-                    if drawsDisclosure {
-                        Image(systemName: isOpen ? "chevron.down" : "chevron.right")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
+                 
+                VStack(alignment: .leading, spacing: 0) {
+                    titleButton
+                    HStack(spacing: 8) {
+                        unfixButton
+                        locateButton
+                        testButton
+                        Spacer(minLength: 8)
+                        countButton
                     }
                 }
-                .frame(height: 44)
-                .contentShape(Rectangle())
+            } else {
+                HStack(spacing: 8) {
+                    titleButton
+                    unfixButton
+                    locateButton
+                    testButton
+                    countButton
+                }
             }
-            .buttonStyle(.plain)
-            .accessibilityHidden(true)
         }
         .onReceive(
             latencyPulse
@@ -1179,6 +1203,179 @@ struct ClashProxyGroupHeaderRow: View, Equatable {
                 live = nil
             }
         }
+    }
+
+    private var titleButton: some View {
+        Button(action: toggle) {
+            HStack(spacing: ClashTheme.Spacing.row) {
+                 
+                 
+                 
+                 
+                 
+                groupIcon
+                VStack(alignment: .leading, spacing: 2) {
+                    ClashRegionalFlag.label(group.name, pointSize: 17, relativeTo: .body)
+                        .font(.body.weight(.semibold))
+                        .lineLimit(dynamicTypeSize.isAccessibilitySize ? 3 : 1)
+                        .truncationMode(.middle)
+                    Group {
+                         
+                         
+                         
+                        if dynamicTypeSize.isAccessibilitySize {
+                            VStack(alignment: .leading, spacing: 2) { subtitleParts }
+                        } else {
+                            HStack(spacing: 4) { subtitleParts }
+                        }
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    if group.isEmpty, let note = group.emptyNote {
+                         
+                         
+                        Text(clash: .verbatim(note))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .accessibilityIdentifier("proxies.group.emptyNote.\(group.name)")
+                    }
+                }
+                Spacer(minLength: 8)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("proxies.group.\(group.name)")
+    }
+
+     
+    @ViewBuilder
+    private var subtitleParts: some View {
+         
+         
+        Text(clash: .verbatim(group.type.uppercased()))
+            .fixedSize()
+        if group.isEmpty {
+            Text(clash: .copy("· No nodes"))
+        } else if let now = group.currentSelection {
+            ClashRegionalFlag.label("· \(now)", pointSize: 11, relativeTo: .caption2)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+        if !group.isEmpty,
+           case .measured(let milliseconds) = latency {
+            Text(clash: .verbatim("(\(milliseconds) ms)"))
+                .monospacedDigit()
+                .fixedSize()
+                .foregroundStyle(ClashProxyLatencyPalette.color(milliseconds))
+                .accessibilityLabel("\(milliseconds)ms")
+        }
+    }
+
+    @ViewBuilder
+    private var unfixButton: some View {
+         
+         
+         
+        if showsUnpin {
+            Button(action: unpin) {
+                Text("Unfix")
+                    .font(.caption.weight(.semibold))
+                     
+                    .fixedSize()
+                    .frame(height: 44)
+                    .contentShape(Rectangle().inset(by: -8))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("proxies.unfix.\(group.name)")
+        }
+    }
+
+    @ViewBuilder
+    private var locateButton: some View {
+         
+         
+         
+         
+         
+         
+         
+         
+        if let locate {
+            Button(action: locate) {
+                Image(systemName: ClashSymbol.scope.rawValue)
+                    .font(.body)
+                    .frame(minWidth: 28, minHeight: 44)
+                    .contentShape(Rectangle().inset(by: -8))
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel(Text(ClashCopy.key("Jump to Current Node")))
+            .accessibilityIdentifier("proxies.locate.\(group.name)")
+        }
+    }
+
+    private var testButton: some View {
+        Button(action: test) {
+            Group {
+                if latency == .testing {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: ClashSymbol.bolt.rawValue)
+                         
+                         
+                        .font(.body)
+                }
+            }
+             
+             
+             
+            .frame(minWidth: 28, minHeight: 44)
+            .contentShape(Rectangle().inset(by: -8))
+        }
+        .buttonStyle(.borderless)
+        .disabled(!canTest)
+        .accessibilityLabel("Test \(group.name)")
+        .accessibilityIdentifier("proxies.testGroup.\(group.name)")
+    }
+
+    private var countButton: some View {
+         
+         
+         
+        Button(action: toggle) {
+            HStack(spacing: 4) {
+                 
+                 
+                 
+                 
+                 
+                Text(clash: .verbatim(countSlot))
+                    .font(.body)
+                    .monospacedDigit()
+                    .hidden()
+                    .overlay(alignment: .trailing) {
+                        Text(clash: .verbatim(
+                            group.memberCount > 999 ? "999+" : "\(group.memberCount)"
+                        ))
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .fixedSize()
+                    }
+                if drawsDisclosure {
+                    Image(systemName: isOpen ? "chevron.down" : "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(height: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHidden(true)
     }
 }
 
@@ -1216,3 +1413,71 @@ extension ClashProxiesSystemList: @MainActor Equatable {
     }
 }
 
+ 
+struct ClashGroupRefusalDetail: Identifiable {
+    let group: String
+    let refusal: ClashGroupActionRefusal
+    var id: String { group }
+}
+
+ 
+struct ClashGroupRefusalDetailView: View {
+    let detail: ClashGroupRefusalDetail
+     
+     
+    @StateObject private var dismiss = ClashDismissHandle()
+
+    var body: some View {
+         
+         
+         
+        ClashSingleColumnNavigationContainer {
+            List {
+                Section {
+                    sentence
+                } header: {
+                    Text(verbatim: detail.group)
+                }
+            }
+            .clashPageTitle(detail.refusal.result)
+            .clashToolbarUnlessInPanel {
+                ToolbarItem(placement: .cancellationAction) {
+                    ClashSheetCloseButton {
+                        dismiss()
+                    }
+                }
+            }
+        }
+        .modifier(ClashRefusalDetailDetents())
+        .clashCapturesDismiss(dismiss)
+    }
+
+    @ViewBuilder
+    private var sentence: some View {
+        let text = Text(verbatim: detail.refusal.coreSentence ?? "")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("proxies.refusal.detail.\(detail.group)")
+#if os(tvOS)
+        text
+#else
+        text.textSelection(.enabled)
+#endif
+    }
+}
+
+ 
+private struct ClashRefusalDetailDetents: ViewModifier {
+    func body(content: Content) -> some View {
+#if os(iOS)
+        if #available(iOS 16.0, *) {
+            content.presentationDetents([.medium, .large])
+        } else {
+            content
+        }
+#else
+        content
+#endif
+    }
+}

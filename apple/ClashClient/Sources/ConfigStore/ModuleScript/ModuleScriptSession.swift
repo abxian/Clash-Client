@@ -142,40 +142,25 @@ struct ModuleScriptNotificationRequest: Equatable, Sendable {
 
  
  
+ 
+ 
+ 
 struct ModuleScriptSessionLimits: Equatable, Sendable {
-     
-    var maximumTimers: Int
-     
-    var maximumTimerDelayMilliseconds: Double = 86_400_000
-    var maximumNotifications: Int
      
     var maximumConsoleLineBytes = 65_536
      
-    var ungzipOutputBytes: Int
-     
      
     var maximumPendingRequests: Int
-     
-     
-    var maximumWaitingRequests: Int
-     
-    var maximumRequestBodyBytes: Int
-     
-     
-    var maximumResponseBodyBytes: Int
-     
-    var maximumDOMSourceBytes: Int?
+    var memory: ModuleScriptMemory = .process
 
     init(_ run: ModuleScriptLimitsTable.Run = ModuleScriptLimitsTable.current.tunnelRun) {
-        maximumTimers = run.maximumTimers
-        maximumNotifications = run.maximumNotifications
-        ungzipOutputBytes = run.ungzipOutputBytes
         maximumPendingRequests = run.maximumPendingRequests
-        maximumWaitingRequests = run.maximumWaitingRequests
-        maximumRequestBodyBytes = run.maximumRequestBodyBytes
-        maximumResponseBodyBytes = run.maximumResponseBodyBytes
-        maximumDOMSourceBytes = run.maximumDOMSourceBytes
     }
+
+     
+    var pageBytesNow: Int? { memory.spareBytes.map { $0 / ModuleScriptMemory.bytesPerPageByte } }
+     
+    var decompressedBytesNow: Int? { memory.spareBytes.map { $0 / ModuleScriptMemory.bytesPerReceivedByte } }
 }
 
  
@@ -246,8 +231,6 @@ final class ModuleScriptSession {
     private(set) var engineTurns = 0
      
      
-    private var refusedWaiting: Set<Int> = []
-    private var saidRefusalsDropped = false
      
     private var sentRequests = false
 
@@ -308,7 +291,7 @@ final class ModuleScriptSession {
         if let install = services.installWebGlobals, !install(context) {
             log(#"the Web globals did not install in this context; the script runs without them"#)
         }
-        if let install = services.installDOM, ModuleScriptDOM.isWanted(by: source), !install(context, limits.maximumDOMSourceBytes) {
+        if let install = services.installDOM, ModuleScriptDOM.isWanted(by: source), !install(context, limits.pageBytesNow) {
             log(#"DOMParser did not install in this context; the script runs without it"#)
         }
         ModuleScriptGlobals.install(in: context, for: self)
@@ -365,12 +348,11 @@ final class ModuleScriptSession {
             log(#"\#(name): the first argument is not a function; nothing scheduled"#)
             return 0
         }
-        guard timers.count < limits.maximumTimers else {
-            log(#"\#(name): \#(limits.maximumTimers) timers are already pending; this one is dropped"#)
-            return 0
-        }
-        let delay = min(max(milliseconds.isFinite ? milliseconds : 0, 0), limits.maximumTimerDelayMilliseconds)
-        let nanoseconds = UInt64(delay * 1_000_000)
+         
+         
+         
+        let delay = max(milliseconds.isFinite ? milliseconds : 0, 0)
+        let nanoseconds = delay < ModuleScriptDefaults.neverSeconds * 1000 ? UInt64(delay * 1_000_000) : UInt64.max >> 2
         let id = nextTimerID
         nextTimerID += 1
         sequence += 1
@@ -410,23 +392,6 @@ final class ModuleScriptSession {
         let id = nextRequestID
         nextRequestID += 1
         if let callback { pendingRequests[id] = callback }
-        if let refusal = refusal(of: request) {
-             
-             
-            guard refusedWaiting.count < Self.maximumRefusedAnswers else {
-                pendingRequests[id] = nil
-                if !saidRefusalsDropped {
-                    saidRefusalsDropped = true
-                    log(#"[$httpClient] \#(request.method) \#(request.url): \#(Self.maximumRefusedAnswers) refused requests "#
-                        + #"wait for their answer already; this one gets none (\#(refusal.message))"#)
-                }
-                return
-            }
-            refusedWaiting.insert(id)
-            let answer = ModuleScriptPendingAnswer(session: self)
-            thread.async { answer.session?.answer(id, to: request, with: .failure(refusal)) }
-            return
-        }
         guard outstanding.count < limits.maximumPendingRequests else {
             waitingRequests.append((id, request))
             return
@@ -487,32 +452,13 @@ final class ModuleScriptSession {
     private func dispatch(_ id: Int, _ request: ModuleScriptHTTPRequest) {
         let thread = self.thread
         let answer = ModuleScriptPendingAnswer(session: self)
-        var sent = request
-        sent.maximumResponseBytes = limits.maximumResponseBodyBytes
         sentRequests = true
-        let cancellation = services.network.send(sent, run: ModuleScriptHTTPRun(id: sessionID, deadline: deadline)) { result in
+        let cancellation = services.network.send(request, run: ModuleScriptHTTPRun(id: sessionID, deadline: deadline)) { result in
             thread.async { answer.session?.answer(id, to: request, with: result) }
         }
         outstanding[id] = (request, cancellation)
     }
 
-     
-    static let maximumRefusedAnswers = 16
-
-     
-     
-    private func refusal(of request: ModuleScriptHTTPRequest) -> ModuleScriptNetworkFailure? {
-        if let body = request.body, body.count > limits.maximumRequestBodyBytes {
-            return ModuleScriptNetworkFailure(
-                message: #"the body is \#(body.count) bytes, past this run's \#(limits.maximumRequestBodyBytes); not sent"#)
-        }
-        if outstanding.count >= limits.maximumPendingRequests, waitingRequests.count >= limits.maximumWaitingRequests {
-            let out = limits.maximumPendingRequests
-            return ModuleScriptNetworkFailure(
-                message: #"\#(out) request\#(out == 1 ? "" : "s") out and \#(waitingRequests.count) waiting already in this run; not sent"#)
-        }
-        return nil
-    }
 
      
      
@@ -570,10 +516,6 @@ final class ModuleScriptSession {
      
     func notify(_ request: ModuleScriptNotificationRequest) -> Bool {
         guard isLive else { return false }
-        guard notificationsPosted < limits.maximumNotifications else {
-            log(#"$notification.post: \#(limits.maximumNotifications) already posted in this run; "\#(request.title)" not posted"#)
-            return false
-        }
         notificationsPosted += 1
         services.notify(request)
         return true
@@ -631,7 +573,6 @@ final class ModuleScriptSession {
                         with answered: Result<ModuleScriptHTTPResponse, ModuleScriptNetworkFailure>) {
         guard isLive else { return }
         outstanding[id] = nil
-        refusedWaiting.remove(id)
         while outstanding.count < limits.maximumPendingRequests, !waitingRequests.isEmpty {
             let next = waitingRequests.removeFirst()
             dispatch(next.id, next.request)
@@ -640,15 +581,7 @@ final class ModuleScriptSession {
         var result = answered
         switch answered {
         case .success(var response):
-            let size = response.body.count
-            if size > limits.maximumResponseBodyBytes {
-                response.body = Data(response.body.prefix(limits.maximumResponseBodyBytes))
-                result = .success(response)
-                log(#"[$httpClient] \#(request.method) \#(request.url): \#(response.status), \#(size) bytes; "#
-                    + #"the first \#(limits.maximumResponseBodyBytes) reach the script"#)
-            } else {
-                log(#"[$httpClient] \#(request.method) \#(request.url): \#(response.status), \#(size) bytes"#)
-            }
+            log(#"[$httpClient] \#(request.method) \#(request.url): \#(response.status), \#(response.body.count) bytes"#)
         case .failure(let failure):
             log(#"[$httpClient] \#(request.method) \#(request.url): \#(failure.message)"#)
         }

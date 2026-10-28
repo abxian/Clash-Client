@@ -2235,7 +2235,7 @@ private struct HomePreparationPlaceholder: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     let title: String
     let accessibilityIdentifier: String
 

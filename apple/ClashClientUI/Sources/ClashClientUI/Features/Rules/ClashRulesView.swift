@@ -82,7 +82,7 @@ public struct ClashRulesOverviewView<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPushRoute) private var pushRoute
     @Environment(\.clashPopRoute) private var popRoute
     @Environment(\.clashDetailCanvas) private var inheritedDetailCanvas
@@ -1098,7 +1098,7 @@ public struct ClashProfileRulesView<Icon: View, Trailing: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashInsideProductModalPresentation)
     private var insideProductModal
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -1957,7 +1957,7 @@ private struct ClashProfileRuleOrderView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
@@ -2203,7 +2203,7 @@ private struct ClashRuleBuilderView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
     @Environment(\.configurationFieldCopy) private var fieldCopy
@@ -3360,7 +3360,7 @@ private struct ClashRuleTypeSelectionView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
      
@@ -3509,7 +3509,7 @@ private struct ClashRuleConditionEditorView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
      
      
@@ -3778,7 +3778,7 @@ private struct ClashRulePolicyGroupCreationPage: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
 
     var body: some View {
@@ -3851,7 +3851,7 @@ public struct ClashRulePolicyPickerView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
      
     @Environment(\.configurationFieldCopy) private var fieldCopy
@@ -4142,7 +4142,7 @@ private struct ClashRuleGeoValuePickerView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
     @State private var query = ""
     @State private var values: [String] = []
@@ -4361,7 +4361,7 @@ private struct ClashRuleSetPickerView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
     @State private var query = ""
      

@@ -251,7 +251,7 @@ struct GeoValuePickerView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var query = ""
     @State private var values: [String] = []
     @State private var loaded = false
@@ -344,7 +344,7 @@ struct RuleSetPickerView: View {
     let pick: (String) -> Void
 
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         List(sets, id: \.self) { name in

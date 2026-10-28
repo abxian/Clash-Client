@@ -538,9 +538,37 @@ final class ModuleEngine {
     var ladder: ModuleMemoryLadder?
      
      
+     
+     
+     
+    var onMemoryStopEnded: (() -> Void)?
+     
+     
     var onListenerFailure: ((String) -> Void)?
      
     private(set) var decryptedSessionCount = 0
+     
+     
+     
+     
+     
+     
+     
+    var awaitsRules = false
+    var onRulesNeeded: (() -> Void)?
+    var buildHoldTimeout: TimeInterval = 10
+    private var waitingForRules: [() -> Void] = []
+    private var holdGeneration = 0
+     
+     
+    private var rulesAsked = false
+     
+     
+     
+    var idleAfter: TimeInterval?
+    var onIdle: (() -> Void)?
+    private var rulesSessions = 0
+    private var idleWork: DispatchWorkItem?
 
      
      
@@ -782,6 +810,13 @@ final class ModuleEngine {
         }
          
         queue.sync {
+            waitingForRules = []
+            holdGeneration += 1
+            rulesAsked = false
+            idleWork?.cancel()
+            idleWork = nil
+            idleAfter = nil
+            onIdle = nil
             let open = Array(sessions.values)
             sessions.removeAll()
             open.forEach { $0.close() }
@@ -933,6 +968,14 @@ final class ModuleEngine {
         log.say("CONNECT \(target.authority) \(what), which the host list does not take: relayed untouched\(ModuleLogLimiter.suffix(heldBack))")
     }
 
+    private var notHTTPLog = ModuleLogLimiter()
+
+     
+    func noteNotHTTPRelayed(_ target: ModuleConnectTarget) {
+        guard let heldBack = notHTTPLog.admit(clock()) else { return }
+        log.say("CONNECT \(target.authority) sent no HTTP request: relayed untouched\(ModuleLogLimiter.suffix(heldBack))")
+    }
+
     func upstreamOpened(_ authority: String) {
         liveUpstreams[authority, default: 0] += 1
     }
@@ -1013,6 +1056,12 @@ final class ModuleEngine {
 
     private func accept(_ connection: NWConnection) {
         onSession?()
+         
+         
+         
+         
+         
+        ladder?.noteActivity()
         connection.start(queue: queue)
         guard sessions.count < sessionLimit else {
             noteCapRefusal()
@@ -1028,6 +1077,61 @@ final class ModuleEngine {
         sessions[number] = session
         session.start()
     }
+
+     
+
+     
+     
+    func whenRulesReady(_ resume: @escaping () -> Void) {
+        guard awaitsRules else { return resume() }
+        waitingForRules.append(resume)
+        guard waitingForRules.count == 1 else { return }
+        let generation = holdGeneration
+        queue.asyncAfter(deadline: .now() + buildHoldTimeout) { [weak self] in
+            guard let self, self.holdGeneration == generation, !self.waitingForRules.isEmpty else { return }
+            self.log.say("the rules were not built within \(self.buildHoldTimeout) s: \(self.waitingForRules.count) waiting session\(self.waitingForRules.count == 1 ? "" : "s") go on without them")
+            self.letWaitingGo()
+        }
+        guard !rulesAsked else { return }
+        rulesAsked = true
+        onRulesNeeded?()
+    }
+
+     
+     
+    func rulesReady() {
+        awaitsRules = false
+        rulesAsked = false
+        letWaitingGo()
+    }
+
+    private func letWaitingGo() {
+        holdGeneration += 1
+        let waiting = waitingForRules
+        waitingForRules = []
+        waiting.forEach { $0() }
+    }
+
+     
+     
+    func rulesSessionStarted() {
+        rulesSessions += 1
+        idleWork?.cancel()
+        idleWork = nil
+    }
+
+    func rulesSessionEnded() {
+        rulesSessions = max(0, rulesSessions - 1)
+        guard rulesSessions == 0, let idleAfter, onIdle != nil else { return }
+        idleWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.idleWork != nil, self.rulesSessions == 0 else { return }
+            self.idleWork = nil
+            self.onIdle?()
+        }
+        idleWork = work
+        queue.asyncAfter(deadline: .now() + idleAfter, execute: work)
+    }
 }
 
  
@@ -1039,6 +1143,8 @@ final class ModuleEngineSession {
      
     private let engine: ModuleEngine
     private var onEnd: ((Int) -> Void)?
+     
+    private var usesRules = false
     private var relay: ModuleRelay?
     private var ended = false
      
@@ -1080,6 +1186,10 @@ final class ModuleEngineSession {
     private func finalize() {
         ended = true
         disarm()
+        if usesRules {
+            usesRules = false
+            engine.rulesSessionEnded()
+        }
         if let authority = liveAuthority {
             engine.upstreamClosed(authority)
             liveAuthority = nil
@@ -1096,6 +1206,23 @@ final class ModuleEngineSession {
         guard !ended else { return }
         finalize()
         reader.stream.cancel()
+    }
+
+     
+     
+     
+     
+    private func reachRules(_ go: @escaping () -> Void) {
+        if !usesRules {
+            usesRules = true
+            engine.rulesSessionStarted()
+        }
+        guard engine.awaitsRules else { return go() }
+        disarm()
+        engine.whenRulesReady { [weak self] in
+            guard let self, !self.ended else { return }
+            go()
+        }
     }
 
      
@@ -1251,6 +1378,11 @@ final class ModuleEngineSession {
             engine.log.say("unserializable request head from \(target.authority): \(error)")
             return answer(status: 502)
         }
+        guard !engine.passThroughOnly else { return absoluteFormDecided(target, request: request) }
+        reachRules { [self] in absoluteFormDecided(target, request: request) }
+    }
+
+    private func absoluteFormDecided(_ target: ModuleConnectTarget, request: Data) {
         if !engine.passThroughOnly, let interceptor = engine.interceptor {
             let hand = handOver()
             if interceptor.intercept(reader.stream, target: target, kind: .plainHTTP(host: target.host), buffered: request,
@@ -1357,7 +1489,16 @@ final class ModuleEngineSession {
         let http2 = decrypted && engine.offersHTTP2(serverName: host, target: target)
         if decrypted, !ModuleTLSFront.serves(hello: reader.buffer, http2: http2) {
             engine.noteUndecryptable(host, offered: ModuleClientHello.applicationProtocols(reader.buffer) ?? [], http2: http2)
-        } else if decrypted, let interceptor = engine.interceptor {
+        } else if decrypted {
+            return reachRules { [self] in decrypt(target, host: host) }
+        }
+        passThrough(target)
+    }
+
+    private func decrypt(_ target: ModuleConnectTarget, host: String) {
+         
+         
+        if engine.decrypts(host: host), let interceptor = engine.interceptor {
             decrypting = true
             engine.decryptedSessionOpened()
             let hand = handOver()
@@ -1394,6 +1535,11 @@ final class ModuleEngineSession {
 
     private func plain(_ target: ModuleConnectTarget) {
         guard !ended else { return }
+         
+         
+         
+         
+        guard ModuleHTTPParser.mayBeRequest(reader.buffer) else { return notHTTP(target) }
         guard target.isAddress else {
             return plainDecided(target, host: Self.withoutTrailingDot(target.host), address: nil, addressIsIPv6: false, dial: target)
         }
@@ -1429,6 +1575,13 @@ final class ModuleEngineSession {
     }
 
      
+    private func notHTTP(_ target: ModuleConnectTarget) {
+        scan = ModuleHTTPHeadScan()
+        engine.noteNotHTTPRelayed(target)
+        passThrough(target)
+    }
+
+     
     private func plainDecided(_ target: ModuleConnectTarget, host: String?, address: String?, addressIsIPv6: Bool,
                               dial: ModuleConnectTarget) {
         disarm()
@@ -1441,7 +1594,12 @@ final class ModuleEngineSession {
             engine.noteUnlistedRelayed(target, "asks for \((host ?? address).map { "Host \($0)" } ?? "no Host")")
             return passThrough(target)
         }
-        if forced, !engine.passThroughOnly, let interceptor = engine.interceptor {
+        guard forced, !engine.passThroughOnly else { return passThrough(dial) }
+        reachRules { [self] in plainIntercepted(target, host: host, address: address, dial: dial) }
+    }
+
+    private func plainIntercepted(_ target: ModuleConnectTarget, host: String?, address: String?, dial: ModuleConnectTarget) {
+        if !engine.passThroughOnly, let interceptor = engine.interceptor {
             let hand = handOver()
             if interceptor.intercept(reader.stream, target: dial, kind: .plainHTTP(host: host ?? address ?? target.host),
                                      buffered: reader.buffer, clientEnded: reader.ended, onEnd: { hand.end() }) {

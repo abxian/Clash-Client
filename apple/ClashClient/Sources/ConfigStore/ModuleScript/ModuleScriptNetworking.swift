@@ -21,14 +21,9 @@ struct ModuleScriptHTTPRequest: Equatable, Sendable {
      
      
     var options: [String: String]
-     
-     
-     
-    var maximumResponseBytes: Int?
 
     init(method: String, url: String, headers: [ModuleScriptHeader] = [], body: Data? = nil,
-         timeoutSeconds: Double? = nil, binaryMode: Bool = false, options: [String: String] = [:],
-         maximumResponseBytes: Int? = nil) {
+         timeoutSeconds: Double? = nil, binaryMode: Bool = false, options: [String: String] = [:]) {
         self.method = method
         self.url = url
         self.headers = headers
@@ -36,7 +31,6 @@ struct ModuleScriptHTTPRequest: Equatable, Sendable {
         self.timeoutSeconds = timeoutSeconds
         self.binaryMode = binaryMode
         self.options = options
-        self.maximumResponseBytes = maximumResponseBytes
     }
 }
 

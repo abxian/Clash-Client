@@ -14,6 +14,10 @@ public struct ClashMacConfigurationInspectorActions {
     public var duplicate: @MainActor () async throws -> String
     public var export: @MainActor () -> Void
     public var editSource: @MainActor () -> Void
+     
+     
+     
+    public var sourceIsViewOnly: (@MainActor () async -> Bool)? = nil
     public var delete: @MainActor () -> Void
      
     public var setSourceUpdates: @MainActor (Bool) -> Void
@@ -207,6 +211,8 @@ public struct ClashMacConfigurationInspector: View {
      
     @State private var outlineReads = 0
     @State private var compiling = false
+     
+    @State private var viewsSourceOnly = false
     @State private var compilePresentation: ClashMacCompilePresentation?
     @State private var asksSchemeName = false
     @State private var schemeName = ""
@@ -216,7 +222,7 @@ public struct ClashMacConfigurationInspector: View {
      
     @Environment(\.clashFeedback) private var feedback
     @State private var duplicating = false
-    @State private var leave = ClashDismissHandle()
+    @StateObject private var leave = ClashDismissHandle()
     @Environment(\.locale) private var locale
 
     public init(
@@ -857,8 +863,14 @@ public struct ClashMacConfigurationInspector: View {
             export: actions.export,
             saveAsScheme: actions.saveAsScheme == nil ? nil : askSchemeName,
             duplicate: profile.canDuplicate ? duplicate : nil,
-            duplicating: duplicating
+            duplicating: duplicating,
+             
+             
+            viewsSourceOnly: viewsSourceOnly && outlineForm != .composed
         )
+        .task(id: profile.id) {
+            viewsSourceOnly = await actions.sourceIsViewOnly?() ?? false
+        }
     }
 
      

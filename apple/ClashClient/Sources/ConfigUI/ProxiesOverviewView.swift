@@ -11,6 +11,10 @@ struct ProxiesRuntimeFacts {
      
      
     var failureReasons: [String: String] = [:]
+     
+     
+     
+    var coreFailureReasons: [String: String] = [:]
     var nowByGroup: [String: String] = [:]
     var resolvedNowByGroup: [String: String] = [:]
      
@@ -29,6 +33,14 @@ struct ProxiesRuntimeFacts {
     var isAuthoritative = false
 
     static let none = ProxiesRuntimeFacts()
+
+     
+     
+    var shownFailureReasons: [String: String] {
+        if failureReasons.isEmpty { return coreFailureReasons }
+        if coreFailureReasons.isEmpty { return failureReasons }
+        return coreFailureReasons.merging(failureReasons) { _, own in own }
+    }
 
 
 }
@@ -115,6 +127,8 @@ struct ProxiesOverviewAdapter: View {
     private let testAll: (() -> Void)?
     private let testGroup: ((String) -> Void)?
      
+    private let testShown: (([ClashProxiesShownMembers]) -> Void)?
+     
     private let loadMembers: ((String) -> Void)?
      
     private let loadProviderNodes: ((String) -> Void)?
@@ -136,7 +150,7 @@ struct ProxiesOverviewAdapter: View {
      
     private let unpinGroup: ((String) -> Void)?
      
-    private let actionRefusals: [String: String]
+    private let actionRefusals: [String: ClashGroupActionRefusal]
      
     private let testMember: ((String, String?) -> Void)?
      
@@ -158,6 +172,8 @@ struct ProxiesOverviewAdapter: View {
         ClashProxiesDisplayPreferences
     @State private var testAllDecision:
         NetworkPathPolicyDecision?
+     
+    @State private var pendingShown: [ClashProxiesShownMembers]?
      
      
      
@@ -330,6 +346,7 @@ struct ProxiesOverviewAdapter: View {
         latencyTotalCount: Int = 0,
         testAll: (() -> Void)? = nil,
         testGroup: ((String) -> Void)? = nil,
+        testShown: (([ClashProxiesShownMembers]) -> Void)? = nil,
         loadMembers: ((String) -> Void)? = nil,
         loadProviderNodes: ((String) -> Void)? = nil,
         searchMembers: ((String) -> Void)? = nil,
@@ -341,7 +358,7 @@ struct ProxiesOverviewAdapter: View {
         cancelLatency: (() -> Void)? = nil,
         refreshCatalog: (() -> Void)? = nil,
         unpinGroup: ((String) -> Void)? = nil,
-        actionRefusals: [String: String] = [:],
+        actionRefusals: [String: ClashGroupActionRefusal] = [:],
         testMember: ((String, String?) -> Void)? = nil,
         editMember: ((String) -> Void)? = nil,
         inspectMember: ((String) -> Void)? = nil,
@@ -365,6 +382,7 @@ struct ProxiesOverviewAdapter: View {
         self.latencyTotalCount = latencyTotalCount
         self.testAll = testAll
         self.testGroup = testGroup
+        self.testShown = testShown
         self.loadMembers = loadMembers
         self.loadProviderNodes = loadProviderNodes
         self.searchMembers = searchMembers
@@ -425,7 +443,9 @@ struct ProxiesOverviewAdapter: View {
             presenting: testAllDecision
         ) { decision in
             if decision.action == .confirm {
-                Button("Test All", role: .destructive) { testAll?() }
+                Button("Test All", role: .destructive) {
+                    if let shown = pendingShown { testShown?(shown) } else { testAll?() }
+                }
                 Button("Cancel", role: .cancel) {}
             } else {
                 Button("OK", role: .cancel) {}
@@ -467,7 +487,7 @@ struct ProxiesOverviewAdapter: View {
                 if testing {
                     frozenSweep = FrozenSweep(
                         latency: latencyStates,
-                        failureCategories: effectiveRuntime.failureReasons,
+                        failureCategories: effectiveRuntime.shownFailureReasons,
                         completed: latencyCompletedCount,
                         total: latencyTotalCount
                     )
@@ -578,7 +598,7 @@ struct ProxiesOverviewAdapter: View {
             if frozenSweep == nil {
                 frozenSweep = FrozenSweep(
                     latency: latencyStates,
-                    failureCategories: effectiveRuntime.failureReasons,
+                    failureCategories: effectiveRuntime.shownFailureReasons,
                     completed: latencyCompletedCount,
                     total: latencyTotalCount
                 )
@@ -939,7 +959,7 @@ struct ProxiesOverviewAdapter: View {
                  
                  
                 failureCategories: frozenSweep?.failureCategories
-                    ?? effectiveRuntime.failureReasons,
+                    ?? effectiveRuntime.shownFailureReasons,
                 isConnected: isConnected,
                 isTestingLatency: frozenSweep != nil || isTestingLatency,
                 latencyCompletedCount: frozenSweep?.completed ?? latencyCompletedCount,
@@ -986,13 +1006,14 @@ struct ProxiesOverviewAdapter: View {
         [String: ClashProxyLatencyState]
     {
         var values: [String: ClashProxyLatencyState] = [:]
+         
+         
+         
+        let reasons = effectiveRuntime.shownFailureReasons
         for (name, value) in effectiveRuntime.delays {
             values[name] = ProxiesLatencyMapping.state(
                 delay: value,
-                 
-                 
-                 
-                category: effectiveRuntime.failureReasons[name] ?? ""
+                category: reasons[name] ?? ""
             )
         }
         for name in testingNames {
@@ -1017,6 +1038,8 @@ struct ProxiesOverviewAdapter: View {
                 refreshCatalog?()
             case .testAll:
                 requestTestAll()
+            case .testShown(let shown):
+                requestTestAll(shown: shown)
             case .testGroup(let name):
                 testGroup?(name)
             case .loadMembers(let group):
@@ -1062,14 +1085,15 @@ struct ProxiesOverviewAdapter: View {
         }
     }
 
-    private func requestTestAll() {
+    private func requestTestAll(shown: [ClashProxiesShownMembers]? = nil) {
         let decision = NetworkPathPolicy.fullTransfer(
             snapshot: networkPath.snapshot
         )
         switch decision.action {
         case .allow:
-            testAll?()
+            if let shown { testShown?(shown) } else { testAll?() }
         case .confirm, .block:
+            pendingShown = shown
             testAllDecision = decision
         case .deferOperation:
             break
@@ -1087,10 +1111,12 @@ struct ProxiesOverviewAdapter: View {
  
  
  
+ 
+ 
 enum ProxiesLatencyMapping {
     static func state(delay: Int, category: String) -> ClashProxyLatencyState {
         if delay > 0 { return .measured(milliseconds: delay) }
         let trimmed = category.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty || trimmed == "timeout" ? .timedOut : .failed
+        return trimmed == "timeout" ? .timedOut : .failed
     }
 }
