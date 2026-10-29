@@ -40,6 +40,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--run-tests", action="store_true")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--control", type=Path, help="Optional fake recovery/migration state JSON, never production data")
     parser.add_argument("--state", type=Path, required=True)
     args = parser.parse_args()
     lock = threading.Lock()
@@ -77,6 +78,14 @@ def main():
             with lock:
                 requests.append({"method": self.command, "path": path})
                 args.state.write_text(json.dumps({"base": base, "requests": requests}, ensure_ascii=False, indent=2))
+            control = json.loads(args.control.read_text()) if args.control and args.control.exists() else {}
+            if path == "/api/update-state/fixture211":
+                reason = control.get("restriction")
+                if reason:
+                    return self.reply(404, {"ok": False, "code": reason, "message": "隔离测试：" + reason})
+                return self.reply(200, {"ok": True, "update_version": control.get("version", 10),
+                    "subscription_revision": control.get("revision", "fixture-A"),
+                    "expires_at": control.get("expires_at", "2099-12-31 23:59:59")})
             if path == "/api/endpoints":
                 return self.reply(200, {"api_bases": [base], "sub_base": base, "version": 1})
             if path == "/api/verify":
@@ -95,7 +104,10 @@ def main():
                                        "device_token": "fixture-device-token", "device_id": "fixture-device",
                                        "subscription_url": base + "/managed-sub/fixture-config", "limit_mode": "device"})
             if path == "/managed-sub/fixture-config":
-                return self.reply(200, CONFIG, "text/yaml; charset=utf-8")
+                if control.get("fail_download"):
+                    return self.reply(503, {"ok": False})
+                content = CONFIG.replace("隔离测试节点", control.get("node_name", "隔离测试节点"))
+                return self.reply(200, content, "text/yaml; charset=utf-8")
             if path.startswith("/api/v2/client/"):
                 if self.headers.get("Authorization") != "Bearer fixture-device-token":
                     return self.reply(401, {"ok": False})

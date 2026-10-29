@@ -1006,7 +1006,19 @@ struct AppShellView: View {
     }
 
     private var debugGateShell: some View {
-        Group {
+        ZStack {
+            // Retain the same home/monitor owner while advanced pages are open.
+            // Hiding it must not cancel a managed subscription save transaction.
+            ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command, nodes: nodes,
+                client: shenxianyunClient, session: shenxianyunHomeSession,
+                openUpstream: { showsShenxianyunSettings = true },
+                openNodes: {
+                    showsShenxianyunSettings = true
+                    pendingSessionPage = .proxies
+                })
+                .opacity(showsShenxianyunSettings && vpn.status == "connected" ? 0 : 1)
+                .allowsHitTesting(!(showsShenxianyunSettings && vpn.status == "connected"))
+                .accessibilityHidden(showsShenxianyunSettings && vpn.status == "connected")
             if showsShenxianyunSettings && vpn.status == "connected" {
                 VStack(spacing: 0) {
                     Button { showsShenxianyunSettings = false } label: {
@@ -1018,14 +1030,6 @@ struct AppShellView: View {
                     }.buttonStyle(.plain)
                     goldenFlowShell
                 }
-            } else {
-                ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command,
-                    client: shenxianyunClient, session: shenxianyunHomeSession,
-                    openUpstream: { showsShenxianyunSettings = true },
-                    openNodes: {
-                        showsShenxianyunSettings = true
-                        pendingSessionPage = .proxies
-                    })
             }
         }
         .onChange(of: vpn.status) { status in

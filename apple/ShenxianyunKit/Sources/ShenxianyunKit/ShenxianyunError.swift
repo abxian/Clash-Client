@@ -6,10 +6,12 @@ public struct ShenxianyunServerError: Error, Equatable, Sendable {
     public let statusCode: Int
     /// 后端给的中文文案。为空时调用方用自己的兜底文案。
     public let message: String
+    public let code: String?
 
-    public init(statusCode: Int, message: String) {
+    public init(statusCode: Int, message: String, code: String? = nil) {
         self.statusCode = statusCode
         self.message = message
+        self.code = code
     }
 
     /// 提取码在保护模式下必须走 ticket 链路。后端用 426 表示「该走受管订阅了」。

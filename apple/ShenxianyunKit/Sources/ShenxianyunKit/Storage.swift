@@ -66,6 +66,8 @@ public struct ShenxianyunState: Sendable {
         static let clientID = "shenxianyun.client_id"
         static let activation = "shenxianyun.activation"
         static let endpoints = "shenxianyun.endpoints"
+        static let recovery = "shenxianyun.subscription_recovery"
+        static let restriction = "shenxianyun.access_restriction"
     }
 
     private let store: ShenxianyunStore
@@ -111,8 +113,20 @@ public struct ShenxianyunState: Sendable {
         }
     }
 
+    public var recovery: SubscriptionRecoveryRecord? {
+        get { store.data(forKey: Key.recovery).flatMap { try? JSONDecoder().decode(SubscriptionRecoveryRecord.self, from: $0) } }
+        nonmutating set { store.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: Key.recovery) }
+    }
+
+    public var restriction: AccessRestriction? {
+        get { store.data(forKey: Key.restriction).flatMap { try? JSONDecoder().decode(AccessRestriction.self, from: $0) } }
+        nonmutating set { store.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: Key.restriction) }
+    }
+
     /// 退出登录 / 重置：清掉提取码与激活凭据，**但保留 clientID**。
     public func clearActivation() {
+        recovery = nil
+        restriction = nil
         store.set(nil as String?, forKey: Key.code)
         store.set(nil as Data?, forKey: Key.activation)
     }

@@ -117,6 +117,8 @@ public actor ShenxianyunClient {
     }
 
     public func commitImport(_ outcome: ImportOutcome, code: String) {
+        state.recovery = nil
+        state.restriction = nil
         state.accessCode = code
         switch outcome {
         case let .managed(activation): state.activation = activation
@@ -180,6 +182,57 @@ public actor ShenxianyunClient {
     private func checkCredential(_ activation: ShenxianyunActivation, expected: String?) throws {
         try Task.checkCancellation()
         if let expected, activation.deviceToken != expected { throw CancellationError() }
+    }
+
+    // MARK: - Authoritative renewal / quota / file migration state
+
+    public func accessRestriction() -> AccessRestriction? {
+        guard state.restriction?.code == state.accessCode else { return nil }
+        return state.restriction
+    }
+
+    public func checkSubscriptionState() async throws -> SubscriptionRecoverySnapshot {
+        guard let code = state.accessCode else { throw ShenxianyunError.notActivated }
+        let token = state.activation?.deviceToken
+        let escaped = code.addingPercentEncoding(withAllowedCharacters: CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-._~")))!
+        let response = try await transport.sendWithFailover(bases: currentBases(), path: "/api/update-state/" + escaped)
+        try Task.checkCancellation()
+        guard state.accessCode == code, state.activation?.deviceToken == token else { throw CancellationError() }
+        do { _ = try transport.decodeEnvelope(response) }
+        catch let error as ShenxianyunError {
+            if case let .server(server) = error, [403, 404].contains(server.statusCode),
+               let reason = server.code,
+               ["expired", "traffic_limit", "code_disabled", "unavailable", "invalid_code"].contains(reason) {
+                state.restriction = AccessRestriction(code: code, reason: reason)
+            }
+            throw error
+        }
+        let wire = try JSONDecoder().decode(SubscriptionStateWire.self, from: response.body)
+        let record = SubscriptionRecoveryRecord(code: code, revision: wire.subscription_revision,
+            version: wire.update_version ?? 0, expiresAt: wire.expires_at ?? "")
+        let old = state.recovery
+        let refresh = old?.code != code || accessRestriction() != nil || old?.expiresAt != record.expiresAt
+            || (record.revision != nil && old?.revision != record.revision)
+            || record.version > (old?.version ?? 0)
+        return SubscriptionRecoverySnapshot(record: record, needsRefresh: refresh, deviceToken: token)
+    }
+
+    public func isCurrent(_ snapshot: SubscriptionRecoverySnapshot) -> Bool {
+        state.accessCode == snapshot.record.code && state.activation?.deviceToken == snapshot.deviceToken
+    }
+
+    /// Caller must finish download, validation and installation first. A failed
+    /// sync never consumes the revision or clears a known restriction.
+    public func acknowledgeSubscriptionState(_ snapshot: SubscriptionRecoverySnapshot) throws {
+        try Task.checkCancellation()
+        guard isCurrent(snapshot) else { throw CancellationError() }
+        state.recovery = snapshot.record
+        state.restriction = nil
+        if let active = state.activation {
+            state.activation = ShenxianyunActivation(code: active.code, expiresAt: snapshot.record.expiresAt,
+                deviceToken: active.deviceToken, subscriptionURL: active.subscriptionURL,
+                deviceID: active.deviceID, limitMode: active.limitMode)
+        }
     }
 
     // MARK: - 契约 F：续费

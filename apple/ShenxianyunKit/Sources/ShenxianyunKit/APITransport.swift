@@ -34,7 +34,7 @@ struct APITransport: Sendable {
 
     func send(
         base: URL, path: String, method: String = "GET",
-        body: [String: Any]? = nil, deviceToken: String? = nil
+        body: [String: Any]? = nil, deviceToken: String? = nil, remainingBudget: TimeInterval? = nil
     ) async throws -> RawResponse {
         guard let url = URL(string: path, relativeTo: base)?.absoluteURL else {
             throw ShenxianyunError.invalidResponse("无法拼接 URL：\(base) + \(path)")
@@ -42,7 +42,8 @@ struct APITransport: Sendable {
         guard !DevelopmentBootstrap.isolated || DevelopmentBootstrap.permits(url) else {
             throw ShenxianyunError.invalidResponse("isolated test blocked a non-loopback endpoint")
         }
-        var request = URLRequest(url: url, timeoutInterval: timeout)
+        let budget = min(timeout, remainingBudget ?? timeout)
+        var request = URLRequest(url: url, timeoutInterval: budget)
         request.httpMethod = method
         request.setValue("Shenxianyun-Apple/" + ShenxianyunProfile.appVersion,
                          forHTTPHeaderField: "User-Agent")
@@ -59,11 +60,22 @@ struct APITransport: Sendable {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)
         }
-        let (data, response) = try await http.data(for: request)
+        let capturedRequest = request
+        let (data, response) = try await withThrowingTaskGroup(of: (Data, URLResponse).self) { group in
+            group.addTask { try await http.data(for: capturedRequest) }
+            group.addTask {
+                try await Task.sleep(nanoseconds: UInt64(max(0.001, budget) * 1_000_000_000))
+                throw URLError(.timedOut)
+            }
+            defer { group.cancelAll() }
+            guard let result = try await group.next() else { throw CancellationError() }
+            return result
+        }
         guard let http = response as? HTTPURLResponse else {
             throw ShenxianyunError.invalidResponse("非 HTTP 响应")
         }
-        let retryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(TimeInterval.init)
+        let rawRetryAfter = (http.value(forHTTPHeaderField: "Retry-After")).flatMap(TimeInterval.init)
+        let retryAfter = rawRetryAfter.flatMap { $0.isFinite && $0 > 0 ? min(3600, $0) : nil }
         return RawResponse(status: http.statusCode, body: data, retryAfter: retryAfter)
     }
 
@@ -81,11 +93,14 @@ struct APITransport: Sendable {
             throw ShenxianyunError.invalidResponse("没有可用的 API 地址")
         }
         var lastError: Error = ShenxianyunError.invalidResponse("没有可用的 API 地址")
+        let started = ProcessInfo.processInfo.systemUptime
         for base in bases {
             try Task.checkCancellation()
+            let remaining = timeout - (ProcessInfo.processInfo.systemUptime - started)
+            guard remaining > 0 else { throw ShenxianyunError.allEndpointsFailed(underlying: URLError(.timedOut)) }
             do {
                 return try await send(
-                    base: base, path: path, method: method, body: body, deviceToken: deviceToken)
+                    base: base, path: path, method: method, body: body, deviceToken: deviceToken, remainingBudget: remaining)
             } catch is CancellationError {
                 throw CancellationError()
             } catch let error as ShenxianyunError {
@@ -103,7 +118,7 @@ struct APITransport: Sendable {
     ///
     /// 注意 HTTP 200 不代表成功：后端有些分支是 200 + `{"success": false}`。
     func decodeEnvelope(_ response: RawResponse) throws -> [String: Any] {
-        if response.status == 429 {
+        if response.status == 429 || (response.status == 503 && response.retryAfter != nil) {
             throw ShenxianyunError.rateLimited(retryAfter: response.retryAfter ?? 60)
         }
         let json = (try? JSONSerialization.jsonObject(with: response.body)) as? [String: Any]
@@ -119,7 +134,7 @@ struct APITransport: Sendable {
         let succeeded = (json["ok"] as? Bool) ?? (json["success"] as? Bool) ?? false
         guard (200..<300).contains(response.status), succeeded else {
             throw ShenxianyunError.server(
-                ShenxianyunServerError(statusCode: response.status, message: message))
+                ShenxianyunServerError(statusCode: response.status, message: message, code: json["code"] as? String))
         }
         return json
     }

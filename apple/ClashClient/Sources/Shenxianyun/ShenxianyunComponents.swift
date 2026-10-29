@@ -92,7 +92,8 @@ struct SXYPowerButton: View {
                 // 安卓那边 bg_sxy_power_inner 是常驻彩色渐变，停止态也不去饱和，
                 // 只有图标与文字变。这里保持一致，不自作主张加灰态。
                 Circle()
-                    .fill(SXYTheme.powerFill)
+                    .fill(.ultraThinMaterial)
+                    .overlay(Circle().fill(SXYTheme.powerFill).opacity(0.72))
                     .frame(width: 148, height: 148)
                     .overlay(Circle().stroke(
                         Color.white.opacity(0xCC / 255), lineWidth: 2))
@@ -109,8 +110,13 @@ struct SXYPowerButton: View {
                 }
                 .foregroundStyle(.white)
             }
+            .frame(width: 192, height: 192)
+            .fixedSize()
+            .contentShape(Circle())
         }
         .buttonStyle(.plain)
+        .frame(width: 192, height: 192)
+        .fixedSize()
         .disabled(isBusy)
         .animation(.easeInOut(duration: 0.2), value: isOn)
     }

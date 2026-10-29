@@ -8,6 +8,11 @@ final class SXYHomeSession: ObservableObject {
     var refreshedGeneration: Int?
     private var wasConnected = false
     var isolatedImportAttempted = false
+    @Published var restriction: AccessRestriction?
+    var recoveryTask: Task<Bool, Never>?
+    var nextCheck = Date.distantPast
+    var retryNotBefore = Date.distantPast
+    var failures = 0
 
     func observe(_ status: String) {
         if status == "connected" { wasConnected = true }
@@ -23,6 +28,7 @@ struct ShenxianyunHomeView: View {
     @ObservedObject var vpn: VPNController
     @ObservedObject var profiles: ProfilesViewModel
     @ObservedObject var command: ClashCommandClient
+    @ObservedObject var nodes: NodesModel
     let client: ShenxianyunClient
     @ObservedObject var session: SXYHomeSession
     /// 进入上游那套完整界面（节点选择、设置都在里面）。
@@ -31,6 +37,8 @@ struct ShenxianyunHomeView: View {
     @AppStorage("shenxianyun.profile_id", store: UserDefaults(suiteName: ShenxianyunProfile.appGroup))
     private var installedProfileID = ""
 
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var showsNodes = false
     @State private var showsImport = false
     @State private var isWorking = false
     @State private var isStarting = false
@@ -63,8 +71,17 @@ struct ShenxianyunHomeView: View {
             ShenxianyunImportView(client: client, onImported: handleImported)
                 .shenxianyunLight()
         }
+        .sheet(isPresented: $showsNodes) { ShenxianyunNodesView(nodes: nodes) }
         .task(id: session.refreshGeneration) { await loadState() }
-        .task { await client.refreshEndpoints() }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            await client.refreshEndpoints()
+            _ = await checkRecovery(force: true)
+            while !Task.isCancelled {
+                do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
+                _ = await checkRecovery()
+            }
+        }
         .onChange(of: profiles.profiles.map(\.id)) { _ in
             Task { await refreshWhenReady() }
         }
@@ -72,6 +89,7 @@ struct ShenxianyunHomeView: View {
             if value == nil { Task { await refreshWhenReady() } }
         }
         .onChange(of: vpn.status) { _ in
+            if !isConnected { showsNodes = false }
             if let failure = UserDefaults(suiteName: ShenxianyunProfile.appGroup)?
                 .string(forKey: "shenxianyun.connection_error") { notice = failure }
         }
@@ -82,14 +100,19 @@ struct ShenxianyunHomeView: View {
 
     /// iPhone、以及 iPad 上分屏/侧拉挤成 compact 宽度时。单列居中。
     private var compactLayout: some View {
-        ScrollView {
-            VStack(spacing: 0) {
-                brandColumn
-                if isConnected { controlColumn.padding(.top, 18) }
+        GeometryReader { geometry in
+            ScrollView {
+                VStack(spacing: 18) {
+                    brandColumn
+                    if isConnected { controlColumn }
+                }
+                .padding(24)
+                .frame(maxWidth: geometry.size.width > 700 ? 760 : 560)
+                .frame(maxWidth: .infinity, minHeight: max(0, geometry.size.height - 32))
+                .background(RoundedRectangle(cornerRadius: 32).fill(.ultraThinMaterial))
+                .overlay(RoundedRectangle(cornerRadius: 32).stroke(.white.opacity(0.8)))
+                .padding(16)
             }
-            .frame(maxWidth: 520)
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 28)
         }
     }
 
@@ -116,20 +139,20 @@ struct ShenxianyunHomeView: View {
             }
             SXYPowerButton(
                 isOn: isConnected,
-                isBusy: isTransitioning || isWorking || isStarting,
+                isBusy: isTransitioning || (!isConnected && (isWorking || isStarting)),
                 action: togglePower)
                 .padding(.top, 18)
 
-            Text(isConnected ? "已连接" : "点此启动")
-                .font(.system(size: 13))
-                .foregroundStyle(SXYTheme.textMuted)
-                .padding(.top, 14)
-
             if isConnected { statusRow.padding(.top, 10) }
-            if !isConnected {
+            if !isConnected, let restriction = session.restriction, restriction.renewable,
+               ShenxianyunProfile.paymentEntryEnabled {
+                Button("续费提取码", action: openPayment)
+                    .buttonStyle(.bordered).padding(.top, 12)
+            }
+            if accessCode == nil {
                 Text("连接时发送设备状态与累计流量，用于设备和套餐额度校验。")
                     .font(.caption).foregroundStyle(SXYTheme.textMuted)
-                    .multilineTextAlignment(.center).padding(.horizontal, 28).padding(.top, 12)
+                    .multilineTextAlignment(.center).padding(.top, 12)
             }
 
             if let notice {
@@ -175,9 +198,6 @@ struct ShenxianyunHomeView: View {
             Text(ShenxianyunProfile.appName)
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(SXYTheme.textSoft)
-            Text("智能加速 · 稳定连接")
-                .font(.system(size: 12))
-                .foregroundStyle(SXYTheme.textMuted)
         }
         .padding(.top, 24)
     }
@@ -202,7 +222,7 @@ struct ShenxianyunHomeView: View {
         VStack(spacing: 10) {
             SXYActionRow(
                 icon: "point.3.connected.trianglepath.dotted",
-                title: "选择节点", trailing: .chevron, action: openNodes)
+                title: "选择节点", trailing: .chevron, action: { showsNodes = true })
 
             SXYActionRow(
                 icon: "key.fill",
@@ -244,6 +264,7 @@ struct ShenxianyunHomeView: View {
         profiles.load()
         accessCode = await client.savedAccessCode()
         expiresAt = await client.savedActivation()?.expiresAt
+        session.restriction = await client.accessRestriction()
         if inputCode.isEmpty { inputCode = accessCode ?? "" }
         #if DEBUG
         // Reproducible headless Simulator QA; enabled only with the loopback guard active.
@@ -275,15 +296,22 @@ struct ShenxianyunHomeView: View {
         guard profiles.busyProfileID == nil,
               profiles.profiles.contains(where: { $0.id == installedProfileID }) else { return }
         session.refreshedGeneration = generation
-        _ = await refreshNodes()
+        _ = await checkRecovery(force: true)
     }
 
     private func togglePower() {
+        // A background subscription save must never disable the user's stop.
+        if isConnected {
+            guard !isTransitioning else { return }
+            Task { await vpn.stop() }
+            return
+        }
         guard !isWorking, !isStarting, !isTransitioning else { return }
         isStarting = true
         Task { @MainActor in
             defer { isStarting = false }
             notice = nil
+            if let pending = session.recoveryTask { _ = await pending.value }
             if isConnected { await vpn.stop(); return }
             let code = inputCode.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !code.isEmpty else { notice = "请输入提取码"; return }
@@ -295,6 +323,8 @@ struct ShenxianyunHomeView: View {
                 guard let profile = profiles.profiles.first(where: { $0.id == installedProfileID }) else {
                     notice = "订阅配置不可用，请重新输入提取码"; return
                 }
+                guard await profiles.selectAndWait(profile),
+                      await checkRecovery(force: true, starting: true) else { return }
                 if !(await profiles.connectFromHome(profile)) {
                     notice = "连接未成功，请检查网络或系统 VPN 授权后重试"
                 }
@@ -307,6 +337,7 @@ struct ShenxianyunHomeView: View {
 
     @MainActor
     private func handleImported(_ outcome: ShenxianyunClient.ImportOutcome, _ code: String) async throws {
+        if let pending = session.recoveryTask { _ = await pending.value }
         guard !isWorking, profiles.busyProfileID == nil else { throw SXYImportError.busy }
         isWorking = true
         defer { isWorking = false }
@@ -328,28 +359,77 @@ struct ShenxianyunHomeView: View {
         case let .plain(_, status): expiresAt = status.expireTime
         }
         UserDefaults(suiteName: ShenxianyunProfile.appGroup)?.removeObject(forKey: "shenxianyun.connection_error")
-        notice = "订阅已导入，可以启动了"
+        session.restriction = nil
+        session.retryNotBefore = .distantPast
+        session.nextCheck = .distantPast
+        notice = nil
     }
 
     private func updateNodes() {
-        Task { @MainActor in _ = await refreshNodes() }
+        Task { @MainActor in _ = await checkRecovery(force: true) }
     }
 
     @MainActor
-    private func refreshNodes() async -> Bool {
-        guard !isWorking, !isStarting, profiles.busyProfileID == nil,
-              let profile = profiles.profiles.first(where: { $0.id == installedProfileID }) else { return false }
-        isWorking = true
-        defer { isWorking = false }
-        notice = "正在更新节点…"
-        guard let outcome = await profiles.syncAwaitingLibrary(profile) else {
-            notice = "更新尚未完成，已保留当前配置"; return false
+    private func checkRecovery(force: Bool = false, starting: Bool = false) async -> Bool {
+        if let pending = session.recoveryTask { return await pending.value }
+        guard !isWorking, (!isStarting || starting), profiles.busyProfileID == nil,
+              accessCode != nil else { return false }
+        guard Date() >= session.retryNotBefore else {
+            if starting { notice = "服务器繁忙，请稍后再试" }
+            return false
         }
-        switch outcome {
-        case .changed: notice = "节点已更新"; return true
-        case .unchanged: notice = "当前节点已是最新"; return true
-        case .failed: notice = "更新失败，已保留原配置，请稍后重试"; return false
+        if !force && Date() < session.nextCheck { return session.restriction == nil }
+        let profileID = installedProfileID
+        session.nextCheck = Date().addingTimeInterval(30)
+        let task = Task { @MainActor in
+            defer { session.recoveryTask = nil }
+            do {
+                let snapshot = try await client.checkSubscriptionState()
+                guard await client.isCurrent(snapshot), installedProfileID == profileID,
+                      let profile = profiles.profiles.first(where: { $0.id == profileID }),
+                      profiles.activeProfileID == profileID else { return false }
+                if snapshot.needsRefresh || force {
+                    // Keep the original managed source and UID; never exchange a
+                    // new credential to bypass revocation or file migration.
+                    let activeURL = await client.activeSubscriptionURL()
+                    guard case let .remote(remote) = profile.source, remote.displayURL == activeURL else {
+                        notice = "当前配置已手动更改，未覆盖本地订阅"; return false
+                    }
+                    isWorking = true
+                    let outcome = await profiles.syncAwaitingLibrary(profile)
+                    isWorking = false
+                    guard await client.isCurrent(snapshot), installedProfileID == profileID else { return false }
+                    guard let outcome else { notice = "更新尚未完成，已保留当前配置"; return false }
+                    if case .failed = outcome { notice = "更新失败，已保留原配置，请稍后重试"; return false }
+                }
+                try await client.acknowledgeSubscriptionState(snapshot)
+                session.restriction = nil
+                expiresAt = snapshot.record.expiresAt
+                session.failures = 0
+                session.nextCheck = Date().addingTimeInterval(Double.random(in: 24...36))
+                notice = nil
+                UserDefaults(suiteName: ShenxianyunProfile.appGroup)?.removeObject(forKey: "shenxianyun.connection_error")
+                return true
+            } catch is CancellationError {
+                return false
+            } catch {
+                session.restriction = await client.accessRestriction()
+                session.failures = min(4, session.failures + 1)
+                let delay = min(300.0, 30 * pow(2, Double(session.failures - 1)))
+                session.nextCheck = Date().addingTimeInterval(delay)
+                if let apiError = error as? ShenxianyunError, case let .rateLimited(seconds) = apiError {
+                    session.retryNotBefore = Date().addingTimeInterval(min(3600, max(1, seconds)))
+                    session.nextCheck = max(session.nextCheck, session.retryNotBefore)
+                }
+                if session.restriction != nil, isConnected, profiles.activeProfileID == profileID { await vpn.stop() }
+                if starting || session.restriction != nil {
+                    notice = (error as? ShenxianyunError)?.userMessage ?? "更新失败，已保留原配置"
+                }
+                return false
+            }
         }
+        session.recoveryTask = task
+        return await task.value
     }
 
     /// 模式切换直接下到内核。失败时把原因显示出来——静默失败会让用户
