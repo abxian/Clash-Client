@@ -103,7 +103,7 @@ struct ShenxianyunHomeView: View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 18) {
-                    brandColumn
+                    brandColumn(powerSize: min(280, max(192, geometry.size.height * 0.30)))
                     if isConnected { controlColumn }
                 }
                 .padding(24)
@@ -117,7 +117,7 @@ struct ShenxianyunHomeView: View {
     }
 
     /// 左栏 / 上半：品牌、电源键、状态。
-    private var brandColumn: some View {
+    private func brandColumn(powerSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             header
             if !isConnected {
@@ -140,7 +140,7 @@ struct ShenxianyunHomeView: View {
             SXYPowerButton(
                 isOn: isConnected,
                 isBusy: isTransitioning || (!isConnected && (isWorking || isStarting)),
-                action: togglePower)
+                diameter: powerSize, action: togglePower)
                 .padding(.top, 18)
 
             if isConnected { statusRow.padding(.top, 10) }
@@ -284,6 +284,12 @@ struct ShenxianyunHomeView: View {
         }
         #endif
         await refreshWhenReady()
+        #if DEBUG
+        if DevelopmentBootstrap.isolated,
+           ProcessInfo.processInfo.environment["SXY_TEST_SCREEN"] == "nodes" {
+            showsNodes = true
+        }
+        #endif
     }
 
     @MainActor
@@ -399,8 +405,8 @@ struct ShenxianyunHomeView: View {
                     let outcome = await profiles.syncAwaitingLibrary(profile)
                     isWorking = false
                     guard await client.isCurrent(snapshot), installedProfileID == profileID else { return false }
-                    guard let outcome else { notice = "更新尚未完成，已保留当前配置"; return false }
-                    if case .failed = outcome { notice = "更新失败，已保留原配置，请稍后重试"; return false }
+                    guard let outcome else { notice = "更新尚未完成，已保留当前配置"; throw SXYImportError.installFailed }
+                    if case .failed = outcome { notice = "更新失败，已保留原配置，请稍后重试"; throw SXYImportError.installFailed }
                 }
                 try await client.acknowledgeSubscriptionState(snapshot)
                 session.restriction = nil

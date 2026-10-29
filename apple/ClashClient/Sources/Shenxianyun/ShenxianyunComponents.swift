@@ -75,6 +75,7 @@ struct SXYActionRow: View {
 struct SXYPowerButton: View {
     let isOn: Bool
     let isBusy: Bool
+    var diameter: CGFloat = 192
     let action: () -> Void
 
     var body: some View {
@@ -84,17 +85,17 @@ struct SXYPowerButton: View {
                     .fill(RadialGradient(
                         colors: [Color(hex: 0x9C72FF).opacity(0x3A / 255), .clear],
                         center: .center, startRadius: 40, endRadius: 96))
-                    .frame(width: 192, height: 192)
+                    .frame(width: diameter, height: diameter)
                 Circle()
                     .stroke(Color(hex: 0x7B57FF).opacity(0x88 / 255), lineWidth: 2)
-                    .frame(width: 168, height: 168)
+                    .frame(width: diameter * 0.875, height: diameter * 0.875)
 
                 // 安卓那边 bg_sxy_power_inner 是常驻彩色渐变，停止态也不去饱和，
                 // 只有图标与文字变。这里保持一致，不自作主张加灰态。
                 Circle()
                     .fill(.ultraThinMaterial)
                     .overlay(Circle().fill(SXYTheme.powerFill).opacity(0.72))
-                    .frame(width: 148, height: 148)
+                    .frame(width: diameter * 0.77, height: diameter * 0.77)
                     .overlay(Circle().stroke(
                         Color.white.opacity(0xCC / 255), lineWidth: 2))
 
@@ -103,19 +104,19 @@ struct SXYPowerButton: View {
                         ProgressView().controlSize(.large).tint(.white)
                     } else {
                         Image(systemName: isOn ? "stop.fill" : "power")
-                            .font(.system(size: 40, weight: .bold))
+                            .font(.system(size: diameter * 0.21, weight: .bold))
                         Text(isOn ? "停止" : "启动")
-                            .font(.system(size: 17, weight: .semibold))
+                            .font(.system(size: diameter * 0.09, weight: .semibold))
                     }
                 }
                 .foregroundStyle(.white)
             }
-            .frame(width: 192, height: 192)
+            .frame(width: diameter, height: diameter)
             .fixedSize()
             .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .frame(width: 192, height: 192)
+        .frame(width: diameter, height: diameter)
         .fixedSize()
         .disabled(isBusy)
         .animation(.easeInOut(duration: 0.2), value: isOn)

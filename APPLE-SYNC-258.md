@@ -4,7 +4,7 @@
 
 同步ProjectClash/Clash-Client公开main e3e6472，对应官方说明iOS1.0.13(151)，不是神仙云自有版本号；App Store最新1.0.13、GitHub没有Release标签。保留自有fork与神仙云0.1.0(1)、品牌/App Group/URL scheme；本轮不做正式发布。合并冲突仅依赖锁与配置创建策略，采用新版payload.routing/runsAsWritten，同时保留preservingRouting与服务端DNS/分组/规则所有权。其余新版大配置/模块/来源查看/网络改进完整合入。
 
-锁定kernel4b7d5f53/adapter09fbc0d7及Go1.26.10；自有SDK fork main分别安全快进53658265/d47c04a，Client只构建正式配对锁定提交，不直接采用更晚HEAD。旧SDK校验每个字节/五切片provenance、旧Vendor比对旧Adapter后归档.build/sdk-archive/before-apple258-20261029，未裁剪。新的SDK/完整构建结果待补。bootstrap下载Go1.26.10期间第一次brand configure因Vendor尚未物化失败，不是Swift编译结论；完成bootstrap后再运行。
+锁定kernel4b7d5f53/adapter09fbc0d7及Go1.26.10；自有SDK fork main分别安全快进53658265/d47c04a，Client只构建正式配对锁定提交，不直接采用更晚HEAD。旧SDK校验每个字节/五切片provenance、旧Vendor比对旧Adapter后归档.build/sdk-archive/before-apple258-20261029，未裁剪。新SDK五切片已构建并核对准确sourceRevision/dirty=false/debug=false和库存；bootstrap下载工具链后，Apple构建器拒绝GOMODCACHE内部Go的overlay。将checksum核验的Go1.26.10原样复制到.build/toolchains/go1.26.10，校对bin/go、gofmt、runtime关键文件并使用局部PATH/GOTOOLCHAIN=local重跑成功，未改系统Go。Go二进制SHA256 5742f0004c49c005313d88cd06df964b09cad6bcf2eac4506bdb90abc923b1f4。第一次brand configure因Vendor尚未物化失败，SDK完成后重新brand/configure/universal CLI已成功。
 
 UI：保留未连接提取码/启动、连接后配置、断开切码与启动；首页大按钮显式等宽高/fixedSize/玻璃材质，移除常态宣传与重复状态提示，保留首次必要流量用途告知及错误。自有节点sheet复用真实NodesModel的选择读回/测试调度器，每行两卡；运行配置已有自动组保持在前，测试不按延迟重排，不伪造不存在的自动组。隐藏高级页面时保留Home监控owner，不取消保存事务。后台更新不能阻止用户停止VPN。
 
@@ -17,3 +17,5 @@ UI：保留未连接提取码/启动、连接后配置、断开切码与启动�
 工具scripts/archive-verified-sdk.py ARCHIVE_DIRECTORY：Python3，调用现有bootstrap库存校验、Git旧Adapter，确认无未知修改后才移动SDK/inventory/vendor到新目录；既有archive拒绝覆盖。只写本地依赖缓存/指定归档，不读用户配置/凭据、不联网发布，恢复旧lock并移动三路径回原位即可回退。源文件Git归档，最终提交后固定源码下载核SHA。临时一次性命令/构建日志只写.build，不含生产数据。GitHub Actions使用shenxianyun-development.yml workflow_dispatch compile_ios=true选择本开发分支，默认CI服务/回环/Release/品牌门禁，最终来源和结论待补。
 
 回退revert本开发提交并重建，旧源码/SDK归档/模拟器与旧包保留；不删除或重置用户设备、不更改当前已安装Mac App，不动正式下载/签名/商店元数据。构建通过不等于真机VPN/付费/模块/多设备验收。
+
+2026-10-29验证门禁：Actions40811974621服务/回环/品牌成功，unsigned-ios在选Xcode阶段失败（公共runner没有Xcode27），并未编译源码。评估348保持失败证据，以本机Xcode27.1/SDK27.1新SDK/独立DerivedData258完整Debug/Release与模拟器验证替代本轮云端unsigned门禁；不降低SDK/部署目标/签名权限。兼容runner可用后恢复云端编译。50d源compile_ios=false40812265166与079源push40812337432全部成功（unsigned按条件skip），不能写成完整云编译成功。最终产品源与本机编译/模拟器结果待补。
