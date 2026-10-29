@@ -43,7 +43,6 @@ struct ShenxianyunHomeView: View {
     @State private var isWorking = false
     @State private var isStarting = false
     @State private var inputCode = ""
-    @State private var isEditingCode = false
     @State private var notice: String?
     @State private var accessCode: String?
     @State private var expiresAt: String?
@@ -121,21 +120,13 @@ struct ShenxianyunHomeView: View {
         VStack(spacing: 0) {
             header
             if !isConnected {
-                if accessCode != nil && !isEditingCode {
-                    Button("切换提取码") { isEditingCode = true; inputCode = "" }
-                        .disabled(isWorking || isStarting || isTransitioning)
-                        .padding(.top, 24)
-                } else {
-                TextField(accessCode == nil ? "输入提取码" : "切换提取码", text: $inputCode)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                    .submitLabel(.go)
-                    .onSubmit(togglePower)
-                    .textFieldStyle(.roundedBorder)
-                    .accessibilityLabel(accessCode == nil ? "输入提取码" : "切换提取码")
+                SXYActionRow(
+                    icon: "key.fill",
+                    title: accessCode == nil ? "输入提取码" : "切换提取码",
+                    trailing: .chevron,
+                    action: { showsImport = true })
                     .disabled(isWorking || isStarting || isTransitioning)
                     .padding(.horizontal, 28).padding(.top, 24)
-                }
             }
             SXYPowerButton(
                 isOn: isConnected,
@@ -144,6 +135,12 @@ struct ShenxianyunHomeView: View {
                 .padding(.top, 18)
 
             if isConnected { statusRow.padding(.top, 10) }
+            if accessCode != nil {
+                Text(expiresAt.flatMap { $0.isEmpty ? nil : "到期 \($0.prefix(10))" } ?? "到期时间待同步")
+                    .font(.system(size: 12))
+                    .foregroundStyle(SXYTheme.textMuted)
+                    .padding(.top, 10)
+            }
             if !isConnected, let restriction = session.restriction, restriction.renewable,
                ShenxianyunProfile.paymentEntryEnabled {
                 Button("续费提取码", action: openPayment)
@@ -174,10 +171,7 @@ struct ShenxianyunHomeView: View {
                 isEnabled: command.isConnected,
                 select: setMode)
             actions.padding(.top, 16)
-            if isConnected {
-                Text("上传 \(Foundation.ByteCountFormatter.string(fromByteCount: command.traffic.uploadTotal, countStyle: .binary)) · 下载 \(Foundation.ByteCountFormatter.string(fromByteCount: command.traffic.downloadTotal, countStyle: .binary))")
-                    .font(.caption).foregroundStyle(SXYTheme.textMuted).padding(.top, 12)
-            }
+
         }
         .padding(.horizontal, 20)
     }
@@ -209,11 +203,7 @@ struct ShenxianyunHomeView: View {
             Text("·").foregroundStyle(SXYTheme.chevron)
             Text(accessCode == nil ? "未选择" : "提取码已绑定")
                 .foregroundStyle(SXYTheme.textMuted)
-            if let expiresAt, !expiresAt.isEmpty {
-                Text("·").foregroundStyle(SXYTheme.chevron)
-                Text("到期 \(expiresAt.prefix(10))")
-                    .foregroundStyle(SXYTheme.textMuted)
-            }
+
         }
         .font(.system(size: 12))
     }
@@ -223,15 +213,6 @@ struct ShenxianyunHomeView: View {
             SXYActionRow(
                 icon: "point.3.connected.trianglepath.dotted",
                 title: "选择节点", trailing: .chevron, action: { showsNodes = true })
-
-            SXYActionRow(
-                icon: "key.fill",
-                title: accessCode == nil ? "提取码订阅" : "切换提取码",
-                subtitle: "输入或切换本机使用的提取码",
-                trailing: .chevron) {
-                    if isConnected || isTransitioning { notice = "请先断开连接，再切换提取码" }
-                    else { showsImport = true }
-                }
 
             SXYActionRow(
                 icon: "arrow.clockwise",
@@ -313,6 +294,7 @@ struct ShenxianyunHomeView: View {
             return
         }
         guard !isWorking, !isStarting, !isTransitioning else { return }
+        guard accessCode != nil else { showsImport = true; return }
         isStarting = true
         Task { @MainActor in
             defer { isStarting = false }
@@ -358,7 +340,6 @@ struct ShenxianyunHomeView: View {
         installedProfileID = created.id
         accessCode = await client.savedAccessCode()
         inputCode = accessCode ?? ""
-        isEditingCode = false
         session.refreshedGeneration = session.refreshGeneration
         switch outcome {
         case let .managed(activation): expiresAt = activation.expiresAt
