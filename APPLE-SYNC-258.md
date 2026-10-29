@@ -32,4 +32,4 @@ UI：保留未连接提取码/启动、连接后配置、断开切码与启动�
 
 专用两App和两设备已停止，两回环服务已停止；旧236专用设备原为Shutdown，本轮短暂boot后也恢复Shutdown。不重置/删除用户模拟器、不动当前Mac已安装fix255或系统代理。旧8fd29aa/旧SDK归档保留，本机约135GiB空闲，不裁剪里程碑。正式Mac命名241、原生Mac/TV237业务接入与真实签名/真机VPN/支付恢复/自动切换验收仍未完成；本轮只完成iOS/iPad开发。购买入口继续默认关闭，网站/后台恢复检测有效，未更改商店购买引导策略。未合Client main、未发正式tag/Release、未改NAS或正式下载。
 
-持久工件：scripts/archive-verified-sdk.py、scripts/verify-isolated-recovery.py、scripts/isolated-api-fixture.py与docs/evidence/apple258白名单；完整方法/依赖/参数/读写范围/风险/回退在各docstring和本报告，最终manifest列SHA。GitHub固定提交回下载字节/SHA一致后归档；.build SDK/日志/假设备数据不入Git。Trilium17主题与实际AI记忆账本/共享执行/协作板待最终同步回读；内部复核与用户实机验收分开。
+持久工件：scripts/archive-verified-sdk.py、scripts/verify-isolated-recovery.py、scripts/isolated-api-fixture.py与docs/evidence/apple258白名单；完整方法/依赖/参数/读写范围/风险/回退在各docstring和本报告，最终manifest列SHA。GitHub固定提交回下载字节/SHA一致后归档；.build SDK/日志/假设备数据不入Git。Trilium17主题与实际AI记忆账本/共享执行/协作板的最终同步状态以项目笔记apple258-final-20261029及本地ops/apple-sync258-20261029/trilium-final-receipt.json为准；内部复核与用户实机验收分开。
