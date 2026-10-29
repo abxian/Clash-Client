@@ -1,0 +1,51 @@
+{
+  "date": "2026-10-29",
+  "product_source": "8ba3385bbce76afe1a0e82db402315eb0503dcc6",
+  "synthetic_only": true,
+  "files": {
+    "ci-environment-failure.json": {
+      "bytes": 718,
+      "sha256": "36cae8593597d7fd0eaddcd2e22c691d225669d45dbda31cc8c6fa9b86465eda"
+    },
+    "apple258-iphone-first.png": {
+      "bytes": 2046218,
+      "sha256": "5d9b9ab9429818e9f5af00a0cd8f820c85248436ec93bbe12ec9f9eafc9b0fc5"
+    },
+    "README.md": {
+      "bytes": 2597,
+      "sha256": "e9388047fc76feb75271c1f6434072dbd1c2832a782f90e5068cd19cd40ec8f4"
+    },
+    "apple258-iphone-nodes.png": {
+      "bytes": 2356345,
+      "sha256": "60182367311a6b9fca72c6184743f072e43c254af6f03bb81dbd386424fba57d"
+    },
+    "sdk-verification.json": {
+      "bytes": 1064,
+      "sha256": "5dbccf95834a970bf579fe14a37eb7b3e60cc0419d51434214684cd1e4396fc2"
+    },
+    "verification.json": {
+      "bytes": 4090,
+      "sha256": "ce53fd1eaecbeaa848829d83b749881cff111a4e1be50913f1201ba5c4617f27"
+    },
+    "simulator-recovery.json": {
+      "bytes": 759,
+      "sha256": "7db543d18509d843015f28be4d24d74d7cd859f65c37d513dc72e36ced7779f3"
+    },
+    "apple258-iphone-bound.png": {
+      "bytes": 2029686,
+      "sha256": "5590f41b93576460a80f29b7fa38f2b67e12a922245984f25af672d47a058a8c"
+    },
+    "apple258-ipad-first.png": {
+      "bytes": 1558890,
+      "sha256": "003b1d16f9bd60a2ccb99cbf92163ca19fa73923713a3fc3667dc0f545fb8e55"
+    },
+    "apple258-ipad-nodes.png": {
+      "bytes": 2369724,
+      "sha256": "46a6bb5469c2746156a80da1dce85618f230ba6ff1232e1caa6467b653461b9b"
+    },
+    "debug-app-info.json": {
+      "bytes": 203,
+      "sha256": "c6f5c4d0984ff66c3387594d36fc18f0e5087282464af949967dce455c7199f1"
+    }
+  }
+}

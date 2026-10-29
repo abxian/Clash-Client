@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-29",
+  "result": "pass",
+  "source": "8ba3385",
+  "device": "5B472B77-2619-445C-8762-6468A04EAE5C",
+  "platform": "iPhone17Pro iOS26.5 Simulator",
+  "scenarios": [
+    "expired -> extended; low-version revision B applied to original config",
+    "same revision quota restoration redownloaded valid nodes",
+    "503 download does not consume revision or remove last good source",
+    "recovery after 503 using existing credentials"
+  ],
+  "profile_id_unchanged": true,
+  "credential_and_url_unchanged": true,
+  "ticket_exchange_count": 1,
+  "production_data": false,
+  "real_vpn_started": false,
+  "scope": "actual running DEBUG app with loopback fake state and real source/revision persistence; not payment/network-extension validation"
+}

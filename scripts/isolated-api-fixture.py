@@ -41,6 +41,7 @@ def main():
     parser.add_argument("--run-tests", action="store_true")
     parser.add_argument("--port", type=int, default=0)
     parser.add_argument("--control", type=Path, help="Optional fake recovery/migration state JSON, never production data")
+    parser.add_argument("--nodes-layout", action="store_true", help="Fake three nodes and automatic group for offline UI QA")
     parser.add_argument("--state", type=Path, required=True)
     args = parser.parse_args()
     lock = threading.Lock()
@@ -106,7 +107,31 @@ def main():
             if path == "/managed-sub/fixture-config":
                 if control.get("fail_download"):
                     return self.reply(503, {"ok": False})
-                content = CONFIG.replace("隔离测试节点", control.get("node_name", "隔离测试节点"))
+                content = CONFIG
+                if args.nodes_layout:
+                    content = content.replace("proxy-groups:\n", """  - name: 香港测试B
+    type: ss
+    server: 127.0.0.1
+    port: 9
+    cipher: aes-128-gcm
+    password: fake-fixture-only
+  - name: 日本测试C
+    type: ss
+    server: 127.0.0.1
+    port: 9
+    cipher: aes-128-gcm
+    password: fake-fixture-only
+proxy-groups:
+""")
+                    content = content.replace("proxies: [隔离测试节点, DIRECT]", """proxies: [隔离测试节点, 自动选择, 香港测试B, 日本测试C]
+  - name: 自动选择
+    type: url-test
+    proxies: [隔离测试节点, 香港测试B, 日本测试C]
+    url: https://example.invalid/generate_204
+    interval: 60
+    timeout: 5000
+    lazy: false""")
+                content = content.replace("隔离测试节点", control.get("node_name", "隔离测试节点"))
                 return self.reply(200, content, "text/yaml; charset=utf-8")
             if path.startswith("/api/v2/client/"):
                 if self.headers.get("Authorization") != "Bearer fixture-device-token":

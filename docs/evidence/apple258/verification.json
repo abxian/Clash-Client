@@ -1,0 +1,141 @@
+{
+  "date": "2026-10-29",
+  "task": 258,
+  "branch": "codex/apple-sync-ui-20261029",
+  "product_source": "8ba3385bbce76afe1a0e82db402315eb0503dcc6",
+  "upstream": "e3e647283b1593a61dba622f13cd499deeda9b8b",
+  "upstream_product": "iOS1.0.13(151)",
+  "shenxianyun_product": "0.1.0(1)",
+  "debug_build": "success",
+  "release_build": "success",
+  "xcode": "27.1 27A9275",
+  "sdk": {
+    "slices": [
+      {
+        "slice": "ios-arm64",
+        "source": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33",
+        "dirty": false,
+        "debug": false,
+        "go": "go1.26.10"
+      },
+      {
+        "slice": "ios-arm64_x86_64-simulator",
+        "source": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33",
+        "dirty": false,
+        "debug": false,
+        "go": "go1.26.10"
+      },
+      {
+        "slice": "macos-arm64_x86_64",
+        "source": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33",
+        "dirty": false,
+        "debug": false,
+        "go": "go1.26.10"
+      },
+      {
+        "slice": "tvos-arm64",
+        "source": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33",
+        "dirty": false,
+        "debug": false,
+        "go": "go1.26.10"
+      },
+      {
+        "slice": "tvos-arm64_x86_64-simulator",
+        "source": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33",
+        "dirty": false,
+        "debug": false,
+        "go": "go1.26.10"
+      }
+    ],
+    "inventory_sha256": "31d5b2f67c18db5ca1d0403299f3bef38980f31ca7ba8b4bbb39659b528f1e29",
+    "old_archive": ".build/sdk-archive/before-apple258-20261029"
+  },
+  "services": {
+    "discovered": 59,
+    "passed": 57,
+    "mode_skipped": 2,
+    "new_recovery_cases": 10,
+    "loopback_separate": "pass1",
+    "release_env_gate_separate": "pass1"
+  },
+  "simulator_recovery": "pass",
+  "simulator_ui": "iPhone/iPad first, iPhone bound, both two-column nodes/automatic first verified",
+  "simulator_OS": "26.5",
+  "packages": [
+    {
+      "configuration": "Debug",
+      "platform": "iOS Simulator",
+      "architecture": "arm64",
+      "unsigned": true,
+      "source": "8ba3385bbce76afe1a0e82db402315eb0503dcc6",
+      "bundles": [
+        {
+          "bundle": "de.sxnn.shenxianyun",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.controls",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.share",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.extension",
+          "version": "0.1.0",
+          "build": "1"
+        }
+      ],
+      "executable_bytes": 40216,
+      "executable_sha256": "88fc49fad1fcf1e07f11b8efacd4a3cb99cb580a11a327081bbc45aba68994f3"
+    },
+    {
+      "configuration": "Release",
+      "platform": "iOS Simulator",
+      "architecture": "arm64",
+      "unsigned": true,
+      "source": "8ba3385bbce76afe1a0e82db402315eb0503dcc6",
+      "bundles": [
+        {
+          "bundle": "de.sxnn.shenxianyun",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.controls",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.share",
+          "version": "0.1.0",
+          "build": "1"
+        },
+        {
+          "bundle": "de.sxnn.shenxianyun.extension",
+          "version": "0.1.0",
+          "build": "1"
+        }
+      ],
+      "executable_bytes": 94456584,
+      "executable_sha256": "2140dbe003d4463227b36b32d8e3eb0fbc1d600bbb1ffadaae2460440689070b"
+    }
+  ],
+  "ci_product": {
+    "run": 40829813162,
+    "source": "8ba3385bbce76afe1a0e82db402315eb0503dcc6",
+    "services_and_brand": "success",
+    "unsigned_ios": "conditional skip"
+  },
+  "ci_environment_failure": 40811974621,
+  "alternative_gate_assessment": 348,
+  "real_device_VPN": false,
+  "signed_distribution": false,
+  "production_data_changes": false,
+  "current_installed_Mac_changed": false,
+  "remaining": "real signing/AppGroup/NetworkExtension/VPN/payment/failover acceptance; nativeMac/tv237 gaps"
+}

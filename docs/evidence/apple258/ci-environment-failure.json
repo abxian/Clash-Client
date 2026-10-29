@@ -1,0 +1,15 @@
+{
+  "run": 40811974621,
+  "source": "50d938991b8d78c3e11de5c954da73f8e79df0f6",
+  "job": 123244158576,
+  "failed_steps": [
+    "Select installed Xcode 27 or newer"
+  ],
+  "safe_error_lines": [
+    "2026-10-29T03:25:09.2968280Z \u001b[36;1massert choices, 'Runner has no Xcode 27+. Local build is separate evidence; use a compatible runner.'\u001b[0m",
+    "2026-10-29T03:25:32.4154260Z AssertionError: Runner has no Xcode 27+. Local build is separate evidence; use a compatible runner.",
+    "2026-10-29T03:25:32.4242850Z ##[error]Process completed with exit code 1."
+  ],
+  "assessment": 348,
+  "alternative": "Xcode27.1 local unsigned full builds, CI service and brand retained; no lowered targets/signing release"
+}

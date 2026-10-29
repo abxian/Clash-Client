@@ -1,0 +1,10 @@
+{
+  "source": "8ba3385",
+  "bundle": "de.sxnn.shenxianyun",
+  "version": "0.1.0",
+  "build": "1",
+  "platform": "iOS Simulator arm64",
+  "signing": "unsigned",
+  "SDK": "27.1",
+  "device_os": "iOS26.5"
+}
