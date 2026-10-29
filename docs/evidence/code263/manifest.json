@@ -1,0 +1,41 @@
+{
+  "task": 263,
+  "images": [
+    {
+      "file": "iphone-first-home.png",
+      "sha256": "18d63ba3580a81f90cdcab27df690a29dd0e6f853acc7ed300cd63198cc71f5b",
+      "bytes": 2091028,
+      "date": "2026-10-30",
+      "source": "xcrun simctl io screenshot / actual DEBUG app 3948487782dd22429a7c0e34f159313fd39f8770",
+      "focus": "首次首页：钥匙按钮打开提取码输入，无内嵌文本框；玻璃圆形启动",
+      "redaction": "fixture-only; no production data or credentials",
+      "invalidation": "UI/layout/OS/runtime or source changes require repeat",
+      "input_method": "DEBUG loopback presentation/import environment, not automated taps or VPN"
+    },
+    {
+      "file": "iphone-code-sheet.png",
+      "sha256": "aa9d3131a78cec34228000a975f9a45ce2731945cd3b73b121a4788e7bf6d745",
+      "bytes": 2042808,
+      "date": "2026-10-30",
+      "source": "xcrun simctl io screenshot / actual DEBUG app 3948487782dd22429a7c0e34f159313fd39f8770",
+      "focus": "原真实导入sheet已呈现；底部是新模拟器系统滑行输入提示，不当成应用遮挡缺陷或点击验收",
+      "redaction": "fixture-only; no production data or credentials",
+      "invalidation": "UI/layout/OS/runtime or source changes require repeat",
+      "input_method": "DEBUG loopback presentation/import environment, not automated taps or VPN"
+    },
+    {
+      "file": "ipad-bound-home.png",
+      "sha256": "7980c7d290600f993a1bd4179c98ec52bdea903d2aff224c5df17285ee7aeee6",
+      "bytes": 1573585,
+      "date": "2026-10-30",
+      "source": "xcrun simctl io screenshot / actual DEBUG app 3948487782dd22429a7c0e34f159313fd39f8770",
+      "focus": "真实假提取码完成原profile导入：切换提取码按钮、停止状态到期2099-12-31、不显示流量",
+      "redaction": "fixture-only; no production data or credentials",
+      "invalidation": "UI/layout/OS/runtime or source changes require repeat",
+      "input_method": "DEBUG loopback presentation/import environment, not automated taps or VPN"
+    }
+  ],
+  "runtime": "iOS26.5 Simulator",
+  "build": "Xcode27.1 / SDK27.1 / unsigned DEBUG",
+  "real_VPN_started": false
+}

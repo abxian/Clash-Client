@@ -1,0 +1,77 @@
+{
+  "task": 263,
+  "source": "3948487782dd22429a7c0e34f159313fd39f8770",
+  "run": 40916103836,
+  "conclusion": "failure",
+  "jobs": [
+    {
+      "name": "unsigned-ios",
+      "conclusion": "cancelled",
+      "source_steps_executed": false
+    },
+    {
+      "name": "brand-check",
+      "conclusion": "success",
+      "source_steps_executed": true
+    },
+    {
+      "name": "service-tests",
+      "conclusion": "cancelled",
+      "source_steps_executed": false
+    }
+  ],
+  "annotations": [
+    {
+      "path": ".github",
+      "blob_href": "https://github.com/abxian/Clash-Client/blob/3948487782dd22429a7c0e34f159313fd39f8770/.github",
+      "start_line": 1,
+      "start_column": null,
+      "end_line": 1,
+      "end_column": null,
+      "annotation_level": "failure",
+      "title": "",
+      "message": "The job was not acquired by Runner of type hosted even after multiple attempts",
+      "raw_details": ""
+    },
+    {
+      "path": ".github",
+      "blob_href": "https://github.com/abxian/Clash-Client/blob/3948487782dd22429a7c0e34f159313fd39f8770/.github",
+      "start_line": 1,
+      "start_column": null,
+      "end_line": 1,
+      "end_column": null,
+      "annotation_level": "notice",
+      "title": "",
+      "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.",
+      "raw_details": ""
+    },
+    {
+      "path": ".github",
+      "blob_href": "https://github.com/abxian/Clash-Client/blob/3948487782dd22429a7c0e34f159313fd39f8770/.github",
+      "start_line": 1,
+      "start_column": null,
+      "end_line": 1,
+      "end_column": null,
+      "annotation_level": "notice",
+      "title": "",
+      "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.",
+      "raw_details": ""
+    },
+    {
+      "path": ".github",
+      "blob_href": "https://github.com/abxian/Clash-Client/blob/3948487782dd22429a7c0e34f159313fd39f8770/.github",
+      "start_line": 1,
+      "start_column": null,
+      "end_line": 1,
+      "end_column": null,
+      "annotation_level": "notice",
+      "title": "",
+      "message": "Due to capacity constraints, jobs targeting macOS arm64 runners may experience longer queue times.",
+      "raw_details": ""
+    }
+  ],
+  "equivalent_gate_assessment": 363,
+  "deferred_internal_task": 264,
+  "local_exact_source_full_builds_verified": true,
+  "cloud_compile_success_claimed": false
+}

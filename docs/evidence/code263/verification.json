@@ -1,0 +1,82 @@
+{
+  "date": "2026-10-30",
+  "task": 263,
+  "product": "3948487782dd22429a7c0e34f159313fd39f8770",
+  "xcode": "27.1 27A9275",
+  "SDK": "27.1",
+  "builds": [
+    {
+      "configuration": "Debug",
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "bundle_id": "de.sxnn.shenxianyun",
+      "version": "0.1.0(1)",
+      "extensions": [
+        "de.sxnn.shenxianyun.controls",
+        "de.sxnn.shenxianyun.share",
+        "de.sxnn.shenxianyun.extension"
+      ],
+      "main_sha256": "726b17893f331325b30bed19d48241fc1f3509b6e7e9039a32423104f775023a",
+      "unsigned": true,
+      "result": "BUILD SUCCEEDED"
+    },
+    {
+      "configuration": "Release",
+      "architectures": [
+        "arm64"
+      ],
+      "bundle_id": "de.sxnn.shenxianyun",
+      "version": "0.1.0(1)",
+      "extensions": [
+        "de.sxnn.shenxianyun.controls",
+        "de.sxnn.shenxianyun.share",
+        "de.sxnn.shenxianyun.extension"
+      ],
+      "main_sha256": "070d954e777c90558254d1ade778533faa77d63ab59ccd9f32b10e7a596511e0",
+      "unsigned": true,
+      "result": "BUILD SUCCEEDED"
+    }
+  ],
+  "services": {
+    "discovered": 59,
+    "passed": 57,
+    "mode_skips": 2,
+    "separate_loopback": "pass",
+    "separate_release_environment_gate": "pass"
+  },
+  "brand_check": "pass",
+  "UI_images": 3,
+  "production_requests": false,
+  "real_VPN_started": false,
+  "button_taps_automated": false,
+  "simulator_import": {
+    "task": 263,
+    "fake_code": true,
+    "original_profile_installed": true,
+    "subscription_file_present": true,
+    "real_VPN_started": false,
+    "production_requests": false,
+    "request_count": 10
+  },
+  "cleanup": {
+    "devices": [
+      {
+        "id": "534D3A86-6326-49EB-B355-7770E1EBA1C4",
+        "name": "Shenxianyun iPhone263",
+        "app_terminate_code": 0,
+        "shutdown": true,
+        "deleted": false
+      },
+      {
+        "id": "8F89AB2C-C7A2-475B-A662-2AE00D6D8101",
+        "name": "Shenxianyun iPad263",
+        "app_terminate_code": 0,
+        "shutdown": true,
+        "deleted": false
+      }
+    ],
+    "user_devices_modified": false
+  }
+}
