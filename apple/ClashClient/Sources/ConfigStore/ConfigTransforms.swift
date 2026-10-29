@@ -18,6 +18,28 @@ struct RemoteResourcePlan: Decodable {
          
          
         let maximumBytes: Int64
+         
+         
+         
+         
+         
+         
+         
+        var userAgent: String? = nil
+
+         
+         
+         
+         
+         
+        var requestHeaders: [String: [String]] {
+            guard let userAgent,
+                  !headers.keys.contains(where: { $0.caseInsensitiveCompare("User-Agent") == .orderedSame })
+            else { return headers }
+            var all = headers
+            all["User-Agent"] = [userAgent]
+            return all
+        }
 
         init(
             name: String,
@@ -85,6 +107,18 @@ struct RemoteResourcePlan: Decodable {
     let providers: [Provider]
     let geodata: [Geo]
     let notices: [String]
+
+     
+     
+     
+    func carrying(userAgent: String?) -> RemoteResourcePlan {
+        guard let userAgent else { return self }
+        return RemoteResourcePlan(providers: providers.map { provider in
+            var provider = provider
+            provider.userAgent = userAgent
+            return provider
+        }, geodata: geodata, notices: notices, structuredNotices: structuredNotices, errors: errors)
+    }
 
      
      
@@ -460,6 +494,75 @@ enum ConfigTransforms {
             return spliced
         }
         return try mergeOverrideWhole(raw: raw, overrideJSON: overrideJSON)
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    static func carryingGlobalUA(_ identity: String, in yaml: String) throws -> String {
+        var text = yaml
+        try carryGlobalUA(identity, into: &text)
+        return text
+    }
+
+     
+     
+     
+     
+     
+     
+     
+    static func carryGlobalUA(_ identity: String, into yaml: inout String,
+                              beforeGrowing: () -> Void = {}) throws {
+        guard let identity = ClientUserAgent.sanitized(identity) else { return }
+         
+         
+        yaml.makeContiguousUTF8()
+        if let lines = TopLevelYAMLSections.keyLines(of: yaml), !lines.isEmpty {
+             
+             
+             
+            guard let quoted = String(data: try JSONSerialization.data(withJSONObject: [identity],
+                                                                       options: [.withoutEscapingSlashes]),
+                                      encoding: .utf8)?.dropFirst().dropLast() else { return }
+            let line = "global-ua: " + quoted + "\n"
+             
+             
+            if let index = lines.firstIndex(where: { $0.key == "global-ua" }) {
+                let start = lines[index].offset
+                let end = index + 1 < lines.count ? lines[index + 1].offset : yaml.utf8.count
+                func part(_ range: Range<Int>) -> String {
+                    yaml.withUTF8 { String(decoding: UnsafeBufferPointer(rebasing: $0[range]), as: UTF8.self) }
+                }
+                if writesItsOwnGlobalUA(try foundationRoot(ofYAML: part(start..<end))) { return }
+                beforeGrowing()
+                yaml = part(0..<start) + line + part(end..<yaml.utf8.count)
+                return
+            }
+            beforeGrowing()
+            let separator = yaml.hasSuffix("\n") ? "" : "\n"
+            yaml.reserveCapacity(yaml.utf8.count + separator.utf8.count + line.utf8.count)
+            yaml.append(separator)
+            yaml.append(line)
+            return
+        }
+        if writesItsOwnGlobalUA(try foundationRoot(ofYAML: yaml, omitting: nodesAndRules)) { return }
+        beforeGrowing()
+        let patch = OrderedJSON.object([("patch", .object([("global-ua", .string(identity))]))])
+        yaml = try mergeOverride(raw: yaml, overrideJSON: patch.serialized())
+    }
+
+     
+     
+     
+    private static func writesItsOwnGlobalUA(_ root: [String: Any]?) -> Bool {
+        ClientUserAgent.written(in: root) != nil
     }
 
      

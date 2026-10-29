@@ -102,7 +102,7 @@ enum BackgroundRefresh {
          
         _ = handler
 #else
-        BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
+        let accepted = BGTaskScheduler.shared.register(forTaskWithIdentifier: identifier, using: nil) { task in
             let work = Task {
                  
                  
@@ -114,7 +114,20 @@ enum BackgroundRefresh {
             }
             task.expirationHandler = { work.cancel() }
         }
+        registration.lock(); registered = accepted; registration.unlock()
 #endif
+    }
+
+     
+     
+     
+     
+     
+    private static let registration = NSLock()
+    nonisolated(unsafe) private static var registered = false
+    private static var isRegistered: Bool {
+        registration.lock(); defer { registration.unlock() }
+        return registered
     }
 
      
@@ -142,6 +155,7 @@ enum BackgroundRefresh {
 #if os(macOS)
         _ = date
 #else
+        guard isRegistered else { return }
         BGTaskScheduler.shared.cancel(taskRequestWithIdentifier: identifier)
         let request = BGAppRefreshTaskRequest(identifier: identifier)
         request.earliestBeginDate = earliest(date, scriptsNextFire: ModuleAppScriptDriver.storedNextFire())

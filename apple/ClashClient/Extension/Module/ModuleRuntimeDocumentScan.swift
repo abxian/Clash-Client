@@ -59,7 +59,7 @@ enum ModuleRuntimeDocumentScan {
             struct SignIn: Decodable { let username: String }
             if case .values(let values, _) = ModuleTopLevelJSON.values(
                 of: ["ports", "reinjectCredentials", "engineProxyCredentials"], in: locations.globalManifest,
-                maximumBytes: ModuleReader.maximumListBytes, maximumValueBytes: 4_096) {
+                maximumBytes: .max, maximumValueBytes: 4_096) {
                 if let raw = values["ports"], let ports = try? ModuleJSON.decoder().decode(ModulePorts.self, from: raw) {
                     known.enginePorts.insert(ports.engine)
                     known.reinjectPorts.insert(ports.reinject)

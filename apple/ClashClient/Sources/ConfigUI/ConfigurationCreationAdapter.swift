@@ -57,10 +57,9 @@ struct ConfigurationCreationAdapter: View {
     @State private var firstStepImport: FirstStepImport?
      
      
-    @State private var ownRoutingNotice: OwnRoutingNotice?
     @State private var showsSourceLibrary = false
     @State private var showsRuleLibrary = false
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         ClashFeatureNavigationContainer {
@@ -113,10 +112,11 @@ struct ConfigurationCreationAdapter: View {
                 }) { payload in
                      
                      
-                    let routed = await Task.detached(priority: .userInitiated) { payload.suppliesOwnRouting }.value
+                    let (routed, resolvesItself) = await Task.detached(priority: .userInitiated) {
+                        payload.routing
+                    }.value
                     try Self.applyFirstStepImport(payload, into: &draft, request: firstStepImport,
-                                                  suppliesOwnRouting: routed)
-                    ownRoutingNotice = Self.ownRoutingNotice(for: payload, suppliesOwnRouting: routed, draft: draft)
+                                                  suppliesOwnRouting: routed, resolvesItsNodesItself: resolvesItself)
                     firstStepImport = nil
                 }
         } else {
@@ -143,14 +143,7 @@ struct ConfigurationCreationAdapter: View {
                 manageSources: { showsSourceLibrary = true },
                 manageRules: { showsRuleLibrary = true },
                 completionNodes: { value in AnyView(completionContents(draft: value, nodes: true)) },
-                completionRules: { value in AnyView(completionContents(draft: value, nodes: false)) },
-                ownRouting: ownRoutingNotice.flatMap { notice in
-                    draft.originalSourceID == nil && draft.selectedSourceIDs.contains(notice.sourceID)
-                        ? ClashConfigurationOwnRoutingNotice(groups: notice.groups, rules: notice.rules) : nil
-                },
-                useOwnRouting: {
-                    if let notice = ownRoutingNotice, Self.runAsWritten(notice, in: &draft) { ownRoutingNotice = nil }
-                })
+                completionRules: { value in AnyView(completionContents(draft: value, nodes: false)) })
         }
     }
 
@@ -234,56 +227,31 @@ struct ConfigurationCreationAdapter: View {
      
      
      
+     
     static func applyFirstStepImport(_ payload: ConfigurationSourcePayload,
                                      into draft: inout ConfigurationCreationDraft,
                                      request: FirstStepImport?,
-                                     suppliesOwnRouting: Bool? = nil) throws {
+                                     suppliesOwnRouting: Bool? = nil,
+                                     resolvesItsNodesItself: Bool? = nil) throws {
         if request?.isOriginal == true { draft.useOriginal(payload) }
         else {
             try acceptImportedSource(payload, into: &draft, isEditing: false,
-                                     suppliesOwnRouting: suppliesOwnRouting)
+                                     suppliesOwnRouting: suppliesOwnRouting,
+                                     resolvesItsNodesItself: resolvesItsNodesItself)
         }
     }
 
     static func acceptImportedSource(_ payload: ConfigurationSourcePayload,
                                      into draft: inout ConfigurationCreationDraft, isEditing: Bool,
-                                     suppliesOwnRouting: Bool? = nil) throws {
+                                     suppliesOwnRouting: Bool? = nil,
+                                     resolvesItsNodesItself: Bool? = nil) throws {
         if isEditing { draft.add(payload, rule: nil) }
          
          
-        else { try draft.acceptNewImport(payload, suppliesOwnRouting: suppliesOwnRouting) }
-    }
-
-     
-     
-    struct OwnRoutingNotice: Equatable {
-        let sourceID: String
-        let groups: Int
-        let rules: Int
-    }
-
-     
-     
-     
-    static func ownRoutingNotice(for payload: ConfigurationSourcePayload, suppliesOwnRouting: Bool,
-                                 draft: ConfigurationCreationDraft) -> OwnRoutingNotice? {
-        guard suppliesOwnRouting, draft.originalSourceID == nil,
-              draft.selectedSourceIDs.contains(payload.record.id) else { return nil }
-        return OwnRoutingNotice(sourceID: payload.record.id, groups: payload.record.groupCount,
-                                rules: payload.record.ruleCount)
-    }
-
-     
-     
-     
-     
-    @discardableResult
-    static func runAsWritten(_ notice: OwnRoutingNotice, in draft: inout ConfigurationCreationDraft) -> Bool {
-        guard let payload = draft.newSources.first(where: { $0.record.id == notice.sourceID }) else { return false }
-        let typed = draft.label
-        draft.useOriginal(payload)
-        if !typed.isEmpty { draft.label = typed }
-        return true
+        else {
+            try draft.acceptNewImport(payload, suppliesOwnRouting: suppliesOwnRouting,
+                                      resolvesItsNodesItself: resolvesItsNodesItself)
+        }
     }
 
     private func accept(_ payload: ConfigurationSourcePayload) {
@@ -358,7 +326,7 @@ struct ConfigurationNodeSourceAdapter: View {
     @State private var profile = Profile(id: UUID().uuidString.lowercased(), label: "Custom Nodes",
         source: .clipboard, autoUpdate: false, updateIntervalHours: 12,
         subscriptionInfo: nil, selectedMap: [:], activeRevision: nil, order: 0, lastUpdatedAt: nil)
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private let emptyNodeDocument = "proxies: []\n"
     var body: some View {
@@ -384,6 +352,118 @@ struct ConfigurationNodeSourceAdapter: View {
             renameNode: { _, _ in })
         .clashProductModalRoot(title: isFirstConfigurationStep ? "Create Nodes 1/2" : ClashConfigurationAddition.nodes.title)
         .clashCapturesDismiss(dismiss)
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+@MainActor
+enum ConfigurationSourceUpdate {
+    static func run(_ source: ConfigurationSourceRecord, replacingRules: Bool, model: ProfilesViewModel, locale: Locale,
+                    changed: @escaping (ConfigurationLibrarySnapshot) -> Void,
+                    status: @escaping (String?) -> Void) async throws -> (failures: [String], changed: Bool) {
+        var outcome: (failures: [String], changed: Bool) = ([], false)
+        var thrown: Error?
+         
+         
+        if model.isUpdatingNodeLibrary || model.isUpdatingRuleCollections {
+            status(ClashCopy.string("Waiting for the current update to finish…", locale: locale))
+        }
+        await model.pageLibraryWrite {
+            status(nil)
+            do {
+                outcome = try await sourceAndItsCollections(source, replacingRules: replacingRules, model: model,
+                                                            locale: locale, changed: changed, status: status)
+            } catch { thrown = error }
+        }
+        if let thrown { throw thrown }
+        return outcome
+    }
+
+     
+     
+     
+     
+    static func result(_ outcome: (failures: [String], changed: Bool), label: String) -> ClashFeedbackPresentation {
+        let title = outcome.changed ? ClashFeedbackCopy.updated(label) : ClashFeedbackCopy.upToDate(label)
+        guard !outcome.failures.isEmpty else { return .success(title: title, accessibilityIdentifier: resultIdentifier) }
+        return .warning(title: title, message: .verbatim(outcome.failures.joined(separator: "\n")),
+                        accessibilityIdentifier: resultIdentifier)
+    }
+
+     
+    static func failure(_ error: Error, label: String, locale: Locale) -> ClashFeedbackPresentation {
+        .error(title: ClashFeedbackCopy.couldNotUpdate(label),
+               message: .verbatim(ClashConfigurationUpdateCopy.message(error, locale: locale)),
+               accessibilityIdentifier: resultIdentifier)
+    }
+
+    static let resultIdentifier = #"feedback.library.source.update"#
+
+     
+     
+     
+    private static func sourceAndItsCollections(_ source: ConfigurationSourceRecord, replacingRules: Bool,
+                                                model: ProfilesViewModel, locale: Locale,
+                                                changed: @escaping (ConfigurationLibrarySnapshot) -> Void,
+                                                status: @escaping (String?) -> Void) async throws -> (failures: [String], changed: Bool) {
+         
+         
+         
+         
+        let outcome = try await model.refreshConfigurationSource(source.id, replaceEditedRules: replacingRules,
+            expectedVersion: replacingRules ? source.version : nil, restagingConfigurationInUse: false)
+        do {
+            guard let store = model.configurationLibraryStore else { throw ConfigurationLibraryError.unreadable }
+             
+             
+             
+            let sourceID = source.id
+            let entries = try await Task.detached {
+                try ConfigurationCollectionContentBridge.catalog(store, snapshot: store.snapshot())
+                    .filter { $0.source.id == sourceID }
+            }.value
+            let downloaded = await ConfigurationCollectionContentBridge.updateNodeCollections(entries, update: { entry in
+                let payload = try await Task.detached { try store.payload(.init(entry.source)) }.value
+                try await ConfigurationCollectionContentBridge.refresh(entry, source: payload, inUse: model.providerCatalogInUse())
+            }, progress: { index, total, name in
+                status(ClashCopy.string("Updating Node Collections…", locale: locale) + " \(index) / \(total) · " + name)
+            }, describe: { ProfilesViewModel.failureLine($0, $1, locale: locale) })
+            changed(try await Task.detached { try store.snapshot() }.value)
+             
+             
+            let failures = downloaded.failures
+                + (await model.applyUpdatedCollectionsToConfigurationInUse(
+                    downloaded.updatedEntries, failed: downloaded.failedEntries, coreOwned: downloaded.coreOwned,
+                    locale: locale))
+            await model.restageConfigurationInUseOwedBySourceRefresh()
+            return (failures, outcome == .updated || !downloaded.updatedEntries.isEmpty)
+        } catch {
+            await model.restageConfigurationInUseOwedBySourceRefresh()
+            throw error
+        }
+    }
+}
+
+ 
+ 
+struct ConfigurationSourceUpdateConflict: ViewModifier {
+    @Binding var isPresented: Bool
+    let replace: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog("Update Conflict", isPresented: $isPresented, titleVisibility: .visible) {
+            Button("Use Profile URL Rules", role: .destructive, action: replace)
+            Button("Cancel", role: .cancel) {}
+        } message: { Text("Your rule edits conflict with this update. Use the profile URL rules to replace your edits, or cancel to keep the current profile. You can copy your rule scheme before updating.") }
     }
 }
 
@@ -432,12 +512,9 @@ private struct ConfigurationSourceDetailAdapter: View {
                 .clashProductModal(isPresented: $showsNodeSource, role: .page) {
                     ConfigurationNodeSourceEditor(model: model, record: source, changed: changed)
                 }
-                .confirmationDialog("Update Conflict", isPresented: $confirmsRuleReplacement, titleVisibility: .visible) {
-                    Button("Use Profile URL Rules", role: .destructive) {
-                        refreshSource(replacingRules: true)
-                    }
-                    Button("Cancel", role: .cancel) {}
-                } message: { Text("Your rule edits conflict with this update. Use the profile URL rules to replace your edits, or cancel to keep the current profile. You can copy your rule scheme before updating.") }
+                .modifier(ConfigurationSourceUpdateConflict(isPresented: $confirmsRuleReplacement) {
+                    refreshSource(replacingRules: true)
+                })
         }
     }
     private func refreshSource(replacingRules: Bool = false) {
@@ -463,64 +540,8 @@ private struct ConfigurationSourceDetailAdapter: View {
                 updateStatus = nil
             }
         }) {
-             
-             
-             
-             
-             
-             
-            var thrown: Error?
-             
-             
-            if model.isUpdatingNodeLibrary || model.isUpdatingRuleCollections {
-                updateStatus = ClashCopy.string("Waiting for the current update to finish…", locale: locale)
-            }
-            await model.pageLibraryWrite {
-                updateStatus = nil
-                do { (collectionFailures, changedAnything) = try await updateSourceAndItsCollections(replacingRules: replacingRules) }
-                catch { thrown = error }
-            }
-            if let thrown { throw thrown }
-        }
-    }
-     
-     
-     
-    private func updateSourceAndItsCollections(replacingRules: Bool) async throws -> (failures: [String], changed: Bool) {
-         
-         
-         
-         
-        let outcome = try await model.refreshConfigurationSource(source.id, replaceEditedRules: replacingRules,
-            expectedVersion: replacingRules ? source.version : nil, restagingConfigurationInUse: false)
-        do {
-            guard let store = model.configurationLibraryStore else { throw ConfigurationLibraryError.unreadable }
-             
-             
-             
-            let sourceID = source.id
-            let entries = try await Task.detached {
-                try ConfigurationCollectionContentBridge.catalog(store, snapshot: store.snapshot())
-                    .filter { $0.source.id == sourceID }
-            }.value
-            let downloaded = await ConfigurationCollectionContentBridge.updateNodeCollections(entries, update: { entry in
-                let payload = try await Task.detached { try store.payload(.init(entry.source)) }.value
-                try await ConfigurationCollectionContentBridge.refresh(entry, source: payload)
-            }, progress: { index, total, name in
-                updateStatus = ClashCopy.string("Updating Node Collections…", locale: locale) + " \(index) / \(total) · " + name
-            }, describe: { ProfilesViewModel.failureLine($0, $1, locale: locale) })
-            changed(try await Task.detached { try store.snapshot() }.value)
-             
-             
-            let failures = downloaded.failures
-                + (await model.applyUpdatedCollectionsToConfigurationInUse(
-                    downloaded.updatedEntries, failed: downloaded.failedEntries, coreOwned: downloaded.coreOwned,
-                    locale: locale))
-            await model.restageConfigurationInUseOwedBySourceRefresh()
-            return (failures, outcome == .updated || !downloaded.updatedEntries.isEmpty)
-        } catch {
-            await model.restageConfigurationInUseOwedBySourceRefresh()
-            throw error
+            (collectionFailures, changedAnything) = try await ConfigurationSourceUpdate.run(source, replacingRules: replacingRules,
+                model: model, locale: locale, changed: changed, status: { updateStatus = $0 })
         }
     }
     private func perform(completion: @escaping (Bool) -> Void = { _ in },
@@ -560,7 +581,7 @@ struct ConfigurationSourceImportAdapter: View {
     @StateObject private var chainDraft = ConfigurationChainEditorDraft()
     @State private var busy = false
     @State private var errorMessage: String?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var activeKind: ClashConfigurationSourceKind { chosenKind ?? kind }
     var body: some View {
@@ -711,6 +732,7 @@ struct ConfigurationLibraryBrowseCache {
  
 struct ConfigurationSourceLibraryAdapter: View {
     @Environment(\.locale) private var locale
+    @Environment(\.clashFeedback) private var feedback
     @ObservedObject var model: ProfilesViewModel
     @State var library: ConfigurationLibrarySnapshot
     let changed: (ConfigurationLibrarySnapshot) -> Void
@@ -752,6 +774,9 @@ struct ConfigurationSourceLibraryAdapter: View {
     @State private var adoptingRunID: UUID?
      
     @State private var refusals: [String: String] = [:]
+     
+     
+    @State private var conflictSourceID: String?
 
     var body: some View {
         ConfigurationLibraryNavigation(embedded: embedded) {
@@ -783,7 +808,12 @@ struct ConfigurationSourceLibraryAdapter: View {
                         .disabled(libraryHeldByRun)) }
                     : nil,
                 addMenu: embedded ? { AnyView(sourceAddMenu) } : nil,
-                refusals: refusals)
+                refusals: refusals,
+                updateSource: { updateSource($0) }, copySourceLink: copySourceLink, deleteSource: deleteSource)
+            .modifier(ConfigurationSourceUpdateConflict(isPresented: Binding(get: { conflictSourceID != nil },
+                                                                             set: { if !$0 { conflictSourceID = nil } })) {
+                if let id = conflictSourceID { updateSource(id, replacingRules: true) }
+            })
             .profileQuickAddPresenters(quickAdd)
             .onAppear {
                 quickAdd.onSourceAdded = { updated in library = updated; changed(updated) }
@@ -876,10 +906,12 @@ struct ConfigurationSourceLibraryAdapter: View {
      
     private var sourceAddMenu: some View {
         Menu {
-            Section { addDoor("Scan", symbol: .qrcodeViewfinder, identifier: "configuration.library.add.scan") { quickAdd.showsQRCapture = true } }
-            Section { addDoor("Import", symbol: .arrowUpDocument, identifier: "configuration.library.add.file") { quickAdd.showsImporter = true } }
-            Section { addDoor("Node", symbol: .serverRack, identifier: "configuration.library.add.node") { showsNewNode = true } }
-            Section { addDoor("Proxy Chain", symbol: .link, identifier: "configuration.library.add.chain") { showsNewChain = true } }
+             
+             
+            Section { addDoor("Scan QR Code", symbol: .qrcodeViewfinder, identifier: "configuration.library.add.scan") { quickAdd.showsQRCapture = true } }
+            Section { addDoor("Import File", symbol: .arrowUpDocument, identifier: "configuration.library.add.file") { quickAdd.showsImporter = true } }
+            Section { addDoor("quick-add.new.node", symbol: .docBadgePlus, identifier: "configuration.library.add.node") { showsNewNode = true } }
+            Section { addDoor("New Proxy Chain", symbol: .link, identifier: "configuration.library.add.chain") { showsNewChain = true } }
         } label: {
             Image(systemName: ClashSymbol.plusCircle.rawValue).clashToolbarGlyph()
         }
@@ -921,6 +953,58 @@ struct ConfigurationSourceLibraryAdapter: View {
     private func updateAll() {
         if !updatingLibrary { errorMessage = nil; statusMessage = nil }
         _ = model.updateNodeLibrary(locale: locale)
+    }
+     
+     
+     
+     
+    private func updateSource(_ id: String, replacingRules: Bool = false) {
+        guard !busy, !updatingLibrary, let source = library.sources.first(where: { $0.id == id }) else { return }
+        busy = true; errorMessage = nil
+        let operation = #"configuration.library.source.update"#
+        let step = { (said: String?) -> ClashFeedbackPresentation in
+            .loading(title: ClashFeedbackCopy.updating, message: .verbatim(said ?? source.label),
+                     accessibilityIdentifier: ConfigurationSourceUpdate.resultIdentifier)
+        }
+        let running = feedback?.show(.loading(title: ClashFeedbackCopy.updating, message: .verbatim(source.label),
+                                              accessibilityIdentifier: ConfigurationSourceUpdate.resultIdentifier),
+                                     operation: operation)
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let outcome = try await ConfigurationSourceUpdate.run(source, replacingRules: replacingRules, model: model,
+                    locale: locale, changed: { updated in library = updated; changed(updated) },
+                    status: { said in if let running { feedback?.update(running, to: step(said)) } })
+                feedback?.answer(running, with: ConfigurationSourceUpdate.result(outcome, label: source.label), operation: operation)
+            } catch {
+                feedback?.answer(running, with: ConfigurationSourceUpdate.failure(error, label: source.label, locale: locale),
+                                 operation: operation)
+                if error is ConfigurationRuleReplay.Conflict { conflictSourceID = id }
+            }
+            refusals = model.sourceRefusals()
+        }
+    }
+     
+     
+    private func copySourceLink(_ id: String) {
+        guard let source = library.sources.first(where: { $0.id == id }), case .subscription(let link) = source.origin else { return }
+        ClashClipboard.copy(link, feedback: feedback, noun: "Link", operation: #"configuration.library.source.copy-link"#)
+    }
+     
+    private func deleteSource(_ id: String) {
+        guard !busy, let source = library.sources.first(where: { $0.id == id }) else { return }
+        busy = true; errorMessage = nil
+        Task { @MainActor in
+            defer { busy = false }
+            do {
+                let deletion = try await model.deleteConfigurationSourceRestorably(id, generation: library.generation)
+                library = deletion.snapshot; changed(deletion.snapshot)
+                ConfigurationLibraryUndo.offer(feedback, name: source.label, deletion: deletion, model: model,
+                                               changed: { updated in library = updated; changed(updated) })
+            } catch {
+                errorMessage = ClashConfigurationUpdateCopy.message(error, locale: locale)
+            }
+        }
     }
      
      
@@ -1298,7 +1382,17 @@ struct ConfigurationRuleLibraryAdapter: View {
                     let deletion = try await model.deleteConfigurationSourceRestorably(id, generation: library.generation)
                     apply(deletion.snapshot)
                     ConfigurationLibraryUndo.offer(feedback, name: name, deletion: deletion, model: model, changed: apply)
-                } })
+                } },
+                 
+                 
+                copyLink: { ClashClipboard.copy($0, feedback: feedback, noun: "Link", operation: #"configuration.rules.library.copy-link"#) },
+                 
+                refreshAll: {
+                    errorMessage = nil; schemeRefreshResult = nil
+                    await model.updateRuleCollections(visibleCollections, locale: locale).value
+                    guard !Task.isCancelled else { return }
+                    await loadCollections(force: true)
+                })
                 .deletingWithUndo()
             .profileQuickAddPresenters(quickAdd)
              
@@ -1407,9 +1501,10 @@ struct ConfigurationRuleLibraryAdapter: View {
      
     private var ruleAddMenu: some View {
         Menu {
-            Section { ruleDoor("Scan", symbol: .qrcodeViewfinder, identifier: "configuration.library.rules.add.scan") { quickAdd.showsQRCapture = true } }
-            Section { ruleDoor("Import", symbol: .arrowUpDocument, identifier: "configuration.library.rules.add.file") { quickAdd.showsImporter = true } }
-            Section { ruleDoor("Manual", symbol: .pencilLine, identifier: "configuration.library.rules.add.manual") { addRequest = .manualAlone } }
+             
+            Section { ruleDoor("Scan QR Code", symbol: .qrcodeViewfinder, identifier: "configuration.library.rules.add.scan") { quickAdd.showsQRCapture = true } }
+            Section { ruleDoor("Import File", symbol: .arrowUpDocument, identifier: "configuration.library.rules.add.file") { quickAdd.showsImporter = true } }
+            Section { ruleDoor("quick-add.new.rules", symbol: .docBadgePlus, identifier: "configuration.library.rules.add.manual") { addRequest = .manualAlone } }
              
              
              
@@ -2062,7 +2157,7 @@ private struct ConfigurationTowerManualRuleEditor: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
      
      
@@ -2922,7 +3017,7 @@ struct ConfigurationCollectionAdapter: View {
                 let source = try await Task.detached { try store.payload(.init(entry.source)) }.value
                 var libraryFailure: Error?
                 var refreshed = ConfigurationCollectionContentBridge.CollectionRefresh.downloaded
-                do { refreshed = try await ConfigurationCollectionContentBridge.refresh(entry, source: source) }
+                do { refreshed = try await ConfigurationCollectionContentBridge.refresh(entry, source: source, inUse: model.providerCatalogInUse()) }
                 catch { libraryFailure = error }
                 if libraryFailure == nil, refreshed == .downloaded { await load() }
                 updatePhase = ClashCopy.string("Applying to the configuration in use…", locale: locale)

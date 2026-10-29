@@ -188,7 +188,14 @@ struct GoldenFlowUtilitiesDestinationAdapter: View {
             case .dnsQuery:
                 DNSQueryView(command: command)
             case .proxyShare:
+#if os(macOS)
+                 
+                 
+                 
+                ProxyShareView(model: proxyShare).equatable()
+#else
                 ProxyShareView(model: proxyShare)
+#endif
             case .runtime:
                 RuntimeDetailView(
                     command: command,

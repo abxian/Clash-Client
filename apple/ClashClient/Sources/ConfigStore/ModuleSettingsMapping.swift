@@ -1539,3 +1539,169 @@ enum ModuleSettingsMapping {
         }
     }
 }
+
+extension ModuleGlobalManifest {
+     
+     
+     
+     
+    struct SettingNote: Equatable, Sendable {
+        enum Effect: Equatable, Sendable {
+             
+            case sets(OrderedJSON)
+             
+            case adds(Int)
+        }
+
+         
+        let module: String
+        let effect: Effect
+    }
+
+     
+     
+     
+     
+     
+     
+    func settingNote(at path: [String], in document: OrderedJSON, held: Set<String> = []) -> SettingNote? {
+        if path.count == 1, held.contains(path[0]), ModuleActivationStep.heldChanges[path[0]] != nil { return nil }
+        var note: SettingNote?
+        let written = document.node(at: path) != nil
+        for settings in settings ?? [] {
+            guard let module = modules.first(where: { $0.id == settings.moduleID })?.name else { continue }
+            for edit in settings.edits where Self.place(of: edit, in: document) == path {
+                switch edit.condition {
+                case nil, .plainNameserver?: break
+                case .whereWritten? where written: break
+                 
+                 
+                case .fakeIPFilter? where Self.fakeIPFilterMode(in: document) != "whitelist": break
+                default: continue
+                }
+                guard var value = try? OrderedJSON.parse(edit.valueJSON) else { continue }
+                if edit.condition == .fakeIPFilter { value = Self.fakeIPFilterItems(value, mode: Self.fakeIPFilterMode(in: document)) }
+                switch edit.operation {
+                case .replace:
+                    note = SettingNote(module: module, effect: .sets(value))
+                case .replaceIfAbsent where !written:
+                    note = SettingNote(module: module, effect: .sets(value))
+                case .append, .prepend, .merge:
+                    let count: Int
+                    switch value {
+                    case .array(let items): count = items.count
+                    case .object(let entries): count = entries.count
+                    default: count = 1
+                    }
+                     
+                    if case .sets? = note?.effect { continue }
+                    note = SettingNote(module: module, effect: .adds(count))
+                default:
+                    continue
+                }
+            }
+        }
+        return note
+    }
+
+     
+     
+     
+    static func place(of edit: ModuleConfigurationEdit, in document: OrderedJSON) -> [String] {
+        guard edit.condition == .plainNameserver, edit.path == ["dns", "nameserver"],
+              case .array(let servers)? = document.node(at: ["dns", "nameserver"]),
+              servers.contains(where: { if case .string(let server) = $0 { return ModuleSettingsMapping.isEncrypted(server) } else { return false } })
+        else { return edit.path }
+        return ["dns", "default-nameserver"]
+    }
+
+     
+     
+     
+    static func fakeIPFilterItems(_ items: OrderedJSON, mode: String) -> OrderedJSON {
+        guard case .array(let list) = items else { return items }
+        let field = mode == "rule" ? "rule" : "name"
+        return .array(list.compactMap { item -> OrderedJSON? in
+            guard case .object(let pairs) = item, case .string(let text)? = pairs.first(where: { $0.key == field })?.value else { return nil }
+            return .string(mode == "rule" ? text + ",real-ip" : text)
+        })
+    }
+
+    static func fakeIPFilterMode(in document: OrderedJSON) -> String {
+        switch document.node(at: ["dns", "fake-ip-filter-mode"]) {
+        case .string(let mode)?, .scalar(let mode)?: return mode.lowercased()
+        default: return "blacklist"
+        }
+    }
+
+     
+     
+    func moduleWriting(within path: [String]) -> String? {
+        for settings in settings ?? [] where settings.edits.contains(where: {
+            $0.path.count > path.count && Array($0.path.prefix(path.count)) == path
+        }) {
+            if let name = modules.first(where: { $0.id == settings.moduleID })?.name { return name }
+        }
+        return nil
+    }
+}
+
+ 
+ 
+ 
+struct ModuleDeviceSettingNote: Equatable, Sendable {
+    let module: String
+    let value: String
+
+    var isOn: Bool { ModuleSettingsMapping.boolean(value) ?? false }
+
+     
+     
+    static func published() async -> [ModuleDeviceSettingKey: ModuleDeviceSettingNote] {
+        await Task.detached(priority: .userInitiated) {
+             
+             
+            guard let manifest = ModuleLocations.production.flatMap({ ModuleStore.publishedGlobalManifest($0) }) else { return [:] }
+            let overlay = ModuleDeviceSettingOverlay(manifest.settings ?? [])
+            guard !overlay.isEmpty else { return [:] }
+            let modules = manifest.modules
+            var notes: [ModuleDeviceSettingKey: ModuleDeviceSettingNote] = [:]
+            for (key, id) in overlay.moduleIDs {
+                notes[key] = ModuleDeviceSettingNote(module: modules.first { $0.id == id }?.name ?? id,
+                                                     value: overlay.string(key, else: ""))
+            }
+            return notes
+        }.value
+    }
+}
+
+extension ModuleGlobalManifest {
+     
+     
+     
+    var listenerKeys: KernelLANShareOverride {
+        let edits = (settings ?? []).flatMap(\.edits).filter { $0.condition == nil }
+        func value(_ key: String) -> OrderedJSON? {
+            edits.last { $0.path == [key] }.flatMap { try? OrderedJSON.parse($0.valueJSON) }
+        }
+         
+        func port(_ key: String) -> Int32? {
+            switch value(key) {
+            case .scalar(let text)?, .string(let text)?: return Int32(text)
+            default: return nil
+            }
+        }
+        return KernelLANShareOverride(allowLAN: value("allow-lan").map { $0 == .scalar("true") },
+                                      mixedPort: port("mixed-port"), httpPort: port("port"), socksPort: port("socks-port"))
+    }
+}
+
+extension ModuleGlobalManifest {
+     
+     
+    static func published() async -> ModuleGlobalManifest? {
+        await Task.detached(priority: .userInitiated) {
+            ModuleLocations.production.flatMap { ModuleStore.publishedGlobalManifest($0) }
+        }.value
+    }
+}

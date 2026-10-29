@@ -69,6 +69,8 @@ struct ClientSettingsView: View {
      
     var restageRuntime: () -> Void = {}
     @State private var testURLText = DelayTestSettings.url()
+     
+    @State private var moduleSets: [ModuleDeviceSettingKey: ModuleDeviceSettingNote] = [:]
     @FocusState private var editingURL: Bool
     @State private var rejected = false
     @State private var autoClose = NodeSwitchSettings.autoCloseOnSwitch()
@@ -172,15 +174,18 @@ struct ClientSettingsView: View {
             }
 
             Section {
+                 
+                 
                 Picker("Profile URL Compatibility", selection: $userAgentPreset) {
                     ForEach(ClientUserAgent.Preset.allCases) { preset in
                         Text(clash: .copy(preset.label)).tag(preset)
                     }
                 }
-                .onChange(of: userAgentPreset) {
-                    ClientUserAgent.save(preset: $0)
-                }
+                .pickerStyle(.menu)
                 .accessibilityIdentifier("client.user-agent-preset")
+                .onChange(of: userAgentPreset) { preset in
+                    changingIdentity { ClientUserAgent.save(preset: preset) }
+                }
             } header: {
                 Text("Download Identity")
             } footer: {
@@ -191,12 +196,7 @@ struct ClientSettingsView: View {
                  
                  
                  
-                 
-                 
-                 
-                 
-                 
-                Text("The app sends this when it downloads a Profile URL. Downloads the core makes for a configuration use that configuration’s Download User-Agent. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name.")
+                Text("Sent when Clash downloads a Profile URL, and with every download of a configuration that sets no Download User-Agent of its own. Clash is recommended; FlClash is a compatibility fallback for panels that negotiate by client name.")
             }
 
             if let externalController {
@@ -248,14 +248,22 @@ struct ClientSettingsView: View {
                     .focused($editingURL)
                 if rejected {
                     ClashStatusMessage(
-                        text: .copy("HTTPS URL with a host required; leave empty for the default."),
+                        text: .copy("An http or https URL with a host is required; leave empty for the default."),
                         kind: .error
                     )
                 }
             } header: {
                 Text("Delay test URL")
             } footer: {
-                Text("Used by node delay tests. Empty resets to the default endpoint.")
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Used by node delay tests. Empty resets to the default endpoint.")
+                     
+                     
+                    if let set = moduleSets[.testURL] {
+                        Text(clash: .format("Module “%@” sets “%@”, which runs over this.", [set.module, set.value]))
+                            .accessibilityIdentifier("client.delay-test-url.module-note")
+                    }
+                }
             }
         }
         
@@ -273,6 +281,7 @@ struct ClientSettingsView: View {
             externalControllerMode = ClashRemoteControlSettings.load(
                 from: UserDefaults(suiteName: ClashAppIdentifiers.appGroup)).mode
         }
+        .task { moduleSets = await ModuleDeviceSettingNote.published() }
         .onChange(of: doorSelection) { door in
             guard door == nil else { return }
             externalControllerMode = ClashRemoteControlSettings.load(
@@ -314,6 +323,17 @@ struct ClientSettingsView: View {
     private func save() {
         rejected = !DelayTestSettings.setURL(testURLText)
         if !rejected { testURLText = DelayTestSettings.url() }
+    }
+
+     
+     
+     
+     
+     
+    private func changingIdentity(_ change: () -> Void) {
+        let before = ClientUserAgent.downloadIdentity()
+        change()
+        if ClientUserAgent.downloadIdentity() != before { restageRuntime() }
     }
 
      

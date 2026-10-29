@@ -24,12 +24,15 @@ enum DelayTestSettings {
     @discardableResult
     static func setURL(_ raw: String, in defaults: UserDefaults = appGroupDefaults) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+         
+         
+         
         if trimmed.isEmpty {
-            defaults.removeObject(forKey: key)
+            if defaults.object(forKey: key) != nil { defaults.removeObject(forKey: key) }
             return true
         }
         guard isValid(trimmed) else { return false }
-        defaults.set(trimmed, forKey: key)
+        if defaults.string(forKey: key) != trimmed { defaults.set(trimmed, forKey: key) }
         return true
     }
 

@@ -117,6 +117,10 @@ struct ModuleActivationInput: Equatable, Sendable {
      
      
      
+    var listenerKeysSetByApp: Set<String> = []
+     
+     
+     
     var settingsRefused: String? = nil
      
      
@@ -130,18 +134,14 @@ struct ModuleActivationInput: Equatable, Sendable {
     var ruleSetCopiesDirectory: URL? = nil
 
      
-    static let maximumManifestBytes = 8 << 20
-
-     
      
      
      
      
      
     static func loadPublished(locations: ModuleLocations?, engine: ModuleEngineStatus) -> ModuleActivationInput? {
+         
         guard let locations,
-              let size = try? locations.globalManifest.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              size <= maximumManifestBytes,
               let data = try? Data(contentsOf: locations.globalManifest),
               let manifest = try? ModuleJSON.decoder().decode(ModuleGlobalManifest.self, from: data),
               manifest.schemaVersion == ModuleGlobalManifest.currentSchemaVersion,
@@ -212,7 +212,7 @@ enum ModuleDegradeReason: Equatable, Sendable {
         case .stoppedForMemory:
              
              
-            return .app("Rewrites and scripts are paused to keep your network steady; rules still work.")
+            return ModuleEngineInsight.Copy.rewritesAndScriptsOnHold
         case .portsTaken:
              
              
@@ -374,6 +374,10 @@ struct ModulePublicationRecord: Codable, Equatable, Sendable {
      
      
     var heldEngine: String? = nil
+     
+     
+     
+    var composition: Int? = nil
 
     var pointer: ActiveConfigurationPointer { ActiveConfigurationPointer(profileID: profileID, revision: revision) }
 
@@ -411,9 +415,7 @@ struct ModulePublicationRecord: Codable, Equatable, Sendable {
      
      
     static func manifestDigest(locations: ModuleLocations) -> String? {
-        guard let size = try? locations.globalManifest.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-              size <= ModuleActivationInput.maximumManifestBytes,
-              let data = try? Data(contentsOf: locations.globalManifest) else { return nil }
+        guard let data = try? Data(contentsOf: locations.globalManifest) else { return nil }
         return ModuleJSON.sha256(data)
     }
 
@@ -430,6 +432,12 @@ struct ModulePublicationRecord: Codable, Equatable, Sendable {
         let record = load(locations: locations)
         if let record, record.pointer != inUse { return nil }
         let now = manifestDigest(locations: locations)
+         
+         
+         
+        if let record, record.engine != nil, record.composition != ModuleInjection.composition {
+            return ModuleStaleComposition(pointer: inUse, manifestSHA256: now)
+        }
         guard record?.manifestSHA256 != now else { return nil }
         return ModuleStaleComposition(pointer: inUse, manifestSHA256: now)
     }
@@ -580,6 +588,12 @@ enum ModuleActivationStep {
      
      
     static let defaultFakeIPRange = "198.18.0.1/16"
+     
+     
+    static let heldChanges: [String: ModuleChange.Key] = [
+        "log-level": .logLevel, "mode": .mode,
+        "allow-lan": .lanSharing, "port": .httpPort, "socks-port": .socksPort, "mixed-port": .mixedPort,
+    ]
 
 
 
@@ -1587,14 +1601,37 @@ enum ModuleActivationStep {
         }
         var text = yaml
         var removed: [String] = []
+        var removedProxies: Set<Int> = []
         for deletion in deletions {
             guard let edited = try? ConfigurationTextEditing.editAlone(text, at: deletion.path, .delete) else { continue }
             text = edited
             removed.append(deletion.said)
+            if deletion.said == "proxies", case .index(let index)? = deletion.path.last { removedProxies.insert(index) }
         }
          
          
-        return (text, removed, removed.contains("listeners") && readFacts().namesANodeLibrary, generation.engineProxy)
+         
+         
+         
+        if !removedProxies.isEmpty, let library = root["x-clash-node-library"] as? [String: Any],
+           let places = (library["inline-at"] as? [Any])?.compactMap({ ($0 as? NSNumber)?.intValue }),
+           places.count == (root["proxies"] as? [Any])?.count {
+            let kept = places.enumerated().filter { !removedProxies.contains($0.offset) }.map { item in
+                item.element - removedProxies.filter { $0 < item.offset }.count
+            }
+            let path: [ConfigurationTextPathStep] = [.key("x-clash-node-library"), .key("inline-at")]
+            let edit: ConfigurationTextEdit = kept.isEmpty ? .delete : .set(json: "[" + kept.map(String.init).joined(separator: ",") + "]")
+            if let edited = try? ConfigurationTextEditing.editAlone(text, at: path, edit) {
+                text = edited
+                removed.append("x-clash-node-library")
+            }
+        }
+         
+         
+         
+         
+        let held = removed.contains("listeners") && !removed.contains("proxies") && readFacts().namesANodeLibrary
+        return (text, removed, held, generation.engineProxy)
     }
 
      
@@ -1655,7 +1692,8 @@ enum ModuleActivationStep {
         var settledLogLevel: String?
         var settlesSettings = false
          
-        var heldByClash: Set<ModuleLineOrigin> = []
+         
+        var heldByClash: [ModuleLineOrigin: Set<ModuleChange.Key>] = [:]
 
          
         var cachedFacts: ConfigFacts?
@@ -1778,7 +1816,7 @@ enum ModuleActivationStep {
                 outcome.carriesSettings = settlesSettings
                 outcome.changes = (manifest.settings ?? []).flatMap(\.changes).map { change in
                     var change = change
-                    let held = [.logLevel, .mode].contains(change.key) && heldByClash.contains(change.origin)
+                    let held = heldByClash[change.origin]?.contains(change.key) == true
                     if held || input.settingsRefused != nil { change.applied = false }
                     return change
                 }
@@ -1821,8 +1859,13 @@ enum ModuleActivationStep {
                         continue
                     }
                      
-                    if (edit.path == ["log-level"] && input.logLevelSetByApp) || (edit.path == ["mode"] && input.modeSetByApp) {
-                        heldByClash.insert(edit.origin)
+                     
+                     
+                     
+                    if edit.path.count == 1, let held = Self.heldChanges[edit.path[0]],
+                       (edit.path == ["log-level"] && input.logLevelSetByApp) || (edit.path == ["mode"] && input.modeSetByApp)
+                        || input.listenerKeysSetByApp.contains(edit.path[0]) {
+                        heldByClash[edit.origin, default: []].insert(held)
                         skippedLines.append(ModuleIgnoredEntry(text: edit.path[0], reason: .setInClashSettings(edit.path[0]), origin: edit.origin,
                                                                 moduleID: module.moduleID))
                         continue
@@ -1932,6 +1975,10 @@ enum ModuleActivationStep {
             guard let value = try? OrderedJSON.parse(edit.valueJSON) else { return false }
             switch edit.path.first {
             case "allow-lan": return value == .scalar("true")
+             
+             
+            case "bind-address" where input.listenerKeysSetByApp.contains("allow-lan"):
+                return false
             case "bind-address":
                 if case .string(let address) = value { return ModuleSettingsMapping.opensToOtherDevices(address) }
                 return false

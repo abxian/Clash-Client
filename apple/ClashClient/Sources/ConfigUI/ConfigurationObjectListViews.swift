@@ -113,7 +113,7 @@ struct ConfigurationNewListItemForm: View {
     let add: (OrderedJSON) -> Void
     @State private var type = ""
     @State private var values: [String: ConfigurationNewItem.Value] = [:]
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 
@@ -586,7 +586,7 @@ struct ConfigurationObjectItemView: View {
     @ViewBuilder
     private func useDefault(_ row: Row) -> some View {
         if row.value != nil, row.key != "type", row.key != "name" {
-            Button { writeField(row.path, nil) } label: { Text(clash: .copy("Use Default")) }
+            Button { writeField(row.path, nil) } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
                 .tint(.orange)
                 .accessibilityIdentifier("configuration-editor.item-key.use-default")
         }
@@ -719,7 +719,7 @@ struct ConfigurationItemValueView: View {
      
     @State private var handed: OrderedJSON?
     @State private var usedDefault = false
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 

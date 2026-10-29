@@ -356,13 +356,16 @@ enum LZMAFileDecoder {
         var written = 0
         while true {
             if stream.src_size == 0 && !atEnd {
-                let piece = input.readData(ofLength: chunk)
-                if piece.isEmpty {
-                    atEnd = true
-                } else {
-                    piece.copyBytes(to: inBuffer, count: piece.count)
-                    stream.src_ptr = UnsafePointer(inBuffer)
-                    stream.src_size = piece.count
+                 
+                autoreleasepool {
+                    let piece = input.readData(ofLength: chunk)
+                    if piece.isEmpty {
+                        atEnd = true
+                    } else {
+                        piece.copyBytes(to: inBuffer, count: piece.count)
+                        stream.src_ptr = UnsafePointer(inBuffer)
+                        stream.src_size = piece.count
+                    }
                 }
             }
             stream.dst_ptr = outBuffer

@@ -276,9 +276,13 @@ private struct ClashFeedbackClaimModifier: ViewModifier {
     let operations: [String]
 
     func body(content: Content) -> some View {
+         
+         
+         
         content
-            .onAppear { center?.claim(operations) }
-            .onDisappear { center?.release(operations) }
+            .clashOnScreen { onScreen in
+                if onScreen { center?.claim(operations) } else { center?.release(operations) }
+            }
     }
 }
 

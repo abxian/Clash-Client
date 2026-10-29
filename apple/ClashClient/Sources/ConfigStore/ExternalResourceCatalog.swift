@@ -69,7 +69,7 @@ struct IOSExternalResourceFinding: LocalizedError, Codable, Equatable, Hashable 
         case .managedRuntimeStateRequired:
             return "The \(field) value is runtime state. Clash must manage a private profile-scoped location instead of using an arbitrary path."
         case .fileProviderUnavailable:
-            return "External file providers are not available in an imported iOS profile. Use an HTTPS or inline provider."
+            return "External file providers are not available in an imported iOS profile. Use an http(s) or inline provider."
         case .bundleArchiveRequired:
             return "The rule provider references a member of the rule bundle archive. Clash must materialize the matching bundle before activation."
         }

@@ -22,24 +22,35 @@ protocol ModuleUpstreamOpening: AnyObject {
 extension ModuleUpstreamConnector: ModuleUpstreamOpening {}
 
  
+ 
+ 
+ 
 protocol ModuleAllowance: AnyObject {
+     
     var allowsScripts: Bool { get }
-    var allowsBodies: Bool { get }
-     
-     
-    var bodiesAtOnce: Int? { get }
      
     func noteActivity()
+     
+     
+     
+    func roomForScript() -> ModuleMemoryShortfall?
 }
 
 final class ModuleFullAllowance: ModuleAllowance {
     var allowsScripts = true
-    var allowsBodies = true
-    var bodiesAtOnce: Int?
+     
+    var scriptShortfall: ModuleMemoryShortfall?
+     
+    private(set) var scriptsAsked = 0
 
     init() {}
 
     func noteActivity() {}
+
+    func roomForScript() -> ModuleMemoryShortfall? {
+        scriptsAsked += 1
+        return scriptShortfall
+    }
 }
 
  
@@ -300,6 +311,7 @@ final class ModuleExchange {
      
      
      
+     
     private var keptRequestHeaders: ModuleHTTPHeaders?
      
      
@@ -386,9 +398,11 @@ final class ModuleExchange {
      
      
      
+     
+     
     func shed(for rung: ModuleEngineReport.Rung) {
         adoptNewestIfIdle()
-        if rung >= .scriptsStopped { keptRequestHeaders = nil }
+        if rung >= .scriptsStopped, !services.allowance.allowsScripts { keptRequestHeaders = nil }
         if rung >= .engineStopped { windDown() }
     }
 
@@ -543,9 +557,8 @@ final class ModuleExchange {
             }
         }
          
-        let bodies = services.allowance.allowsBodies
-        let scriptsOn = bodies && services.allowance.allowsScripts
-        var requestSteps = steps(requestPlan.bodySteps, urls: urls, bodiesOn: bodies)
+        let scriptsOn = services.allowance.allowsScripts
+        var requestSteps = requestPlan.bodySteps
         if framing == .chunked || head.expectsContinue, requestSteps.contains(where: { $0.family == .surge }) {
              
              
@@ -581,14 +594,9 @@ final class ModuleExchange {
      
      
     private func matchResponse(_ plan: inout Plan) {
-        let bodies = services.allowance.allowsBodies
-        let scriptsOn = bodies && services.allowance.allowsScripts
+        let scriptsOn = services.allowance.allowsScripts
         let urls = plan.sent
-        var candidates = services.program.responseCandidates(urls, budget: &budget)
-        if !bodies, candidates.readsBody {
-            skip(.bodiesStopped, urls: urls, script: nil, counted: false)
-            candidates = candidates.withoutBodies()
-        }
+        let candidates = services.program.responseCandidates(urls, budget: &budget)
         var scripts = services.program.responseScripts(urls, budget: &budget)
         var script: ModuleScriptMatch?
         if let decided = scripts.decided {
@@ -671,20 +679,12 @@ final class ModuleExchange {
 
      
      
-    private func steps(_ steps: [ModuleBodyStep], urls: ModuleRequestURLs, bodiesOn: Bool) -> [ModuleBodyStep] {
-        guard !bodiesOn, !steps.isEmpty else { return steps }
-        skip(.bodiesStopped, urls: urls, script: nil, counted: false)
-        return []
-    }
-
-     
-     
      
     private func runnable(_ match: ModuleScriptMatch?, allowed: Bool, urls: ModuleRequestURLs) -> ModuleScriptMatch? {
         guard let match else { return nil }
         let why: String?
         if !allowed {
-            why = "scripts are paused for memory"
+            why = "JavaScriptCore could not start"
              
             if match.script.requiresBody { services.metrics.update { $0.bodySkippedTotal += 1 } }
         } else if !services.scripts.isAvailable {
@@ -820,10 +820,9 @@ final class ModuleExchange {
         }
         let declared = (try? ModuleHTTPFraming.contentLength(head.headers)) ?? nil
         let limits = ModuleBodyPlan(steps: steps, script: script, phase: .request, limits: services.budget.limits)
-        switch services.budget.begin(declaredLength: declared, limit: limits.collect, workingSet: limits.workingSet,
-                                     atOnce: services.allowance.bodiesAtOnce) {
+        switch services.budget.begin(declaredLength: declared, limit: limits.collect, workingSet: limits.workingSet) {
         case .failure(let why):
-            skip(why, urls: plan.urls, script: script, counted: true)
+            skip(why, urls: plan.urls, script: script, counted: true, steps: steps)
             runRequestScript(headOnly, head: head, body: nil, route: route, plan: plan) { [self] head, _, route, plan, local in
                 if let local { return answerLocally(local, keepAlive: false, plan: plan) }
                 forward(head, .stream(framing), route: route, plan: plan)
@@ -836,7 +835,7 @@ final class ModuleExchange {
                 case .failed:
                     close()
                 case .overflow(let payload, let reader, let why):
-                    skip(why, urls: plan.urls, script: script, counted: true)
+                    skip(why, urls: plan.urls, script: script, counted: true, steps: steps)
                     runRequestScript(headOnly, head: head, body: nil, route: route, plan: plan) { [self] head, _, route, plan, local in
                         if let local { return answerLocally(local, keepAlive: false, plan: plan) }
                         forward(head, .streamAfter(payload, reader, rechunk: framing == .chunked), route: route, plan: plan)
@@ -896,6 +895,19 @@ final class ModuleExchange {
 
      
      
+     
+     
+     
+     
+    private func roomFor(_ match: ModuleScriptMatch, phase: ModuleRewritePhase, urls: ModuleRequestURLs) -> Bool {
+        guard let short = services.allowance.roomForScript() else { return true }
+        services.metrics.update { $0.scriptsSkippedTotal += 1 }
+        say(#"script \#(match.script.name) \#(phase.rawValue) \#(urls.primary) not run for memory (\#(match.origin.description)): \#(short.description)"#)
+        return false
+    }
+
+     
+     
     private func scriptLimit(_ match: ModuleScriptMatch, phase: ModuleRewritePhase) -> Int? {
         services.budget.limits.scriptLimit(match.writtenFor, maxSize: match.script.maxSize, phase: phase)
     }
@@ -908,6 +920,7 @@ final class ModuleExchange {
             say(#"script \#(match.script.name) request \#(plan.urls.primary) not run: its body is \#(body.count) bytes, past the \#(maximum) its module's App reads"#)
             return completion(head, body, route, plan, nil)
         }
+        guard roomFor(match, phase: .request, urls: plan.urls) else { return completion(head, body, route, plan, nil) }
         let request = ModuleScriptRequest(id: plan.id, method: head.method, url: plan.url, headers: head.headers,
                                            body: match.script.requiresBody ? body : nil)
         let scripts = services.scripts
@@ -1229,6 +1242,7 @@ final class ModuleExchange {
              
              
              
+             
             var scriptView = view
             scriptView.responseHeaders = head.headers
             plan.responseScript = runnable(services.program.responseScript(plan.responseScripts, scriptView, budget: &budget),
@@ -1258,14 +1272,11 @@ final class ModuleExchange {
             }
         }
         let passOn = { [self] (why: ModuleBodySkip, counted: Bool) in
-            skip(why, urls: plan.urls, script: script, counted: counted)
+            skip(why, urls: plan.urls, script: script, counted: counted, steps: steps)
             runResponseScript(head, body: nil, framing: framing, plan, only: headOnly) { [self] changed, _ in
                 passResponse(changed, framing, upstream, plan, keepAlive: keepAlive, reusable: reusable)
             }
         }
-         
-         
-        guard services.allowance.allowsBodies else { return passOn(.bodiesStopped, false) }
          
         guard head.status != 206, !head.headers.contains("Content-Range") else { return passOn(.partialContent, false) }
         let transfer = head.headers.tokens("Transfer-Encoding")
@@ -1276,8 +1287,7 @@ final class ModuleExchange {
         let declared = (try? ModuleHTTPFraming.contentLength(head.headers)) ?? nil
         let limits = ModuleBodyPlan(steps: steps, script: script, phase: .response, limits: services.budget.limits)
         let collection: ModuleBodyCollection
-        switch services.budget.begin(declaredLength: declared, limit: limits.collect, workingSet: limits.workingSet,
-                                     atOnce: services.allowance.bodiesAtOnce) {
+        switch services.budget.begin(declaredLength: declared, limit: limits.collect, workingSet: limits.workingSet) {
         case .failure(let why):
             return passOn(why, true)
         case .success(let begun):
@@ -1291,7 +1301,7 @@ final class ModuleExchange {
             case .failed:
                 close()
             case .overflow(let payload, let reader, let why):
-                skip(why, urls: plan.urls, script: script, counted: true)
+                skip(why, urls: plan.urls, script: script, counted: true, steps: steps)
                 runResponseScript(head, body: nil, framing: framing, plan, only: headOnly) { [self] changed, _ in
                     guard Self.answerCarriesBody(method: plan.appMethod, status: changed.status) else {
                          
@@ -1340,11 +1350,12 @@ final class ModuleExchange {
         }
          
          
-        let cap = limits.collect ?? (coding == .identity ? Int.max : ModuleBodyLimits.unlimitedDecodeCap)
+         
+        let cap = (coding == .identity ? limits.collect : limits.decodeCap) ?? Int.max
         let decoded: Data
         switch services.budget.decode(held, payload, coding: coding, cap: cap) {
         case .failure(let why):
-            skip(why, urls: plan.urls, script: script, counted: true)
+            skip(why, urls: plan.urls, script: script, counted: true, steps: steps)
             return runResponseScript(head, body: nil, framing: framing, plan, only: headOnly) { changed, _ in original(changed) }
         case .success(let data):
             decoded = data
@@ -1394,7 +1405,7 @@ final class ModuleExchange {
          
         guard services.allowance.allowsScripts else {
             services.metrics.update { $0.scriptsSkippedTotal += 1 }
-            say("script \(match.script.name) response \(plan.urls.primary) not run: scripts are paused for memory")
+            say("script \(match.script.name) response \(plan.urls.primary) not run: JavaScriptCore could not start")
             return completion(head, nil)
         }
         if match.script.requiresBody, let body, let maximum = scriptLimit(match, phase: .response), body.count > maximum {
@@ -1402,6 +1413,7 @@ final class ModuleExchange {
             say(#"script \#(match.script.name) response \#(plan.urls.primary) not run: its body is \#(body.count) bytes, past the \#(maximum) its module's App reads"#)
             return completion(head, nil)
         }
+        guard roomFor(match, phase: .response, urls: plan.urls) else { return completion(head, nil) }
         let request = ModuleScriptRequest(id: plan.id, method: plan.method, url: plan.url, headers: keptRequestHeaders ?? ModuleHTTPHeaders(),
                                            body: nil)
         let response = ModuleScriptResponse(status: head.status, headers: head.headers, body: match.script.requiresBody ? body : nil)
@@ -1652,7 +1664,10 @@ final class ModuleExchange {
 
      
      
-    private func skip(_ why: ModuleBodySkip, urls: ModuleRequestURLs, script: ModuleScriptMatch?, counted: Bool) {
+     
+     
+    private func skip(_ why: ModuleBodySkip, urls: ModuleRequestURLs, script: ModuleScriptMatch?, counted: Bool,
+                      steps: [ModuleBodyStep] = []) {
         let scriptSkipped = script?.script.requiresBody == true
         services.metrics.update {
             if !counted {
@@ -1661,7 +1676,14 @@ final class ModuleExchange {
             }
             if scriptSkipped { $0.scriptsSkippedTotal += 1 }
         }
-        say("body skipped \(urls.primary): \(why.description)\(scriptSkipped ? "; script \(script?.script.name ?? "") not run" : "")")
+        var whose = ""
+        if case .memory = why {
+            var readers: [String] = []
+            for origin in steps.map(\.origin.description) + (scriptSkipped ? [script?.origin.description ?? ""] : [])
+                where !readers.contains(origin) { readers.append(origin) }
+            if !readers.isEmpty { whose = #" (\#(readers.joined(separator: ", ")))"# }
+        }
+        say("body skipped \(urls.primary): \(why.description)\(whose)\(scriptSkipped ? "; script \(script?.script.name ?? "") not run" : "")")
     }
 
     private func arm(_ kind: Waiting) {
@@ -1854,14 +1876,6 @@ final class ModuleExchange {
         }
         func step() {
             guard !ended else { return }
-             
-             
-             
-            guard services.allowance.allowsBodies else {
-                services.metrics.update { $0.bodySkippedTotal += 1 }
-                guard let taken = collection.giveWay() else { return done(.failed) }
-                return done(.overflow(taken, body, .bodiesStopped))
-            }
             if body.isComplete {
                  
                 guard let whole = collection.finishHeld() else { return done(.failed) }

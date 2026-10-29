@@ -60,7 +60,7 @@ enum ModuleScriptHostWiring {
         services.dns = dnsAccess()
         let store = ModuleScriptStore(
             directory: container.appendingPathComponent(ModuleScriptStore.directoryName, isDirectory: true),
-            limits: .platformDefault, log: log)
+            log: log)
          
          
         let quarantine = ModuleScriptQuarantine(file: container.appendingPathComponent(ModuleScriptQuarantine.fileName))

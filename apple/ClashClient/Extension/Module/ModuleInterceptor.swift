@@ -138,6 +138,16 @@ final class ModuleInterceptor: ModuleIntercepting {
     }
     var ownLoopHostCount: Int { ownLoop.count }
 
+     
+     
+     
+     
+    func releaseRules() {
+        dispatchPrecondition(condition: .onQueue(services.queue))
+        services.program = .empty
+        sessions.services = services
+    }
+
     func intercept(_ client: ModuleStream, target: ModuleConnectTarget, kind: ModuleInterceptKind, buffered: Data,
                    clientEnded: Bool, onEnd: @escaping () -> Void) -> Bool {
         dispatchPrecondition(condition: .onQueue(services.queue))
@@ -354,6 +364,7 @@ enum ModuleEngineAssembly {
         if previous == nil { sweepBodies(storage.bodies) }
          
          
+         
         let program = engine.passThroughCauses.contains(.memory) ? ModuleRewriteProgram.empty
             : ModuleRewriteProgram(published: inputs.modules, leavingOut: previous?.services.program.leftOutDuringRun ?? [],
                                     grownTooLarge: previous?.services.program.grewTooLargeDuringRun ?? [],
@@ -382,7 +393,7 @@ enum ModuleEngineAssembly {
              
             var saidNoHeadroom = false
             let ladder = ModuleMemoryLadder(thresholds: thresholds, startingAt: reporter.report.rung, takenBy: reporter.report.rungCause,
-                                             probe: ladderSeams.probe, pressureLevel: ladderSeams.pressureLevel, now: ladderSeams.now,
+                                             probe: ladderSeams.probe, now: ladderSeams.now,
                                              onChange: react(engine: engine, reporter: reporter, scripts: scripts),
                                              onReading: { [weak reporter, weak engine] reading in
                                                  reporter?.note {
@@ -390,12 +401,25 @@ enum ModuleEngineAssembly {
                                                      $0.headroomBytes = reading.headroom
                                                  }
                                                   
-                                                 if reading.headroom == nil, !thresholds.followsPressureOnly, !saidNoHeadroom {
+                                                 if reading.headroom == nil, !thresholds.relievesOnCriticalOnly, !saidNoHeadroom {
                                                      saidNoHeadroom = true
                                                      engine?.log.say("the system gives no memory headroom figure: the footprint is measured against \(thresholds.assumedLimit.map { "\($0 >> 20) MiB" } ?? "nothing")")
                                                  }
                                              },
-                                             onLower: relax(engine: engine, reporter: reporter))
+                                             onLower: relax(engine: engine, reporter: reporter),
+                                             onRelieve: { [weak engine] relief in
+                                                  
+                                                 let mib = { (bytes: Int64?) in bytes.map { String(format: #"%.1f MiB"#, Double($0) / 1_048_576) } ?? #"unknown"# }
+                                                 switch relief {
+                                                 case .tight(let reading):
+                                                     engine?.log.say(#"memory: headroom \#(mib(reading.headroom)), footprint \#(mib(reading.footprint)), under \#(mib(thresholds.relief)): idle scripts and cached regexes are let go"#)
+                                                 case .critical(let reading):
+                                                     engine?.log.say(#"memory: the system's memory pressure is critical, footprint \#(mib(reading.footprint)): idle scripts and cached regexes are let go"#)
+                                                 case .beforeSkip:
+                                                     break
+                                                 }
+                                                 relieve(engine: engine, scripts: scripts)
+                                             })
             if let make = ladderSeams.pressureSource { ladder.watchPressure(on: engine.queue, source: make) }
             engine.ladder = ladder
             allowance = ladder
@@ -404,7 +428,8 @@ enum ModuleEngineAssembly {
         }
         var services = ModuleExchangeServices(
             queue: engine.queue, program: program,
-            budget: previous?.services.budget ?? ModuleBodyBudget(limits: .current, metrics: engine.metrics, spillDirectory: storage.bodies),
+            budget: previous?.services.budget ?? ModuleBodyBudget(limits: .current, metrics: engine.metrics, spillDirectory: storage.bodies,
+                                                                  relieve: { [weak engine] in relieve(engine: engine, scripts: scripts) }),
             allowance: allowance, scripts: scripts, upstreams: connector, metrics: engine.metrics, log: engine.log,
             rejects: previous?.services.rejects ?? ModuleRejectUpgradeBox(), now: reporter.now,
             headTimeout: engine.headTimeout, finalSendTimeout: engine.finalSendTimeout)
@@ -498,6 +523,35 @@ enum ModuleEngineAssembly {
             engine.log.say("the certificates another CA left could not all be removed: \(why)")
         }
         return (store, fingerprint, nil)
+    }
+
+     
+     
+     
+     
+     
+    static func checkCertificate(_ engine: ModuleEngine, _ entry: ModuleEnginePlan.Entry, _ reporter: ModuleEngineReporter,
+                                 locations: ModuleEngineLocations, storage: ModuleEngineStorage = .tunnel) {
+        dispatchPrecondition(condition: .onQueue(engine.queue))
+        guard entry.assignment.decryptsTLS else {
+            return settleCertificate(engine, reporter, decrypts: false, fingerprint: nil, problem: nil)
+        }
+        var fingerprint: String?
+        var problem: String?
+        switch ModuleCAFiles.status(locations) {
+        case .ready(let ready, _):
+            let found = ModuleCertificateFingerprint.sha256(ready.certificateDER)
+            if let published = entry.assignment.caFingerprintSHA256, published.lowercased() != found {
+                problem = "the certificate is not the one this configuration was published with"
+            } else if storage.leaves == nil {
+                problem = "the tunnel has no directory for its certificates"
+            } else {
+                fingerprint = found
+            }
+        case .absent: problem = "no certificate has been made"
+        case .needsRegeneration(let why), .unavailable(let why): problem = why
+        }
+        settleCertificate(engine, reporter, decrypts: true, fingerprint: fingerprint, problem: problem)
     }
 
      

@@ -43,40 +43,65 @@ extension ProfilesViewModel {
      
      
     func configurationOutline(_ id: String, customRules: Int) async throws -> [ConfigurationOutlineRow] {
-        try await configurationOutlineReading(id, customRules: customRules).rows
+         
+         
+        try await configurationOutlineReading(id, customRules: customRules, readingItsOwnFile: true).rows
     }
 
      
      
      
-    func configurationOutlineReading(_ id: String, customRules: Int) async throws
+     
+     
+     
+     
+     
+     
+     
+     
+    func configurationOutlineReading(_ id: String, customRules: Int, readingItsOwnFile: Bool = false) async throws
         -> (rows: [ConfigurationOutlineRow], original: (json: String, document: OrderedJSON)?) {
         guard let library = configurationLibraryStore else { throw ConfigurationLibraryError.unreadable }
         await settleLibraryHousekeeping()
-        return try await Task.detached(priority: .userInitiated) {
-            () throws -> (rows: [ConfigurationOutlineRow], original: (json: String, document: OrderedJSON)?) in
-            let snapshot = try library.snapshot()
-            let recipe = snapshot.recipes.first { $0.id == id }
-            if let recipe, recipe.preservesOriginal != true {
-                return (try library.outline(ofRecipe: id, in: snapshot, customRules: customRules), nil)
-            }
-             
-             
-            guard let reference = recipe?.sources.first
-                    ?? snapshot.sources.first(where: { $0.id == "legacy-" + id }).map(ConfigurationSourceVersion.init) else {
-                throw ConfigurationLibraryError.missingDependency(id)
-            }
-            let payload = try library.payload(reference)
-            let json = payload.documentJSON
-            let document = try OrderedJSON.parse(json)
-            var rows = ConfigurationOutline.rows(for: document, form: .original, customRules: customRules)
-             
-             
-            if payload.record.rulesWrittenInOriginal == true, let index = rows.firstIndex(where: { $0.section == .rules }) {
-                rows[index] = ConfigurationOutlineRow(section: .rules, count: payload.record.ruleCount, written: true)
-            }
-            return (rows, (json, document))
-        }.value
+        do {
+            return try await Task.detached(priority: .userInitiated) {
+                () throws -> (rows: [ConfigurationOutlineRow], original: (json: String, document: OrderedJSON)?) in
+                let snapshot = try library.snapshot()
+                let recipe = snapshot.recipes.first { $0.id == id }
+                if let recipe, recipe.preservesOriginal != true {
+                    return (try library.outline(ofRecipe: id, in: snapshot, customRules: customRules), nil)
+                }
+                 
+                 
+                guard let reference = recipe?.sources.first
+                        ?? snapshot.sources.first(where: { $0.id == "legacy-" + id }).map(ConfigurationSourceVersion.init) else {
+                     
+                     
+                     
+                    throw ConfigurationLibraryError.missingDependency(recipe?.ruleSource.id ?? id)
+                }
+                return try Self.originalOutline(of: try library.payload(reference), customRules: customRules)
+            }.value
+        } catch ConfigurationLibraryError.missingDependency(let missing) where missing == id && readingItsOwnFile {
+            let own = try await configurationSourceFromLegacy(id)
+            return try await Task.detached(priority: .userInitiated) {
+                try Self.originalOutline(of: own, customRules: customRules)
+            }.value
+        }
+    }
+
+     
+    nonisolated private static func originalOutline(of payload: ConfigurationSourcePayload, customRules: Int) throws
+        -> (rows: [ConfigurationOutlineRow], original: (json: String, document: OrderedJSON)?) {
+        let json = payload.documentJSON
+        let document = try OrderedJSON.parse(json)
+        var rows = ConfigurationOutline.rows(for: document, form: .original, customRules: customRules)
+         
+         
+        if payload.record.rulesWrittenInOriginal == true, let index = rows.firstIndex(where: { $0.section == .rules }) {
+            rows[index] = ConfigurationOutlineRow(section: .rules, count: payload.record.ruleCount, written: true)
+        }
+        return (rows, (json, document))
     }
 
      

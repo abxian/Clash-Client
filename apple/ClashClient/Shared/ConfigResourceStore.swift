@@ -183,6 +183,10 @@ final class ConfigResourceStore {
         static let compatibilityConfiguration = "config.yaml"
         static let manifest = "manifest.json"
         static let temporaryPrefix = ".tmp-"
+         
+         
+         
+        static let setAsidePrefix = #".removed-"#
         static let payloads = "payloads"
     }
 
@@ -691,14 +695,41 @@ final class ConfigResourceStore {
     }
 
     func activePointer() throws -> ActiveConfigurationPointer? {
-        try withExclusiveLock {
+        try provedPointer(Name.activePointer)
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    private func provedPointer(_ name: String, operation: String = #function) throws -> ActiveConfigurationPointer? {
+        func lockedRead() throws -> Pointer? {
+            try withExclusiveLock(operation: operation) {
+                try prepareLayout()
+                return try? readPointer(name)
+            }
+        }
+        var pointer = try lockedRead()
+        for _ in 0..<3 {
+            guard let candidate = pointer else { return nil }
+            let proved = (try? loadRevision(candidate)) != nil
+            let now = try lockedRead()
+            guard now == candidate else {
+                pointer = now
+                continue
+            }
+            if proved { return ActiveConfigurationPointer(profileID: candidate.profileID, revision: candidate.revision) }
+            break
+        }
+        return try withExclusiveLock(operation: operation) {
             try prepareLayout()
-            guard let pointer = try? readPointer(Name.activePointer),
-                  (try? loadRevision(pointer)) != nil else { return nil }
-            return ActiveConfigurationPointer(
-                profileID: pointer.profileID,
-                revision: pointer.revision
-            )
+            guard let pointer = try? readPointer(name), (try? loadRevision(pointer)) != nil else { return nil }
+            return ActiveConfigurationPointer(profileID: pointer.profileID, revision: pointer.revision)
         }
     }
 
@@ -846,15 +877,7 @@ final class ConfigResourceStore {
 
 
     func lastKnownGoodPointer() throws -> ActiveConfigurationPointer? {
-        try withExclusiveLock {
-            try prepareLayout()
-            guard let pointer = try? readPointer(Name.lastKnownGoodPointer),
-                  (try? loadRevision(pointer)) != nil else { return nil }
-            return ActiveConfigurationPointer(
-                profileID: pointer.profileID,
-                revision: pointer.revision
-            )
-        }
+        try provedPointer(Name.lastKnownGoodPointer)
     }
 
      
@@ -982,11 +1005,15 @@ final class ConfigResourceStore {
         guard Self.isValidRevision(revision) else {
             throw ConfigResourceStoreError.invalidRevision
         }
+        let pointer = Pointer(schemaVersion: 1, profileID: profileID, revision: revision)
+         
+         
+         
+         
+        if let stored = try? loadRevision(pointer) { return stored }
         return try withExclusiveLock {
             try prepareLayout()
-            return try loadRevision(
-                Pointer(schemaVersion: 1, profileID: profileID, revision: revision)
-            )
+            return try loadRevision(pointer)
         }
     }
 
@@ -1032,33 +1059,57 @@ final class ConfigResourceStore {
         }
     }
 
+     
+     
+     
+     
+     
+     
+     
+     
+     
     func loadCurrent() throws -> StoredConfiguration {
-        try withExclusiveLock {
+        let first = try withExclusiveLock { () throws -> (named: Pointer?, decided: StoredConfiguration?) in
             try prepareLayout()
-            let hasVersionedPointer = fileManager.fileExists(
-                atPath: storeURL.appendingPathComponent(Name.activePointer).path
-            ) || fileManager.fileExists(
-                atPath: storeURL.appendingPathComponent(Name.lastKnownGoodPointer).path
-            )
-            if let active = try? readPointer(Name.activePointer),
-               let loaded = try? loadRevision(active) {
-                return loaded
-            }
-            if let lastKnownGood = try? readPointer(Name.lastKnownGoodPointer),
-               let loaded = try? loadRevision(lastKnownGood) {
-                return StoredConfiguration(
-                    profileID: loaded.profileID,
-                    revision: loaded.revision,
-                    data: loaded.data,
-                    recoveredFromLastKnownGood: true
-                )
-            }
-            if !hasVersionedPointer,
-               let legacy = try loadLegacyConfigurationIfPresent() {
-                return legacy
-            }
-            throw ConfigResourceStoreError.noValidConfiguration
+            guard let pointer = try? readPointer(Name.activePointer) else { return (nil, try loadCurrentLocked()) }
+            return (pointer, nil)
         }
+        if let decided = first.decided { return decided }
+        if let named = first.named, let loaded = try? loadRevision(named),
+           try withExclusiveLock({ try? readPointer(Name.activePointer) }) == named {
+            return loaded
+        }
+        return try withExclusiveLock {
+            try prepareLayout()
+            return try loadCurrentLocked()
+        }
+    }
+
+     
+    private func loadCurrentLocked() throws -> StoredConfiguration {
+        let hasVersionedPointer = fileManager.fileExists(
+            atPath: storeURL.appendingPathComponent(Name.activePointer).path
+        ) || fileManager.fileExists(
+            atPath: storeURL.appendingPathComponent(Name.lastKnownGoodPointer).path
+        )
+        if let active = try? readPointer(Name.activePointer),
+           let loaded = try? loadRevision(active) {
+            return loaded
+        }
+        if let lastKnownGood = try? readPointer(Name.lastKnownGoodPointer),
+           let loaded = try? loadRevision(lastKnownGood) {
+            return StoredConfiguration(
+                profileID: loaded.profileID,
+                revision: loaded.revision,
+                data: loaded.data,
+                recoveredFromLastKnownGood: true
+            )
+        }
+        if !hasVersionedPointer,
+           let legacy = try loadLegacyConfigurationIfPresent() {
+            return legacy
+        }
+        throw ConfigResourceStoreError.noValidConfiguration
     }
 
      
@@ -1279,6 +1330,8 @@ final class ConfigResourceStore {
               manifest.configurationSHA256.count == 64 else {
             throw ConfigResourceStoreError.corruptRevision
         }
+
+
         let data = try readBoundedFile(
             revisionURL.appendingPathComponent(Name.resolvedConfiguration),
             maximumBytes: maximumConfigurationBytes
@@ -1831,25 +1884,41 @@ extension ConfigResourceStore {
      
      
      
+     
+     
+     
+     
+     
     func orphanedProfileDirectories(registered: Set<String>) throws -> [URL] {
-        try withExclusiveLock { try orphanedProfileDirectoriesLocked(registered: registered) }
+        try orphanedProfileDirectoriesScan(registered: registered).orphans
     }
 
+     
+     
      
      
     @discardableResult
     func removeOrphanedProfileDirectories(registered: Set<String>) throws -> [String] {
-        try withExclusiveLock {
-            var removed: [String] = []
-            for url in try orphanedProfileDirectoriesLocked(registered: registered) {
-                guard (try? fileManager.removeItem(at: url)) != nil else { continue }
-                removed.append(url.lastPathComponent)
+        let scan = try orphanedProfileDirectoriesScan(registered: registered)
+        for leftover in scan.setAside { deleteSetAside(leftover) }
+        var removed: [String] = []
+        for url in scan.orphans {
+            let aside = try withExclusiveLock { () -> URL? in
+                guard !namedProfileIDs(registered).contains(url.lastPathComponent) else { return nil }
+                return setAsideLocked(url)
             }
-            if !removed.isEmpty { try syncDirectory(profilesURL) }
-            return removed
+            guard let aside else { continue }
+            deleteSetAside(aside)
+            removed.append(url.lastPathComponent)
         }
+        return removed
     }
 
+     
+     
+     
+     
+     
      
      
      
@@ -1861,80 +1930,147 @@ extension ConfigResourceStore {
      
      
     func supersededRevisionDirectories() throws -> [URL] {
-        try withExclusiveLock { try supersededRevisionDirectoriesLocked() }
+        try supersededRevisionsScan().superseded.map(\.directory)
     }
 
+     
+     
+     
      
      
     @discardableResult
     func removeSupersededRevisionDirectories() throws -> [URL] {
-        try withExclusiveLock {
-            var removed: [URL] = []
-            var parents = Set<URL>()
-            for url in try supersededRevisionDirectoriesLocked() {
-                guard (try? fileManager.removeItem(at: url)) != nil else { continue }
-                removed.append(url)
-                parents.insert(url.deletingLastPathComponent())
+        let scan = try supersededRevisionsScan()
+        for leftover in scan.setAside { deleteSetAside(leftover) }
+        var removed: [URL] = []
+        for found in scan.superseded {
+            let aside = try withExclusiveLock { () -> URL? in
+                guard isStillSupersededLocked(found) else { return nil }
+                return setAsideLocked(found.directory)
             }
-            for parent in parents { try syncDirectory(parent) }
-            return removed
+            guard let aside else { continue }
+            deleteSetAside(aside)
+            removed.append(found.directory)
         }
+        return removed
     }
 
-    private func supersededRevisionDirectoriesLocked() throws -> [URL] {
-        guard fileManager.fileExists(atPath: profilesURL.path) else { return [] }
-        let active = try? readPointer(Name.activePointer)
-        let lastKnownGood = try? readPointer(Name.lastKnownGoodPointer)
-        let replaced = try? readPointer(Name.replacedActivePointer)
+     
+     
+    private struct SupersededRevision {
+        let profileID: String
+        let revision: String
+        let directory: URL
+        let newest: String
+    }
+
+     
+     
+     
+     
+    private func supersededRevisionsScan() throws -> (superseded: [SupersededRevision], setAside: [URL]) {
+        guard fileManager.fileExists(atPath: profilesURL.path) else { return ([], []) }
+        let named = [Name.activePointer, Name.lastKnownGoodPointer, Name.replacedActivePointer]
+            .compactMap { try? readPointer($0) }
         let profileDirectories = try fileManager.contentsOfDirectory(
             at: profilesURL,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
         .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-        var superseded: [URL] = []
+        var superseded: [SupersededRevision] = []
+        var setAside: [URL] = []
         for directory in profileDirectories {
             let profileID = directory.lastPathComponent
             let profile = profilePaths(profileID)
             guard fileManager.fileExists(atPath: profile.revisions.path) else { continue }
-            var protected = Set<String>()
+            var protected = Set(named.filter { $0.profileID == profileID }.map(\.revision))
             if let current = try? readProfileCurrent(profile) { protected.insert(current) }
-            if active?.profileID == profileID, let revision = active?.revision { protected.insert(revision) }
-            if lastKnownGood?.profileID == profileID, let revision = lastKnownGood?.revision { protected.insert(revision) }
-            if replaced?.profileID == profileID, let revision = replaced?.revision { protected.insert(revision) }
-            let revisions = try fileManager.contentsOfDirectory(
+
+
+            guard let entries = try? fileManager.contentsOfDirectory(
                 at: profile.revisions,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: [.skipsHiddenFiles]
-            )
-            .filter { Self.isValidRevision($0.lastPathComponent) }
+                includingPropertiesForKeys: [.contentModificationDateKey]
+            ) else { continue }
+            setAside += entries.filter { $0.lastPathComponent.hasPrefix(Name.setAsidePrefix) }
+            let revisions = entries.filter { Self.isValidRevision($0.lastPathComponent) }
             func modified(_ url: URL) -> Date {
                 (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             }
              
              
-            if let newest = revisions.max(by: { modified($0) < modified($1) }) {
-                protected.insert(newest.lastPathComponent)
+            guard let newest = revisions.max(by: { modified($0) < modified($1) }) else { continue }
+            protected.insert(newest.lastPathComponent)
+            superseded += revisions.filter { !protected.contains($0.lastPathComponent) }.map {
+                SupersededRevision(profileID: profileID, revision: $0.lastPathComponent,
+                                   directory: $0, newest: newest.lastPathComponent)
             }
-            superseded += revisions.filter { !protected.contains($0.lastPathComponent) }
         }
-        return superseded.sorted { $0.path < $1.path }
+        return (superseded.sorted { $0.directory.path < $1.directory.path }, setAside)
     }
 
-    private func orphanedProfileDirectoriesLocked(registered: Set<String>) throws -> [URL] {
+     
+     
+     
+     
+    private func isStillSupersededLocked(_ found: SupersededRevision) -> Bool {
+        for name in [Name.activePointer, Name.lastKnownGoodPointer, Name.replacedActivePointer] {
+            if let pointer = try? readPointer(name),
+               pointer.profileID == found.profileID, pointer.revision == found.revision { return false }
+        }
+        let profile = profilePaths(found.profileID)
+        if (try? readProfileCurrent(profile)) == found.revision { return false }
+        let newest = profile.revisions.appendingPathComponent(found.newest, isDirectory: true)
+        return (try? entryType(at: newest)) == S_IFDIR && (try? entryType(at: found.directory)) == S_IFDIR
+    }
+
+     
+     
+    private func orphanedProfileDirectoriesScan(registered: Set<String>) throws -> (orphans: [URL], setAside: [URL]) {
+        let protected = namedProfileIDs(registered)
+        guard fileManager.fileExists(atPath: profilesURL.path) else { return ([], []) }
+
+
+        let entries = try fileManager.contentsOfDirectory(
+            at: profilesURL,
+            includingPropertiesForKeys: [.isDirectoryKey]
+        )
+        let orphans = entries
+            .filter { !$0.lastPathComponent.hasPrefix(".") }
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter { !protected.contains($0.lastPathComponent) }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return (orphans, entries.filter { $0.lastPathComponent.hasPrefix(Name.setAsidePrefix) })
+    }
+
+     
+     
+    private func namedProfileIDs(_ registered: Set<String>) -> Set<String> {
         var protected = registered
         protected.insert(Self.defaultProfileID)
         if let active = try? readPointer(Name.activePointer) { protected.insert(active.profileID) }
         if let good = try? readPointer(Name.lastKnownGoodPointer) { protected.insert(good.profileID) }
-        guard fileManager.fileExists(atPath: profilesURL.path) else { return [] }
-        return try fileManager.contentsOfDirectory(
-            at: profilesURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
-            options: [.skipsHiddenFiles]
-        )
-        .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-        .filter { !protected.contains($0.lastPathComponent) }
-        .sorted { $0.lastPathComponent < $1.lastPathComponent }
+        return protected
+    }
+
+     
+     
+     
+    private func setAsideLocked(_ directory: URL) -> URL? {
+        let aside = directory.deletingLastPathComponent()
+            .appendingPathComponent(Name.setAsidePrefix + UUID().uuidString.lowercased(), isDirectory: true)
+        guard rename(directory.path, aside.path) == 0 else { return nil }
+        return aside
+    }
+
+     
+     
+     
+    private func deleteSetAside(_ aside: URL) {
+
+
+        try? fileManager.removeItem(at: aside)
+        try? syncDirectory(aside.deletingLastPathComponent())
     }
 }
 
@@ -2051,52 +2187,62 @@ extension ConfigResourceStore {
      
      
      
+     
+     
+     
+     
     @discardableResult
     func adoptProviderPayloads() throws -> Int {
-        try withExclusiveLock {
-            guard fileManager.fileExists(atPath: profilesURL.path) else { return 0 }
-            let payloads = payloadStore
-            try fileManager.createDirectory(at: payloads.directory, withIntermediateDirectories: true)
-            var held = Set(payloads.inodes())
-            var adopted = 0
-            let profiles = try fileManager.contentsOfDirectory(
-                at: profilesURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
-            ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
-            for profile in profiles {
-                let revisions = profile.appendingPathComponent(Name.revisions, isDirectory: true)
-                let entries = (try? fileManager.contentsOfDirectory(
-                    at: revisions, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+        guard fileManager.fileExists(atPath: profilesURL.path) else { return 0 }
+        let payloads = payloadStore
+        var held = Set(payloads.inodes())
+        var adopted = 0
+        let profiles = try fileManager.contentsOfDirectory(
+            at: profilesURL, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles]
+        ).filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+        for profile in profiles {
+            let revisions = profile.appendingPathComponent(Name.revisions, isDirectory: true)
+            let entries = (try? fileManager.contentsOfDirectory(
+                at: revisions, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles]
+            )) ?? []
+            for revision in entries where Self.isValidRevision(revision.lastPathComponent) {
+                let providers = revision.appendingPathComponent("providers", isDirectory: true)
+
+
+                let files = (try? fileManager.contentsOfDirectory(
+                    at: providers, includingPropertiesForKeys: [.isRegularFileKey], options: []
                 )) ?? []
-                for revision in entries where Self.isValidRevision(revision.lastPathComponent) {
-                    let providers = revision.appendingPathComponent("providers", isDirectory: true)
-                    let files = (try? fileManager.contentsOfDirectory(
-                        at: providers, includingPropertiesForKeys: [.isRegularFileKey], options: []
-                    )) ?? []
-                     
-                     
-                    for leftover in files where leftover.lastPathComponent.hasPrefix(".link-") {
-                        try? fileManager.removeItem(at: leftover)
-                    }
-                    for file in files where !file.lastPathComponent.hasPrefix(".") {
-                        guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
-                              let inode = ProviderPayloadStore.inode(of: file), !held.contains(inode),
-                              let data = try? readBoundedFile(file, maximumBytes: Self.maximumCandidateResourceBytes)
-                        else { continue }
-                        let blob = payloads.directory.appendingPathComponent(
-                            ProviderPayloadStore.blobName(for: data, extension: file.pathExtension)
-                        )
-                        if fileManager.fileExists(atPath: blob.path) {
-                            guard (try? ProviderPayloadStore.link(blob, to: file)) != nil else { continue }
-                        } else {
-                            guard (try? fileManager.linkItem(at: file, to: blob)) != nil else { continue }
-                            held.insert(inode)
-                        }
-                        adopted += 1
+                 
+                 
+                let interrupted = files.filter { $0.lastPathComponent.hasPrefix(".link-") }
+                if !interrupted.isEmpty {
+                    try withExclusiveLock {
+                        for leftover in interrupted { try? fileManager.removeItem(at: leftover) }
                     }
                 }
+                for file in files where !file.lastPathComponent.hasPrefix(".") {
+                    guard (try? file.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true,
+                          let inode = ProviderPayloadStore.inode(of: file), !held.contains(inode),
+                          let data = try? readBoundedFile(file, maximumBytes: Self.maximumCandidateResourceBytes)
+                    else { continue }
+                    let blob = payloads.directory.appendingPathComponent(
+                        ProviderPayloadStore.blobName(for: data, extension: file.pathExtension)
+                    )
+                    let linked = try withExclusiveLock { () throws -> Bool in
+                        guard ProviderPayloadStore.inode(of: file) == inode else { return false }
+                        if fileManager.fileExists(atPath: blob.path) {
+                            return (try? ProviderPayloadStore.link(blob, to: file)) != nil
+                        }
+                        try fileManager.createDirectory(at: payloads.directory, withIntermediateDirectories: true)
+                        guard (try? fileManager.linkItem(at: file, to: blob)) != nil else { return false }
+                        held.insert(inode)
+                        return true
+                    }
+                    if linked { adopted += 1 }
+                }
             }
-            return adopted
         }
+        return adopted
     }
 
      
@@ -2104,6 +2250,16 @@ extension ConfigResourceStore {
      
     @discardableResult
     func removeUnreferencedPayloadBlobs() throws -> [URL] {
-        try withExclusiveLock { payloadStore.removeUnreferencedBlobs() }
+
+
+        var removed: [URL] = []
+        for blob in payloadStore.unreferencedBlobs() {
+            let went = try withExclusiveLock { () -> Bool in
+                guard ProviderPayloadStore.linkCount(of: blob) <= 1 else { return false }
+                return (try? fileManager.removeItem(at: blob)) != nil
+            }
+            if went { removed.append(blob) }
+        }
+        return removed
     }
 }

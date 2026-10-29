@@ -194,15 +194,12 @@ struct ModuleReading: Equatable, Sendable {
     var reads: Int
 }
 
+ 
+ 
+ 
 enum ModuleReader {
      
     static let rereads = 3
-    static let maximumListBytes = 8 << 20
-     
-     
-    static let maximumModuleTableBytes = 1 << 20
-    static let maximumIRBytes = 8 << 20
-    static let maximumScriptBytes = 8 << 20
      
      
      
@@ -229,7 +226,18 @@ enum ModuleReader {
      
      
      
+     
+     
+     
+     
+     
+     
+     
+    #if os(macOS)
+    static let maximumRuleBytes = Int.max
+    #else
     static let maximumRuleBytes = 384 * 1024
+    #endif
 
      
     struct Pass: Sendable {
@@ -324,15 +332,11 @@ enum ModuleReader {
          
          
         switch ModuleTopLevelJSON.values(of: ["schemaVersion", "modules"], in: locations.globalManifest,
-                                          maximumBytes: maximumListBytes, maximumValueBytes: maximumModuleTableBytes) {
-        case .missing:
+                                          maximumBytes: .max, maximumValueBytes: .max) {
+        case .missing, .tooLarge:
             pass.listProblem = "modules/manifest.json is missing or cannot be read"
-        case .tooLarge:
-            pass.listProblem = "modules/manifest.json is larger than \(maximumListBytes) bytes"
         case .notAnObject:
             pass.listProblem = "modules/manifest.json is not a module list this tunnel reads"
-        case .values(_, let oversized) where !oversized.isEmpty:
-            pass.listProblem = "modules/manifest.json's module table is larger than \(maximumModuleTableBytes) bytes"
         case .values(let values, _):
             if let view = try? ModuleJSON.decoder().decode(ListView.self, from: ModuleTopLevelJSON.object(values)) {
                 if view.schemaVersion == ModuleGlobalManifest.currentSchemaVersion {
@@ -391,15 +395,13 @@ enum ModuleReader {
         var wanted = 0
         var read = ModuleTopLevelJSON.values(
             keeping: { keptIRKeys.contains($0) }, nested: ["manifest": keptManifestKeys], in: locations.moduleManifest(module.id),
-            maximumBytes: maximumIRBytes, maximumValueBytes: left, eachChunk: { hasher.update(data: $0) },
+            maximumBytes: .max, maximumValueBytes: left, eachChunk: { hasher.update(data: $0) },
             valueBytes: { wanted = $0 })
         let manifestDigest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         var kept: [String: Data]
         switch read {
-        case .missing:
+        case .missing, .tooLarge:
             return .unsettled(omitted(.unreadable, "its manifest is missing or cannot be read"))
-        case .tooLarge:
-            return .leftOut(omitted(.unreadable, "its manifest is larger than \(maximumIRBytes) bytes"))
         case .notAnObject, .values:
              
              
@@ -414,7 +416,8 @@ enum ModuleReader {
                  
                  
                 let size = "what the tunnel keeps of it (its rewrites, engine rules and scripts) is \(wanted) bytes"
-                let limit = total < maximumRuleBytes ? " (\(maximumRuleBytes), less what this configuration's host lists hold)" : ""
+                let limit = total < maximumRuleBytes && maximumRuleBytes < .max
+                    ? " (\(maximumRuleBytes), less what this configuration's host lists hold)" : ""
                  
                  
                  
@@ -452,11 +455,9 @@ enum ModuleReader {
         for script in ir.scripts {
              
             guard let sha = script.bodySHA256 else { continue }
-            switch digest(of: locations.script(module.id, sha256: sha), maximumBytes: maximumScriptBytes) {
+            switch digest(of: locations.script(module.id, sha256: sha)) {
             case .missing:
                 return .unsettled(omitted(.scriptMismatch, "script \(script.name) (\(sha).js) is missing"))
-            case .tooLarge:
-                return .leftOut(omitted(.scriptMismatch, "script \(script.name) (\(sha).js) is larger than \(maximumScriptBytes) bytes"))
             case .data(let found) where found != sha:
                 return .unsettled(omitted(.scriptMismatch, "script \(script.name) (\(sha).js) holds other bytes (\(found))"))
             case .data:
@@ -469,25 +470,20 @@ enum ModuleReader {
 
     private enum Contents<Value> {
         case missing
-        case tooLarge
         case data(Value)
     }
 
      
      
-    private static func digest(of url: URL, maximumBytes: Int) -> Contents<String> {
+    private static func digest(of url: URL) -> Contents<String> {
         guard let handle = try? FileHandle(forReadingFrom: url) else { return .missing }
         defer { try? handle.close() }
         var hasher = SHA256()
-        var total = 0
         switch ModuleChunkedRead.each(handle, chunkBytes: 64 * 1024, { chunk in
-            total += chunk.count
-            guard total <= maximumBytes else { return false }
             hasher.update(data: chunk)
             return true
         }) {
-        case .failed: return .missing
-        case .stopped: return .tooLarge
+        case .failed, .stopped: return .missing
         case .end: return .data(hasher.finalize().map { String(format: "%02x", $0) }.joined())
         }
     }

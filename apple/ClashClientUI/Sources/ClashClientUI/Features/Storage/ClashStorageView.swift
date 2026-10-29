@@ -236,7 +236,7 @@ public struct ClashStorageView: View {
                     Text(clash: .copy(
                         tunnelIsRunning
                             ? "Disconnect first to reset local data."
-                            : "Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay."
+                            : "Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay."
                     ))
                 }
             }
@@ -259,7 +259,7 @@ public struct ClashStorageView: View {
             }
         } message: {
             Text(clash: .copy(
-                "Deletes every configuration, setting, and stored credential on this device. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch."
+                "Deletes every configuration, module, certificate, setting, and stored credential on this device. Any certificate you installed is no longer used; create, install, and trust a new one. The VPN configuration in Settings and your iCloud backups stay. Clash starts over as on first launch."
             ))
         }
     }

@@ -9,6 +9,9 @@ import Clash
  
  
  
+ 
+ 
+ 
 enum ClientUserAgent {
     enum Preset: String, CaseIterable, Identifiable {
         case clash
@@ -75,6 +78,38 @@ enum ClientUserAgent {
 
     static func save(preset: Preset, in d: UserDefaults = appGroupDefaults) {
         d.set(preset.rawValue, forKey: presetKey)
+    }
+
+     
+
+     
+     
+     
+     
+    static func downloadIdentity(from d: UserDefaults = appGroupDefaults) -> String {
+        preset(from: d).value
+    }
+
+     
+     
+     
+    static func written(in root: [String: Any]?) -> String? {
+        switch root?["global-ua"] {
+        case let text as String: return sanitized(text)
+        case let number as NSNumber:
+            return sanitized(CFGetTypeID(number) == CFBooleanGetTypeID() ? (number.boolValue ? "true" : "false") : number.stringValue)
+        default: return nil
+        }
+    }
+
+     
+     
+     
+     
+     
+    static func choice(_ userAgent: String?, identity: String) -> String? {
+        guard let userAgent = sanitized(userAgent), userAgent != identity else { return nil }
+        return userAgent
     }
 
      

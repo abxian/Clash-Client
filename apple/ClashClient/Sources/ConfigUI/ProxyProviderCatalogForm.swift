@@ -34,9 +34,10 @@ struct ProxyProviderCatalogRow: View {
     var body: some View {
         control
             .accessibilityIdentifier("configuration-editor.original-providers.field.\(row.path.joined(separator: "."))")
-            .swipeActions(edge: .trailing) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if row.value != nil {
-                    Button { Task { await useDefault() } } label: { Text(clash: .copy("Use Default")) }
+                    Button { Task { await useDefault() } } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
+                        .tint(.orange)
                 }
             }
     }
@@ -54,6 +55,7 @@ struct ProxyProviderCatalogRow: View {
         } else if Self.opensNodeList(row.path) {
             NavigationLink {
                 ConfigurationPayloadNodesPage(session: session, providerPath: providerPath, title: title)
+                    .configurationPushedAlertHost(session)
             } label: {
                 valueLabel
             }
@@ -64,6 +66,7 @@ struct ProxyProviderCatalogRow: View {
              
             NavigationLink {
                 entryPage(field)
+                    .configurationPushedAlertHost(session)
             } label: {
                 valueLabel
             }
@@ -73,6 +76,7 @@ struct ProxyProviderCatalogRow: View {
                                                value: row.value ?? startingValue, choices: nil, field: row.field) { json in
                     await write(json)
                 }
+                .configurationPushedAlertHost(session)
             } label: {
                 valueLabel
             }

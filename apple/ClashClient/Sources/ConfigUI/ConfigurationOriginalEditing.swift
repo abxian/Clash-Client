@@ -96,9 +96,19 @@ extension ProfilesViewModel {
 
      
      
+     
+     
+     
     nonisolated static func textDigest(fileAt url: URL) throws -> String {
+        let identity = OriginalFileDigests.identity(of: url)
+        if let identity, let known = OriginalFileDigests.shared.digest(of: url.path, identity: identity) { return known }
         let data = try Data(contentsOf: url, options: [.alwaysMapped])
-        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+         
+        if let identity, OriginalFileDigests.identity(of: url) == identity {
+            OriginalFileDigests.shared.record(digest, of: url.path, identity: identity)
+        }
+        return digest
     }
 
      
@@ -741,5 +751,34 @@ extension ProfilesViewModel {
             else { return [] }
             return Set(providers.map(\.key))
         }
+    }
+}
+
+ 
+ 
+final class OriginalFileDigests: @unchecked Sendable {
+    static let shared = OriginalFileDigests()
+    private let lock = NSLock()
+    private var known: [String: (identity: String, digest: String)] = [:]
+
+    static func identity(of url: URL) -> String? {
+        var status = stat()
+        guard stat(url.path, &status) == 0 else { return nil }
+        return "\(status.st_dev)|\(status.st_ino)|\(status.st_size)|"
+            + "\(status.st_mtimespec.tv_sec).\(status.st_mtimespec.tv_nsec)|"
+            + "\(status.st_ctimespec.tv_sec).\(status.st_ctimespec.tv_nsec)"
+    }
+
+    func digest(of path: String, identity: String) -> String? {
+        lock.lock(); defer { lock.unlock() }
+        guard let entry = known[path], entry.identity == identity else { return nil }
+        return entry.digest
+    }
+
+    func record(_ digest: String, of path: String, identity: String) {
+        lock.lock(); defer { lock.unlock() }
+         
+        if known.count >= 16 { known.removeAll() }
+        known[path] = (identity, digest)
     }
 }

@@ -100,7 +100,7 @@ public struct ClashDNSSettingsView<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ClashDNSOverrideDraft
      
      
@@ -805,7 +805,7 @@ public struct ClashDNSLocalMappingsView<Icon: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
      
@@ -1507,7 +1507,7 @@ private struct ClashDNSAdvancedView<Icon: View>: View {
                     "Maximum entries",
                     text: $draft.cacheMaxSize,
                     inherited: snapshot.inherited.number("dns.cache-max-size"),
-                    upstreamDefault: UpstreamNumberDefault.pinned(for: "dns.cache-max-size"),
+                    upstreamDefault: UpstreamNumberDefault.pinned(for: "dns.cache-max-size", boundedTunnel: ClashPlatformLayout.tunnelRunsBoundedDefaults),
                     identifier: "profile-dns.cache-max-size"
                 )
                 ClashDNSFieldRows.triStatePicker(
@@ -2212,7 +2212,7 @@ private struct ClashDNSResolverCatalogView<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
      
@@ -2734,7 +2734,7 @@ private struct ClashDNSPolicyEntrySheet<Icon: View>: View {
      
      
      
-    @State private var closeSelf = ClashDismissHandle()
+    @StateObject private var closeSelf = ClashDismissHandle()
      
      
      
@@ -3141,7 +3141,7 @@ private struct ClashDNSPolicyKindPicker<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var kindSelection: Binding<ClashDNSPolicyMatchKind?> {
         Binding(
@@ -3264,7 +3264,7 @@ private struct ClashDNSGeoValuePicker<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var query = ""
     @State private var values: [String] = []
     @State private var loaded = false
@@ -3489,7 +3489,7 @@ private struct ClashDNSGeoPickerChrome: ViewModifier {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashNavigationHostContext) private var hostContext
 
     func body(content: Content) -> some View {
@@ -3591,7 +3591,7 @@ private struct ClashDNSValuePicker<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var pickerSelection: Binding<String?> {
         Binding(

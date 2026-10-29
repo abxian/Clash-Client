@@ -554,7 +554,7 @@ struct ProxyShareView: View {
         listenSection(listener: kernelShare.listener, sharing: kernelShare.isOn)
         accessSection(listener: kernelShare.listener, sharing: kernelShare.isOn)
         if isRunningConfiguration {
-            if model.terminalListener != nil {
+            if model.displayedTerminalListener != nil {
                 terminalSection
             }
             coreExposureSection
@@ -575,7 +575,7 @@ struct ProxyShareView: View {
         listenSection(access: access, listener: kernelShare.listener, sharing: kernelShare.isOn)
         accessSection(access: access, listener: kernelShare.listener, sharing: kernelShare.isOn)
         if isRunningConfiguration {
-            if model.terminalListener != nil {
+            if model.displayedTerminalListener != nil {
                 terminalSection
             }
             coreExposureSection
@@ -726,7 +726,7 @@ struct ProxyShareView: View {
         }
         serverSection
         securitySection
-        if model.terminalListener != nil {
+        if model.displayedTerminalListener != nil {
             terminalSection
         }
     }
@@ -969,13 +969,15 @@ struct ProxyShareView: View {
 
      
      
+     
+     
     private var externalLineIsAvailable: Bool {
-        guard let listener = model.terminalListener else { return false }
+        guard let listener = model.displayedTerminalListener else { return false }
         return listener.host(forExternalMachine: true, addresses: reachableAddresses) != nil
     }
 
     private var localLineIsAvailable: Bool {
-        guard let listener = model.terminalListener else { return false }
+        guard let listener = model.displayedTerminalListener else { return false }
         return environmentHost(for: listener, externalIP: false) != nil
     }
 
@@ -995,6 +997,8 @@ struct ProxyShareView: View {
     }
 
     private func copyEnvironment(externalIP: Bool) {
+         
+         
         guard let listener = model.terminalListener else { return }
         guard let host = environmentHost(for: listener, externalIP: externalIP) else { return }
         let text = ProxyEnvironmentCommand.text(
@@ -1144,7 +1148,6 @@ private struct ProxyShareActiveConfiguration<Content: View>: View {
     @ObservedObject var profiles: ProfilesViewModel
     let content: (ConfigurationEditorSession) -> Content
     @StateObject private var session: ConfigurationEditorSession
-    @StateObject private var alertHosts = ConfigurationAlertHosts()
 
     init(profiles: ProfilesViewModel, profileID: String, @ViewBuilder content: @escaping (ConfigurationEditorSession) -> Content) {
         _profiles = ObservedObject(wrappedValue: profiles)
@@ -1157,7 +1160,6 @@ private struct ProxyShareActiveConfiguration<Content: View>: View {
     var body: some View {
         content(session)
             .configurationPushedAlertHost(session)
-            .environment(\.configurationAlertHosting, ConfigurationAlertHosting(hosts: alertHosts))
             .task(id: revision) { await session.reload() }
     }
 }
@@ -1385,15 +1387,51 @@ extension EnvironmentValues {
 #endif
 
 #if os(macOS)
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+struct ProxyShareSettingsRows: Equatable {
+    private let source: ObjectIdentifier
+    private let profileID: String?
+    private let rows: ([String]) -> AnyView
+
+     
+     
+    init(from source: AnyObject, profileID: String? = nil, rows: @escaping ([String]) -> AnyView) {
+        self.source = ObjectIdentifier(source)
+        self.profileID = profileID
+        self.rows = rows
+    }
+
+    func callAsFunction(_ keys: [String]) -> AnyView { rows(keys) }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.source == rhs.source && lhs.profileID == rhs.profileID
+    }
+}
+
 private struct ProxyShareSettingsRowsKey: EnvironmentKey {
-    static var defaultValue: (([String]) -> AnyView)? { nil }
+    static var defaultValue: ProxyShareSettingsRows? { nil }
+}
+
+ 
+ 
+ 
+extension ProxyShareView: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.model === rhs.model && lhs.isRunningConfiguration == rhs.isRunningConfiguration
+    }
 }
 
 extension EnvironmentValues {
      
      
      
-    var proxyShareSettingsRows: (([String]) -> AnyView)? {
+    var proxyShareSettingsRows: ProxyShareSettingsRows? {
         get { self[ProxyShareSettingsRowsKey.self] }
         set { self[ProxyShareSettingsRowsKey.self] = newValue }
     }
@@ -1411,7 +1449,7 @@ struct ProxyShareMacConfigurationPage: View {
     private var profile: Profile? { profiles.profiles.first { $0.id == profileID } }
 
     var body: some View {
-        ProxyShareView(model: model, isRunningConfiguration: false)
+        ProxyShareView(model: model, isRunningConfiguration: false).equatable()
             .onAppear(perform: bind)
              
              

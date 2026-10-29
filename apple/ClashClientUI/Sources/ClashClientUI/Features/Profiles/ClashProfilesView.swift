@@ -222,7 +222,7 @@ public struct ClashProfilesView<Icon: View, CapabilityContent: View>: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var requestedProfileID: Profile.ID?
     @Environment(\.clashPushRoute) private var pushRoute
@@ -1793,8 +1793,12 @@ private struct ClashProfileDetailView<
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var isSavingSourceUpdates = false
+     
+     
+     
+    @State private var pressedSourceUpdates = ClashPressedSwitches<ClashProfileSnapshot.ID>()
      
      
     @State private var confirmsFollowingLink = false
@@ -2144,6 +2148,7 @@ private struct ClashProfileDetailView<
             if ClashProfileSnapshot.offersSourceUpdatesSwitch(state, canPickLink: !profile.linksToPick.isEmpty) {
                 Toggle("Follow Link Updates", isOn: sourceUpdatesBinding(profile, state: state))
                     .disabled(isSavingSourceUpdates || profile.isBusy)
+                    .onChange(of: state) { _ in pressedSourceUpdates.read(profile.id) }
                     .accessibilityIdentifier("profile-detail.configuration-source-updates")
             }
             sourceUpdatesNote(state, canPickLink: !profile.linksToPick.isEmpty)
@@ -2165,7 +2170,7 @@ private struct ClashProfileDetailView<
      
      
     private func sourceUpdatesBinding(_ profile: ClashProfileSnapshot, state: ConfigurationUpdateFollowing) -> Binding<Bool> {
-        Binding(get: { state == .following }, set: { value in
+        Binding(get: { pressedSourceUpdates.shown(profile.id, else: state == .following) }, set: { value in
             if value, state == .copyWithoutOrigin {
                 asksForFollowedLink = true
                 return
@@ -2179,7 +2184,7 @@ private struct ClashProfileDetailView<
     }
 
     private func saveSourceUpdates(_ profile: ClashProfileSnapshot, enabled value: Bool) {
-        performSourceUpdates(.setConfigurationSourceUpdates(id: profile.id, enabled: value))
+        performSourceUpdates(.setConfigurationSourceUpdates(id: profile.id, enabled: value), pressing: (profile.id, value))
     }
 
      
@@ -2187,17 +2192,28 @@ private struct ClashProfileDetailView<
         performSourceUpdates(.followConfigurationLink(id: profile.id, linkID: link))
     }
 
-    private func performSourceUpdates(_ command: ClashProfilesCommand) {
+    private func performSourceUpdates(_ command: ClashProfilesCommand, pressing: (id: ClashProfileSnapshot.ID, value: Bool)? = nil) {
             guard !isSavingSourceUpdates else { return }
             isSavingSourceUpdates = true
             showsActionFailure = nil
+            let press = pressing.map { pressedSourceUpdates.press($0.id, $0.value) }
             Task { @MainActor in
-                defer { isSavingSourceUpdates = false }
+                var succeeded = false
                 do {
                     _ = try await actions.perform(.profiles(command), allowedBy: snapshot)
+                    succeeded = true
                 } catch {
                     showsActionFailure = ActionFailure(action: .sourceUpdates, message: .copy(error.localizedDescription))
                 }
+                isSavingSourceUpdates = false
+                guard let pressing, let press else { return }
+                guard succeeded else { return pressedSourceUpdates.settle(pressing.id, press: press) }
+                 
+                 
+                 
+                pressedSourceUpdates.written(pressing.id, press: press)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                pressedSourceUpdates.settle(pressing.id, press: press)
             }
     }
 
@@ -2835,6 +2851,7 @@ private struct ClashProfileDetailView<
                 if ClashProfileSnapshot.offersSourceUpdatesSwitch(state, canPickLink: !profile.linksToPick.isEmpty) {
                     Toggle("Follow Link Updates", isOn: sourceUpdatesBinding(profile, state: state))
                     .disabled(isSavingSourceUpdates || profile.isBusy)
+                    .onChange(of: state) { _ in pressedSourceUpdates.read(profile.id) }
                     .accessibilityIdentifier("profile-detail.configuration-source-updates")
                 }
                 sourceUpdatesNote(state, canPickLink: !profile.linksToPick.isEmpty)

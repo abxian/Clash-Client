@@ -1001,6 +1001,14 @@ final class ModuleRegexTable {
      
      
      
+    func dropCache() {
+        cache.removeAll()
+        recency.removeAll()
+    }
+
+     
+     
+     
     var compiledAtMost: Int { pinned.count + min(gated, cacheCapacity) }
 
      
@@ -1079,7 +1087,13 @@ final class ModuleGatedMatcher {
      
      
      
+     
+     
+    #if os(macOS)
+    static let maximumPinned = Int.max
+    #else
     static let maximumPinned = 256
+    #endif
     static let overBudgetReason = "over budget: the engine holds the regexes of at most \(maximumPinned) rules "
         + "without a literal to gate them on, and the rules before it took them"
 

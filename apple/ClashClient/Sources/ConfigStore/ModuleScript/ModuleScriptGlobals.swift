@@ -294,7 +294,7 @@ enum ModuleScriptGlobals {
                 session.log(#"$utils.ungzip: the argument is not a Uint8Array; null"#)
                 return NSNull()
             }
-            switch ModuleScriptGzip.ungzip(data, limit: session.limits.ungzipOutputBytes) {
+            switch ModuleScriptGzip.ungzip(data, limit: session.limits.decompressedBytesNow ?? .max) {
             case .success(let output):
                 return ModuleScriptValues.uint8Array(output, in: context) ?? NSNull()
             case .failure(let failure):

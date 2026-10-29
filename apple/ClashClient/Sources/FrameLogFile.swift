@@ -10,7 +10,7 @@ import ClashClientUI
 @MainActor
 enum ClashPerfBootstrap {
     static func install() {
-        ClashMainThreadHangSampler.startIfRequested()
+        ClashMainThreadHangSampler.start()
 
 
          

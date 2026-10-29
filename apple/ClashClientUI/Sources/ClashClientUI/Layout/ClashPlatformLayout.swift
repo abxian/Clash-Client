@@ -26,6 +26,18 @@ public enum ClashPlatformLayout {
      
      
      
+    public static var tunnelRunsBoundedDefaults: Bool {
+        #if os(macOS)
+        false
+        #else
+        true
+        #endif
+    }
+
+     
+     
+     
+     
      
     public static var proxiesSweepLivesInToolbar: Bool {
         #if os(iOS)

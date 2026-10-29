@@ -99,7 +99,7 @@
 "Connections" = "连接";
 "Connections going through Clash right now, newest first, and which rule sent each one where." = "此刻经过 Clash 的连接，最新在上，以及每条由哪条规则送往哪里。";
 "Connections · %@" = "连接 · %@";
-"Connects Clash and routes traffic by the current profile's rules. Until then nothing goes through a proxy." = "连接 Clash，按当前配置的规则分流。在此之前不走代理。";
+"Connects Clash and routes traffic by the current profile's rules. Until then nothing goes through a proxy." = "连接 Clash，按当前配置的规则转发流量。在此之前不走代理。";
 "Copy this rule scheme before editing it." = "先复制这个规则方案再编辑。";
 "Could not update: %@" = "无法更新：%@";
 "Couldn't read memory use" = "无法读取内存占用";
@@ -322,7 +322,7 @@
 "Restored profile" = "已恢复的配置";
 "Retries when you connect" = "连接后会自动重试";
 "Retry" = "重试";
-"Route traffic by the profile rules" = "按配置规则分流";
+"Route traffic by the profile rules" = "按配置的规则转发流量";
 "Rule" = "规则";
 "Rule matches every connection against the configuration. Global sends everything to the selected node. Direct proxies nothing." = "规则：每条连接都按配置匹配。全局：所有流量都发往选中的节点。直连：什么都不代理。";
 "Rules" = "规则";

@@ -76,44 +76,19 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
      
     struct Configuration: Equatable, Sendable {
          
-        var maximumRunning: Int
-        var maximumWaiting: Int
-         
-         
-        var maximumHTTPTimeout: Double
-         
-         
-        var maximumAppTimeout: Double
-         
         var idleTrimAfter: Double
          
         var residueReadAfter: Double = 5
         var sourceCacheBytes: Int
-        var maximumSourceBytes: Int
-         
-         
-         
-        var footprintAllowanceBytes: Int64?
          
          
         var overrunGrace: Double = 0.05
         var session: ModuleScriptSessionLimits
 
          
-        func maximumTimeout(for kind: ModuleScriptKind) -> Double {
-            kind.phase == nil ? maximumAppTimeout : maximumHTTPTimeout
-        }
-
-         
         init(_ host: ModuleScriptLimitsTable.Host, run: ModuleScriptLimitsTable.Run) {
-            maximumRunning = host.maximumRunning
-            maximumWaiting = host.maximumWaiting
-            maximumHTTPTimeout = host.maximumHTTPTimeout
-            maximumAppTimeout = host.maximumAppTimeout
             idleTrimAfter = host.idleTrimAfter
             sourceCacheBytes = host.sourceCacheBytes
-            maximumSourceBytes = host.maximumSourceBytes
-            footprintAllowanceBytes = host.footprintAllowanceBytes
             session = ModuleScriptSessionLimits(run)
         }
 
@@ -254,14 +229,11 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
     private var hasRuntime = false
      
      
+    private var collecting = false
+     
+     
     private var baseline: Int64 = 0
-     
-     
-     
-     
-    private var runBaseline: Int64 = 0
     private var running: [UUID: Running] = [:]
-    private var waiting: [Job] = []
     private var sources: ModuleScriptSourceCache
     private var idleTrim: DispatchWorkItem?
     private var residueRead: DispatchWorkItem?
@@ -281,6 +253,7 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
     private let shared = NSLock()
     private var storedAvailability: ModuleScriptAvailability = .available
     private var storedMetrics = ModuleScriptHostMetrics()
+    private var storedCollections = 0
 
     init(
         configuration: Configuration = .platformDefault,
@@ -312,8 +285,17 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
 
      
      
+     
+     
     static func timeout(for script: ModuleScriptDeclaration, configuration: Configuration) -> Double {
-        min(max(script.timeoutSeconds, 0.05), configuration.maximumTimeout(for: script.kind))
+        max(script.timeoutSeconds, 0.05)
+    }
+
+     
+     
+    static func deadline(after timeout: Double, from start: UInt64) -> UInt64 {
+        guard timeout < ModuleScriptDefaults.neverSeconds else { return UInt64.max >> 1 }
+        return start + UInt64(timeout * 1_000_000_000)
     }
 
      
@@ -324,7 +306,7 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
     ) async -> ModuleScriptHostOutcome {
         let timeout = Self.timeout(for: script, configuration: configuration)
         let id = UUID()
-        let deadline = now() + UInt64(timeout * 1_000_000_000)
+        let deadline = Self.deadline(after: timeout, from: now())
          
          
          
@@ -352,11 +334,23 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         control.async { self.stopNow(reason) }
     }
 
+     
+     
+     
+     
     func trim() {
         control.async {
-            guard self.running.isEmpty, self.waiting.isEmpty else { return }
+            guard self.running.isEmpty else { return self.collectGarbage() }
             self.trimNow()
         }
+    }
+
+     
+     
+    var garbageCollections: Int {
+        shared.lock()
+        defer { shared.unlock() }
+        return storedCollections
     }
 
     func metrics() -> ModuleScriptHostMetrics {
@@ -399,21 +393,10 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         if quarantine.entry(for: digest) != nil {
             return end(job, .skipped(.quarantined(digest)), measured: nil)
         }
-        let cap = configuration.maximumTimeout(for: job.declaration.kind)
-        if let asked = job.declaration.timeout, asked > cap {
-            services.log(#"[script] \#(job.declaration.name) asks for timeout \#(Int(asked)) s; held to \#(cap) s"#)
-        }
-        if running.count < configuration.maximumRunning {
-            start(job)
-        } else if waiting.count < configuration.maximumWaiting {
-            waiting.append(job)
-            let id = job.id
-            control.asyncAfter(deadline: DispatchTime(uptimeNanoseconds: job.deadline)) { [weak self] in
-                self?.expireWaiting(id)
-            }
-        } else {
-            end(job, .skipped(.busy), measured: nil)
-        }
+         
+         
+         
+        start(job)
     }
 
     private func start(_ job: Job) {
@@ -433,7 +416,6 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
             baseline = reading
             hasRuntime = true
         }
-        if running.isEmpty { runBaseline = reading }
         let id = job.id
         let handle = SessionHandle()
         let sessionID = Self.sessionID()
@@ -493,31 +475,9 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         session.start(source: source)
     }
 
-    private func startWaiting() {
-        while stopReason == nil, running.count < configuration.maximumRunning, !waiting.isEmpty {
-            let job = waiting.removeFirst()
-            if job.cancelled.isRaised {
-                end(job, .skipped(.cancelled), measured: nil)
-            } else if job.deadline <= now() {
-                end(job, .skipped(.busy), measured: nil)
-            } else {
-                start(job)
-            }
-        }
-    }
-
-    private func expireWaiting(_ id: UUID) {
-        guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
-        end(waiting.remove(at: index), .skipped(.busy), measured: nil)
-    }
-
      
     private func cancel(_ id: UUID) {
-        if let index = waiting.firstIndex(where: { $0.id == id }) {
-            end(waiting.remove(at: index), .skipped(.cancelled), measured: nil)
-        } else if running[id] != nil {
-            settle(id, .skipped(.cancelled))
-        }
+        if running[id] != nil { settle(id, .skipped(.cancelled)) }
     }
 
      
@@ -556,7 +516,6 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
                stoppedBy: .overran(scriptName: declaration.name, sha256: digest, seconds: seconds))
          
         if !entry.settled { end(entry.job, .timedOut(seconds: seconds), measured: nil) }
-        startWaiting()
     }
 
      
@@ -616,7 +575,6 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         let lane = entry.lane
         lane.thread.async { [weak self] in self?.noteContexts(lane) }
         guard stopReason == nil else { return }
-        startWaiting()
         scheduleIdleTrimIfIdle()
     }
 
@@ -632,17 +590,10 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
             metrics.footprintBytes = over
             metrics.footprintBytesPeak = max(metrics.footprintBytesPeak, over)
         }
-         
-         
-        let added = current - runBaseline
-        if stopReason == nil, let allowance = configuration.footprintAllowanceBytes, added > allowance {
-            stopNow(.footprint(overBaselineBytes: added, allowanceBytes: allowance))
-        }
         end(entry.job, outcome, measured: (milliseconds, current - entry.footprintAtStart))
         let lane = entry.lane
         lane.thread.async { [weak self] in self?.noteContexts(lane) }
         guard stopReason == nil else { return }
-        startWaiting()
         scheduleIdleTrimIfIdle()
     }
 
@@ -722,9 +673,16 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         guard let data = try? Data(contentsOf: declaration.sourceFile) else {
             return .refused(.sourceMissing(declaration.sourceFile.path))
         }
-        guard data.count <= configuration.maximumSourceBytes else { return .refused(.sourceTooLarge(data.count)) }
         let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
         guard actual == digest else { return .refused(.sourceMismatch(expected: digest, actual: actual)) }
+         
+         
+         
+        let needed = data.count * ModuleScriptMemory.bytesPerSourceByte
+        let memory = configuration.session.memory
+        guard memory.allows(needed) else {
+            return .refused(.lowMemory(neededBytes: needed, spareBytes: memory.spareBytes ?? 0))
+        }
         let text = String(decoding: data, as: UTF8.self)
         sources.insert(text, bytes: data.count, for: digest)
         let cacheBytes = sources.bytes
@@ -736,7 +694,7 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
     }
 
     private func scheduleIdleTrimIfIdle() {
-        guard running.isEmpty, waiting.isEmpty, hasRuntime, stopReason == nil else { return }
+        guard running.isEmpty, hasRuntime, stopReason == nil else { return }
         idleTrim?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.trimNow() }
         idleTrim = work
@@ -752,6 +710,29 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         let work = DispatchWorkItem { [weak self] in self?.readResidue() }
         residueRead = work
         control.asyncAfter(deadline: .now() + configuration.residueReadAfter, execute: work)
+    }
+
+     
+     
+     
+    private func collectGarbage() {
+        guard hasRuntime, stopReason == nil, !collecting else { return }
+        collecting = true
+        let lane = self.lane
+        lane.thread.async { [weak self] in
+            var collected = false
+            if let context = lane.contexts.allObjects.first {
+                JSGarbageCollect(context.jsGlobalContextRef)
+                collected = true
+            }
+            guard let self else { return }
+            if collected {
+                self.shared.lock()
+                self.storedCollections += 1
+                self.shared.unlock()
+            }
+            self.control.async { self.collecting = false }
+        }
     }
 
     private func readResidue() {
@@ -792,9 +773,6 @@ final class ModuleScriptHost: ModuleScriptHosting, @unchecked Sendable {
         idleTrim = nil
         residueRead?.cancel()
         residueRead = nil
-        let pending = waiting
-        waiting.removeAll()
-        for job in pending { end(job, .skipped(.stopped(reason)), measured: nil) }
          
         for id in running.keys { settle(id, .skipped(.stopped(reason)), say: false) }
         dropRuntime()

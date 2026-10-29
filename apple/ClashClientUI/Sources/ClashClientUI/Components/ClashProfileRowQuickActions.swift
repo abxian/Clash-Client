@@ -19,14 +19,7 @@ struct ClashProfileRowQuickActions<Icon: View>: ViewModifier {
             content
                  
                  
-                .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                    if profile.canDelete {
-                        Button(role: .destructive, action: delete) {
-                            Label { Text("Delete") } icon: { icon(.trash) }
-                        }
-                        .accessibilityIdentifier("profile-center.row.delete")
-                    }
-                }
+                .clashSwipeToDelete(identifier: "profile-center.row.delete", profile.canDelete ? delete : nil)
                 .contextMenu {
                     if profile.source == .remote, profile.canSync {
                         Button(action: update) {
@@ -36,7 +29,7 @@ struct ClashProfileRowQuickActions<Icon: View>: ViewModifier {
                     }
                     if profile.canCopySubscriptionLink {
                         Button(action: copyLink) {
-                            Label { Text("Copy Profile URL") } icon: { icon(.link) }
+                            Label { Text("Copy Link") } icon: { icon(.link) }
                         }
                         .accessibilityIdentifier("profile-center.row.copy-link")
                     }

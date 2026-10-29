@@ -146,7 +146,8 @@
           "zh-Hant": "把發往這些位址的 DNS 查詢交給 Clash 處理。"
         },
         "keys": [
-          "dns-hijack"
+          "dns-hijack",
+          "dns-mode"
         ]
       },
       {

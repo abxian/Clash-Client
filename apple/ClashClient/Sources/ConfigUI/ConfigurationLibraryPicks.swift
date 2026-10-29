@@ -480,7 +480,7 @@ struct ConfigurationLibraryNodePicker: View {
     @State private var chosen: Set<String> = []
     @State private var query = ""
     @State private var failure: String?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 

@@ -98,6 +98,16 @@ enum ReaderTunnelIntent: String, Equatable, Sendable {
     }
 
      
+     
+     
+     
+     
+     
+     
+     
+    static var holdAwake: () -> (() -> Void) = { {} }
+
+     
     enum Written: Equatable {
          
         case accepted(Record)
@@ -150,9 +160,12 @@ enum ReaderTunnelIntent: String, Equatable, Sendable {
 
      
      
+     
+     
+     
     static func last(in directory: URL?) throws -> Record? {
         guard let directory else { throw Failure.noAppGroup }
-        return try withLock(in: directory, LOCK_SH) { try read(directory) }
+        return try read(directory)
     }
 
     private static func read(_ directory: URL) throws -> Record? {
@@ -178,6 +191,8 @@ enum ReaderTunnelIntent: String, Equatable, Sendable {
      
      
     private static func withLock<T>(in directory: URL, _ operation: Int32, _ body: () throws -> T) throws -> T {
+        let release = holdAwake()
+        defer { release() }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let fd = open(directory.appendingPathComponent(lockName).path, O_RDWR | O_CREAT | O_CLOEXEC, 0o644)
         guard fd >= 0 else { throw Failure.lockUnavailable(errno) }

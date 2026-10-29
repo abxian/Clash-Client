@@ -156,6 +156,7 @@ struct ProxiesOverviewHost: View {
                 delays: nodes.delays,
                 defaultDelayTestURL: nodes.defaultDelayTestURL,
                 failureReasons: nodes.failureReasons,
+                coreFailureReasons: nodes.coreFailureReasons,
                  
                  
                 nowByGroup: nodes.nowByGroup,
@@ -194,6 +195,10 @@ struct ProxiesOverviewHost: View {
                 Task {
                     await nodes.test(group: group)
                 }
+            },
+            testShown: { shown in
+                guard command.isConnected else { return }
+                Task { await nodes.test(shown: shown) }
             },
             loadMembers: { groupName in
                 Task { await nodes.loadRemainingMembers(of: groupName) }
@@ -1162,6 +1167,8 @@ extension ProxiesOverviewHost {
             cachedProjection: cached,
             profile: profile,
             providersDir: providersDir,
+            failureCategory: nodes.coreFailureReasons[inspection.name],
+            failureMessage: nodes.coreFailureMessages[inspection.name],
             profiles: profiles
         )
     }

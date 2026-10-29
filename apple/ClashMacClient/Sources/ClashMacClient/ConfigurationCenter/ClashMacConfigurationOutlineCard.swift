@@ -381,6 +381,9 @@ struct ClashMacConfigurationPageActions: View {
      
     var duplicate: (@MainActor () -> Void)? = nil
     var duplicating = false
+     
+     
+    var viewsSourceOnly = false
 
      
      
@@ -389,10 +392,17 @@ struct ClashMacConfigurationPageActions: View {
         Section {
             HStack(spacing: 8) {
                 if let editSource {
-                    Button(action: editSource) {
-                        Label { Text(clash: .copy("Edit Source…")) } icon: { Image(systemName: "pencil") }
+                    if viewsSourceOnly {
+                        Button(action: editSource) {
+                            Label { Text(clash: .copy("View Source…")) } icon: { Image(systemName: "doc.text.magnifyingglass") }
+                        }
+                        .accessibilityIdentifier("configuration-center.configuration.page.view-source")
+                    } else {
+                        Button(action: editSource) {
+                            Label { Text(clash: .copy("Edit Source…")) } icon: { Image(systemName: "pencil") }
+                        }
+                        .accessibilityIdentifier("configuration-center.configuration.page.edit-source")
                     }
-                    .accessibilityIdentifier("configuration-center.configuration.page.edit-source")
                 }
                 if let compile {
                     Button(action: compile) {
@@ -425,7 +435,13 @@ struct ClashMacConfigurationPageActions: View {
                 Spacer()
             }
         } footer: {
-            Text(clash: .copy("Changes take effect as you make them. Compiling only checks."))
+            VStack(alignment: .leading, spacing: 2) {
+                if viewsSourceOnly {
+                    Text(clash: .copy("Too large to edit here. View only."))
+                        .accessibilityIdentifier("configuration-center.configuration.page.view-only")
+                }
+                Text(clash: .copy("Changes take effect as you make them. Compiling only checks."))
+            }
         }
     }
 }

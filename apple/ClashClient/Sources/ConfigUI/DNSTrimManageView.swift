@@ -24,7 +24,7 @@ struct DNSTrimManageView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
 
     var body: some View {
@@ -150,7 +150,7 @@ struct ProviderLoadDetailView: View {
 
     let rows: [Row]
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
 
     @ViewBuilder

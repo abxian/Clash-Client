@@ -951,22 +951,35 @@ struct ProxyNodeDetailsView: View {
                 .accessibilityHidden(true)
         }
 
-        if showsTesting {
-            ClashSection("Testing") {
+        if showsTesting || record.failureMessage != nil {
+            ClashSection("Latency Test") {
                 valueRow("Latency", delayTitle)
-                Button(action: retest) {
-                    HStack(spacing: ClashTheme.Spacing.compact) {
-                        Label(
-                            "Retest Latency",
-                            systemImage: ClashSymbol.speedometer.name
-                        )
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, minHeight: ClashClientUI.ClashTheme.Control.fullWidthRowMinHeightOnItsOwnPlatform)
-                    .contentShape(Rectangle())
+                 
+                 
+                 
+                if let message = record.failureMessage {
+                    Text(verbatim: message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("proxies.nodeEditor.failure")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("proxies.nodeEditor.retest")
+                if showsTesting {
+                    Button(action: retest) {
+                        HStack(spacing: ClashTheme.Spacing.compact) {
+                            Label(
+                                "Retest Latency",
+                                systemImage: ClashSymbol.speedometer.name
+                            )
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity, minHeight: ClashClientUI.ClashTheme.Control.fullWidthRowMinHeightOnItsOwnPlatform)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("proxies.nodeEditor.retest")
+                }
             }
         }
 
@@ -1477,6 +1490,9 @@ struct ProxyNodeDetailsView: View {
      
      
     private var delayTitle: ClashDisplayText {
+        if let category = record.failureCategory, record.delay.map({ $0 <= 0 }) ?? true {
+            return .copy(ClashProbeFailureCopy.badge(for: category))
+        }
         guard let delay = record.delay else { return .copy("Not tested") }
         return delay > 0 ? .verbatim("\(delay) ms") : .copy(ClashProbeFailureCopy.neutralBadge)
     }
@@ -1793,7 +1809,7 @@ private struct DialerProxyPickerView: View {
     @State private var candidates: DialerProxyCandidates?
 
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPopRoute) private var popRoute
     @Environment(\.locale) private var locale
 
@@ -3160,9 +3176,10 @@ private struct ProxySchemaFieldRow: View {
         )
     }
 
+     
     private var boolBinding: Binding<Bool> {
         Binding(
-            get: { draft.bool(path: path) },
+            get: { draft.shownFlag(path: path, catalog: ProfilesViewModel.rememberedSyntaxCatalog?.fieldCatalog) },
             set: { draft.setBool($0, path: path) }
         )
     }

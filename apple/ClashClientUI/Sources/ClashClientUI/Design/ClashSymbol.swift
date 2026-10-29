@@ -83,6 +83,8 @@ public enum ClashSymbol: String, CaseIterable, Sendable {
     case globeAsiaAustralia = "globe.asia.australia"
     case handRaisedFill = "hand.raised.fill"
      
+    case scope = "scope"
+     
     case starFill = "star.fill"
     case houseFill = "house.fill"
     case icloudAndArrowDown = "icloud.and.arrow.down"
@@ -94,6 +96,7 @@ public enum ClashSymbol: String, CaseIterable, Sendable {
     case line3HorizontalDecrease = "line.3.horizontal.decrease"
     case link = "link"
     case listBullet = "list.bullet"
+    case listBulletIndent = "list.bullet.indent"
     case listBulletRectangle = "list.bullet.rectangle"
     case listBulletRectanglePortrait = "list.bullet.rectangle.portrait"
     case listTriangle = "list.triangle"
@@ -107,6 +110,7 @@ public enum ClashSymbol: String, CaseIterable, Sendable {
     case networkSlash = "network.slash"
     case pause = "pause"
     case pauseCircle = "pause.circle"
+    case pauseCircleFill = "pause.circle.fill"
     case paperplane = "paperplane"
     case pencil = "pencil"
     case arrowUpDocument = "arrow.up.document"
@@ -151,6 +155,7 @@ public enum ClashSymbol: String, CaseIterable, Sendable {
     case xLogo = "x.logo"
     case xmark = "xmark"
     case xmarkCircle = "xmark.circle"
+    case xmarkCircleFill = "xmark.circle.fill"
     case xmarkOctagonFill = "xmark.octagon.fill"
 
     public var isCustom: Bool {

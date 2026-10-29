@@ -46,8 +46,6 @@ struct ModuleFileStamp: Equatable, Sendable {
 
 final class ModuleWatch {
      
-    static let maximumBytes = ModuleReader.maximumListBytes
-     
      
      
      
@@ -172,8 +170,8 @@ final class ModuleWatch {
     private func read() -> (digest: String, listed: Listed?)? {
         var hasher = SHA256()
         let outcome = ModuleTopLevelJSON.values(
-            keeping: { ["schemaVersion", "enabled", "modules"].contains($0) }, in: file, maximumBytes: Self.maximumBytes,
-            maximumValueBytes: ModuleReader.maximumModuleTableBytes, eachChunk: { hasher.update(data: $0) })
+            keeping: { ["schemaVersion", "enabled", "modules"].contains($0) }, in: file, maximumBytes: .max,
+            maximumValueBytes: .max, eachChunk: { hasher.update(data: $0) })
         let digest = hasher.finalize().map { String(format: "%02x", $0) }.joined()
         switch outcome {
         case .missing, .tooLarge:

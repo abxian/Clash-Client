@@ -64,8 +64,13 @@ struct ClashDismissPlacement: Equatable {
  
  
  
+ 
+ 
+ 
+ 
+ 
 @MainActor
-public final class ClashDismissHandle {
+public final class ClashDismissHandle: ObservableObject {
     private var action: (() -> Void)?
      
      

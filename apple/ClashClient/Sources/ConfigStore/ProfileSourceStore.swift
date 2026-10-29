@@ -206,50 +206,63 @@ enum ProfileSourceStore {
      
      
      
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
     final class StagingLock: @unchecked Sendable {
         fileprivate let url: URL
-        private var fd: Int32
+        private var held = true
         private let shield: SuspensionShield
         private let shieldToken: Any?
 
-        fileprivate init(url: URL) throws {
-            let shield = ConfigResourceStore.suspensionShield
-            let token = shield.begin()
-            let fd = open(url.path, O_CREAT | O_RDWR | O_CLOEXEC, S_IRUSR | S_IWUSR)
-            guard fd >= 0 else { shield.end(token); throw CocoaError(.fileWriteUnknown) }
-            guard flock(fd, LOCK_SH | LOCK_NB) == 0 else { close(fd); shield.end(token); throw CocoaError(.fileWriteUnknown) }
+        fileprivate init(url: URL) {
+            shield = ConfigResourceStore.suspensionShield
+            shieldToken = shield.begin()
             self.url = url
-            self.fd = fd
-            self.shield = shield
-            shieldToken = token
+            Self.hold(url, true)
         }
 
         fileprivate func release() {
-            guard fd >= 0 else { return }
-            unlink(url.path)
-            close(fd)
-            fd = -1
+            guard held else { return }
+            held = false
+            Self.hold(url, false)
             shield.end(shieldToken)
         }
 
         deinit {
-            if fd >= 0 {
-                close(fd)
+            if held {
+                Self.hold(url, false)
                 shield.end(shieldToken)
             }
+        }
+
+         
+         
+        private static let registry = NSLock()
+        nonisolated(unsafe) private static var holding = Set<String>()
+
+        private static func hold(_ url: URL, _ holds: Bool) {
+            registry.lock()
+            defer { registry.unlock() }
+            if holds { holding.insert(url.lastPathComponent) } else { holding.remove(url.lastPathComponent) }
+        }
+
+        fileprivate static func isHeld(_ url: URL) -> Bool {
+            registry.lock()
+            defer { registry.unlock() }
+            return holding.contains(url.lastPathComponent)
         }
     }
 
      
-     
-    private static func isHeld(_ lock: URL) -> Bool {
-        let fd = open(lock.path, O_RDWR | O_CLOEXEC)
-        guard fd >= 0 else { return false }
-        defer { close(fd) }
-        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { return true }
-        flock(fd, LOCK_UN)
-        return false
-    }
+    private static func isHeld(_ lock: URL) -> Bool { StagingLock.isHeld(lock) }
 
      
      
@@ -352,7 +365,7 @@ enum ProfileSourceStore {
         let token = stagingName("")
          
          
-        let lock = try StagingLock(url: folder.appendingPathComponent(stagedPrefix + token + ".lock"))
+        let lock = StagingLock(url: folder.appendingPathComponent(stagedPrefix + token + ".lock"))
         var written: [URL] = []
         do {
             let files = try build { data, suffix in

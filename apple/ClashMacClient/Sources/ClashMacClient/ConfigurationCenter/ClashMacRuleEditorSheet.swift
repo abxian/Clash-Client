@@ -172,7 +172,7 @@ public struct ClashMacRuleEditorSheet: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
     @Environment(\.configurationFieldCopy) private var copy
     @State private var state: ClashMacRuleEditorState?

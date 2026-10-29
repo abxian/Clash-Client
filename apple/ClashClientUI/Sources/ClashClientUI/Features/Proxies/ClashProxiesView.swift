@@ -76,6 +76,24 @@ enum ClashProxyMemberSlicePlan {
     }
 }
 
+ 
+ 
+ 
+struct ClashProxyLocatePlan: Equatable {
+    let anchor: String
+    let revealsAll: Bool
+
+    static func make(group: String, ordered: [String], selection: String?, isRevealed: Bool,
+                     renderCap: Int, columns: Int) -> Self? {
+        guard let selection, let position = ordered.firstIndex(of: selection) else { return nil }
+        let revealsAll = !isRevealed && position >= renderCap
+        let shown = isRevealed || revealsAll ? ordered.count : min(ordered.count, renderCap)
+        guard let slice = ClashProxyMemberSlicePlan.make(count: shown, columns: columns)
+            .first(where: { $0.contains(position) }) else { return nil }
+        return Self(anchor: "group.\(group).members.\(slice.lowerBound)", revealsAll: revealsAll)
+    }
+}
+
 enum ClashProxyAccordionPlan {
 
     static func make(
@@ -344,7 +362,17 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
              
              
             && p.browsingSuppressedByDirectMode == q.browsingSuppressedByDirectMode
-        let equal = dataEqual && sweepEqual && chromeEqual
+         
+         
+         
+         
+         
+         
+        let cardsEqual = p.actionRefusals == q.actionRefusals
+            && p.editableMembers == q.editableMembers
+            && p.scriptsForNodes == q.scriptsForNodes
+            && p.failureCategories == q.failureCategories
+        let equal = dataEqual && sweepEqual && chromeEqual && cardsEqual
             && a.presentationClass == b.presentationClass
             && a.showsDismissControl == b.showsDismissControl
          
@@ -372,6 +400,8 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                 else if p.catalogState != q.catalogState { field = "catalog-state" }
                 else if p.canRefreshCatalog != q.canRefreshCatalog { field = "can-refresh" }
                 else if p.canUnpinGroups != q.canUnpinGroups { field = "can-unpin" }
+                else if p.actionRefusals != q.actionRefusals { field = "refusals" }
+                else if p.failureCategories != q.failureCategories { field = "failure-categories" }
                 else { field = "other" }
                 ClashPerf.count("proxies.eq.miss." + field)
             }
@@ -423,6 +453,9 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.clashScrollToID) private var scrollToID
+     
+     
+    @State private var pageScroll = ClashProxiesPageScroll()
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
      
@@ -702,12 +735,7 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                     selectedTab = name
                 }
                 send(.setVisibleGroup(name: name))
-                if let scrollToID {
-                    ClashPerf.emit("proxies entry-scroll dest=\(name)")
-                    DispatchQueue.main.async {
-                        scrollToID(Self.groupAnchor(name))
-                    }
-                }
+                scrollToGroup(name)
             }
             .onChange(of: hasExpandedGroups) { value in
                 foldStateSink?(value)
@@ -978,6 +1006,7 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                     .accessibilityIdentifier("proxies.display.applying")
             } else {
                 catalogContent
+                    .background(ClashProxiesPageScrollReader(scroll: pageScroll))
             }
         }
     }
@@ -1066,9 +1095,14 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                  
                  
                  
-                send(.testAll(
-                    visibleGroupNames: browsedGroups.map(\.name)
-                ))
+                 
+                if isSearching {
+                    send(.testShown(snapshot.proxies.shownMembers(matching: effectiveQuery)))
+                } else {
+                    send(.testAll(
+                        visibleGroupNames: browsedGroups.map(\.name)
+                    ))
+                }
             },
             onSweepCancel: { send(.cancelLatency) },
             icon: icon
@@ -1292,6 +1326,11 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
             height: headerControlHeight,
             pulse: latencyPulse,
             onStart: {
+                 
+                if isSearching {
+                    send(.testShown(snapshot.proxies.shownMembers(matching: effectiveQuery)))
+                    return
+                }
                 send(
                     .testAll(
                         visibleGroupNames: browsedGroups
@@ -1350,7 +1389,27 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
         }
         let selection = visibleSelection(in: group)
 
-        return ClashProxyGroupHeader(
+         
+         
+         
+         
+        return VStack(alignment: .leading, spacing: 0) {
+            groupHeader(group, isOpen: isOpen, isTesting: isTesting, selection: selection)
+            if let refusal = snapshot.proxies.actionRefusals[group.name] {
+                ClashGroupRefusalLine(group: group.name, refusal: refusal)
+                    .padding(.bottom, ClashTheme.Spacing.compact)
+            }
+        }
+        .id("group.\(group.name)")
+    }
+
+    private func groupHeader(
+        _ group: ClashProxyGroupSnapshot,
+        isOpen: Bool,
+        isTesting: Bool,
+        selection: String?
+    ) -> some View {
+        ClashProxyGroupHeader(
             group: group,
             isOpen: isOpen,
             isTesting: isTesting,
@@ -1359,14 +1418,23 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
             latency: snapshot.proxies.displayedLatency(forGroup: group),
             showsUnpin: snapshot.proxies.offersUnpin(for: group)
                 && selection != nil,
+             
+            showsLocate: selection.map { chosen in group.members.contains { $0.name == chosen } } ?? false,
             showsIconImages: preferences.groupIconImages,
             icon: icon,
             onToggle: { toggle(group) },
-            onTestGroup: { send(.testGroup(name: group.name)) },
-            onUnpin: { unpin(group) }
+             
+            onTestGroup: {
+                if isSearching {
+                    send(.testShown([ClashProxiesShownMembers(group: group.name, members: group.members.map(\.name))]))
+                } else {
+                    send(.testGroup(name: group.name))
+                }
+            },
+            onUnpin: { unpin(group) },
+            onLocate: { locate(group) }
         )
         .equatable()
-        .id("group.\(group.name)")
     }
 
     @ViewBuilder
@@ -1382,6 +1450,7 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                 .id(Self.groupAnchor(ClashProxyBrowsing.ungroupedKey))
         case .memberSlice:
             accordionMemberSlice(row)
+                .id(AnyHashable(row.id))
         case .showAll:
             if let revealKey = row.revealKey {
                 showAllButton(
@@ -1555,6 +1624,11 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
+                }
+                 
+                 
+                if let refusal = snapshot.proxies.actionRefusals[group.name] {
+                    ClashGroupRefusalLine(group: group.name, refusal: refusal)
                 }
                  
                  
@@ -1843,8 +1917,12 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
     private func refusalCaption(
         for group: ClashProxyGroupSnapshot?
     ) -> some View {
+         
+         
+         
         if let group, let refusal = choiceRefusal,
-           refusal.group == group.name {
+           refusal.group == group.name,
+           snapshot.proxies.actionRefusals[group.name] == nil {
             Text(clash: .copy(refusal.message))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -2276,6 +2354,24 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
         return browsedGroups.first?.name
     }
 
+     
+     
+     
+    private func locate(_ group: ClashProxyGroupSnapshot) -> String? {
+        let ordered = index.renderingMembers(in: group, for: snapshot.proxies, sortedBy: preferences.sort).map(\.name)
+        guard let plan = ClashProxyLocatePlan.make(
+            group: group.name, ordered: ordered, selection: visibleSelection(in: group),
+            isRevealed: revealedFullGroups.contains(group.name),
+            renderCap: Self.memberRenderCap, columns: gridColumns.count
+        ) else { return nil }
+        if !expanded.contains(group.name) { toggle(group) }
+        if plan.revealsAll {
+            revealedFullGroups.insert(group.name)
+            if !group.hasEveryMember { send(.loadMembers(group: group.name)) }
+        }
+        return plan.anchor
+    }
+
     private func toggle(_ group: ClashProxyGroupSnapshot) {
         let wasOpen = expanded.contains(group.name)
         ClashPerf.markGroupFold(wasOpen: wasOpen)
@@ -2438,11 +2534,21 @@ public struct ClashProxiesView<Icon: View>: View, Equatable {
          
          
          
-        if let destination, let scrollToID {
-            ClashPerf.emit("proxies entry-scroll dest=\(destination)")
-            DispatchQueue.main.async {
-                scrollToID(Self.groupAnchor(destination))
-            }
+        if let destination { scrollToGroup(destination) }
+    }
+
+     
+     
+     
+     
+     
+    private func scrollToGroup(_ name: String) {
+        let outer = scrollToID
+        let page = pageScroll
+        DispatchQueue.main.async {
+            guard let scroll = outer ?? page.request else { return }
+            ClashPerf.emit("proxies entry-scroll dest=\(name)")
+            scroll(Self.groupAnchor(name))
         }
     }
 
@@ -3016,6 +3122,8 @@ private struct ClashProxyGroupHeader<Icon: View>: View, Equatable {
     let latency: ClashProxyLatencyState
     let showsUnpin: Bool
      
+    let showsLocate: Bool
+     
      
      
     let showsIconImages: Bool
@@ -3023,6 +3131,12 @@ private struct ClashProxyGroupHeader<Icon: View>: View, Equatable {
     let onToggle: () -> Void
     let onTestGroup: () -> Void
     let onUnpin: () -> Void
+     
+    let onLocate: () -> String?
+     
+     
+     
+    @Environment(\.clashScrollToID) private var scrollToID
 
     nonisolated static func == (a: Self, b: Self) -> Bool {
         ClashPerf.count("proxies.header.eq")
@@ -3033,6 +3147,7 @@ private struct ClashProxyGroupHeader<Icon: View>: View, Equatable {
             && a.currentSelection == b.currentSelection
             && a.latency == b.latency
             && a.showsUnpin == b.showsUnpin
+            && a.showsLocate == b.showsLocate
              
              
              
@@ -3151,6 +3266,29 @@ private struct ClashProxyGroupHeader<Icon: View>: View, Equatable {
                         "proxies.group.\(group.name)"
                     )
                     .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+
+                     
+                     
+                    if showsLocate, let scrollToID {
+                        Button {
+                            guard let anchor = onLocate() else { return }
+                             
+                            DispatchQueue.main.async {
+                                scrollToID(AnyHashable(anchor), anchor: .center)
+                            }
+                        } label: {
+                            icon(.scope)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: ClashTheme.Control.pointerRowTarget,
+                                       height: ClashTheme.Control.pointerRowTarget)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .help(Text(clash: .copy("Jump to Current Node")))
+                        .accessibilityLabel(Text(clash: .copy("Jump to Current Node")))
+                        .accessibilityIdentifier("proxies.locate.\(group.name)")
+                    }
 
                     Button {
                         onTestGroup()
@@ -3952,5 +4090,23 @@ private struct ClashSweepControl<Icon: View>: View {
             completed = batch.completed
             total = batch.total
         }
+    }
+}
+
+ 
+ 
+final class ClashProxiesPageScroll: @unchecked Sendable {
+    var request: ClashScrollRequest?
+}
+
+ 
+private struct ClashProxiesPageScrollReader: View {
+    let scroll: ClashProxiesPageScroll
+    @Environment(\.clashScrollToID) private var request
+
+    var body: some View {
+        Color.clear
+            .onAppear { scroll.request = request }
+            .onChange(of: request) { scroll.request = $0 }
     }
 }

@@ -707,6 +707,37 @@ struct KernelLANShareBinding {
      
      
     var restartedSince: @MainActor (UInt64) async -> Bool = { _ in false }
+     
+     
+    var settled: @MainActor () async -> Void = {}
+     
+     
+     
+    var modulesListenerKeys: @MainActor () -> KernelLANShareOverride = { KernelLANShareOverride() }
+}
+
+ 
+ 
+private struct KernelShareAsk {
+     
+     
+    let isShown: (KernelLANShareOverride, ProfileListenerPorts?) -> Bool
+     
+    let overrideIsSilent: (KernelLANShareOverride) -> Bool
+     
+    let write: (inout KernelLANShareOverride) -> Void
+
+    static func allowLAN(_ on: Bool) -> KernelShareAsk {
+        KernelShareAsk(isShown: { ($0.allowLAN ?? $1?.allowLAN ?? false) == on },
+                       overrideIsSilent: { $0.allowLAN == nil },
+                       write: { $0.allowLAN = on })
+    }
+
+    static func port(_ port: KernelLANSharePort, _ typed: Int32) -> KernelShareAsk {
+        KernelShareAsk(isShown: { (port.value(in: $0) ?? port.value(in: $1)) == typed },
+                       overrideIsSilent: { port.value(in: $0) == nil },
+                       write: { port.set(typed, in: &$0) })
+    }
 }
 
  
@@ -716,36 +747,24 @@ struct KernelLANShareBinding {
  
  
 enum KernelLANShareSwitch {
+     
+     
+     
+     
     static func override(on: Bool, current: KernelLANShareOverride,
-                         profile: (listener: ProfileListenerPorts?, allowLAN: Bool)) -> KernelLANShareOverride {
+                         profile: (listener: ProfileListenerPorts?, allowLAN: Bool),
+                         filePortless: Bool? = nil) -> KernelLANShareOverride {
         var override = current
         override.allowLAN = on == profile.allowLAN ? nil : on
         if on, !current.hasListener(over: profile.listener) {
             override.mixedPort = KernelLANShare.defaultPort
         }
-        if !on, profile.listener == nil, current.mixedPort == KernelLANShare.defaultPort {
+        if !on, filePortless ?? (profile.listener == nil), current.mixedPort == KernelLANShare.defaultPort {
             override.mixedPort = nil
         }
         return override
     }
 
-     
-     
-     
-    @MainActor
-    static func set(on: Bool, binding: KernelLANShareBinding,
-                    parser: @escaping @Sendable (String) -> ProfileListenerPorts? = { ProfileListenerPorts.parse(yaml: $0) }) async throws {
-        let profileID = binding.profileID()
-        let source = binding.profileSourceYAML()
-        let current = binding.override()
-        let profile = await Task.detached(priority: .userInitiated) {
-            (listener: source.flatMap(parser),
-             allowLAN: source.map { ProfileListenerPorts.configuredAllowLAN(yaml: $0) } ?? false)
-        }.value
-        guard binding.profileID() == profileID, binding.profileSourceYAML() == source, binding.override() == current else { return }
-        let next = override(on: on, current: current, profile: profile)
-        if next != current { try binding.writeOverride(next) }
-    }
 }
 
 @MainActor
@@ -888,8 +907,8 @@ final class ProxyShareModel: ObservableObject {
      
      
     func setKernelShare(on: Bool) async {
-        await writeKernelShare(showing: on) { current, profile in
-            KernelLANShareSwitch.override(on: on, current: current, profile: profile)
+        await writeKernelShare(showing: on, asking: .allowLAN(on)) { current, profile, filePortless in
+            KernelLANShareSwitch.override(on: on, current: current, profile: profile, filePortless: filePortless)
         }
     }
 
@@ -917,7 +936,8 @@ final class ProxyShareModel: ObservableObject {
             }
             typed = value
         }
-        await writeKernelShare { current, profile in
+         
+        await writeKernelShare(asking: typed.map { .port(port, $0) }) { current, profile, _ in
             var override = current
             port.set(typed == port.value(in: profile.listener) ? nil : typed, in: &override)
             return override
@@ -942,7 +962,8 @@ final class ProxyShareModel: ObservableObject {
      
     private func writeKernelShare(
         showing pressed: Bool? = nil,
-        _ decide: (KernelLANShareOverride, (listener: ProfileListenerPorts?, allowLAN: Bool))
+        asking ask: KernelShareAsk?,
+        _ decide: (KernelLANShareOverride, (listener: ProfileListenerPorts?, allowLAN: Bool), _ filePortless: Bool)
             -> KernelLANShareOverride
     ) async {
         guard let binding = kernelShareBinding else { return }
@@ -959,27 +980,42 @@ final class ProxyShareModel: ObservableObject {
         let source = binding.profileSourceYAML()
         let current = binding.override()
         let parser = profileListenerParser
-        let profile = await Task.detached(priority: .userInitiated) {
+        var profile = await Task.detached(priority: .userInitiated) {
             (listener: source.flatMap(parser),
              allowLAN: source.map { ProfileListenerPorts.configuredAllowLAN(yaml: $0) } ?? false)
         }.value
+         
+         
+         
+        let filePortless = profile.listener == nil
+        let modules = binding.modulesListenerKeys()
+        if let allowLAN = modules.allowLAN { profile.allowLAN = allowLAN }
+        if modules.mixedPort != nil || modules.httpPort != nil || modules.socksPort != nil {
+            let file = profile.listener
+            profile.listener = ProfileListenerPorts(
+                mixedPort: modules.mixedPort ?? file?.mixedPort, httpPort: modules.httpPort ?? file?.httpPort,
+                socksPort: modules.socksPort ?? file?.socksPort, allowLAN: profile.allowLAN,
+                credentials: file?.credentials)
+        }
         guard token == kernelShareGeneration,
               !Task.isCancelled,
               binding.profileID() == profileID,
               binding.profileSourceYAML() == source,
               binding.override() == current else { return }
-        let override = decide(current, profile)
+        var override = decide(current, profile, filePortless)
+         
+         
+         
+         
+         
+         
+         
+        if let ask, override == current, ask.overrideIsSilent(current),
+           case .settled(let listener?) = readKernelShareListener(), !ask.isShown(current, listener) {
+            ask.write(&override)
+        }
         do {
-            if override != current {
-                let appliesBefore = binding.applySequence()
-                try binding.writeOverride(override)
-                 
-                 
-                Task { [weak self] in
-                    guard await binding.restartedSince(appliesBefore) else { return }
-                    self?.restartNotice = "Applied. The tunnel reconnected to apply it."
-                }
-            }
+            if override != current { try write(override, binding: binding) }
             errorMessage = ""
         } catch {
             errorMessage = error.localizedDescription
@@ -991,8 +1027,19 @@ final class ProxyShareModel: ObservableObject {
         terminalListenerDidChange.send()
          
          
-        if override != current, let pressed {
-            await holdUntilTheDocumentAgrees(pressed, token: token, profileID: profileID, binding: binding)
+        if override != current, let ask {
+            await holdUntilTheDocumentAgrees(ask, token: token, profileID: profileID, binding: binding)
+        }
+    }
+
+     
+     
+    private func write(_ override: KernelLANShareOverride, binding: KernelLANShareBinding) throws {
+        let appliesBefore = binding.applySequence()
+        try binding.writeOverride(override)
+        Task { [weak self] in
+            guard await binding.restartedSince(appliesBefore) else { return }
+            self?.restartNotice = "Applied. The tunnel reconnected to apply it."
         }
     }
 
@@ -1005,15 +1052,40 @@ final class ProxyShareModel: ObservableObject {
      
      
      
-    private func holdUntilTheDocumentAgrees(_ pressed: Bool, token: UInt64, profileID: String?,
+     
+     
+     
+     
+     
+     
+    private func holdUntilTheDocumentAgrees(_ ask: KernelShareAsk, token: UInt64, profileID: String?,
                                             binding: KernelLANShareBinding) async {
+        func stillThisPress() -> Bool {
+            token == kernelShareGeneration && !Task.isCancelled && binding.profileID() == profileID
+        }
+        await binding.settled()
+        var document: ProfileListenerPorts?
         for _ in 0..<40 {
-            guard token == kernelShareGeneration, !Task.isCancelled,
-                  binding.profileID() == profileID else { return }
-            if case .settled(let listener) = readKernelShareListener(),
-               (binding.override().allowLAN ?? listener?.allowLAN ?? false) == pressed { return }
+            guard stillThisPress() else { return }
+            switch readKernelShareListener() {
+            case .settled(let listener):
+                if ask.isShown(binding.override(), listener) { return }
+                document = listener
+            case .settling:
+                document = nil
+            }
             try? await Task.sleep(nanoseconds: 100_000_000)
         }
+        guard stillThisPress(), ask.overrideIsSilent(binding.override()), document != nil else { return }
+        var override = binding.override()
+        ask.write(&override)
+        do {
+            try write(override, binding: binding)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+        objectWillChange.send()
+        terminalListenerDidChange.send()
     }
 
     private enum KernelShareListenerRead {
@@ -1099,6 +1171,37 @@ final class ProxyShareModel: ObservableObject {
             source: .share, httpPort: status.port, socksPort: status.port,
             username: savedUsername, password: "", lanReachable: true
         )
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    var displayedTerminalListener: ProxyTerminalListener? {
+        let listener = terminalListener
+        let profileID = kernelShareBinding?.profileID()
+        if terminalListenerIsSettling {
+            guard let profileID, let last = settledTerminalListener, last.profileID == profileID else { return nil }
+            return last.listener
+        }
+        if let profileID { settledTerminalListener = (profileID, listener) }
+        return listener
+    }
+
+    private var settledTerminalListener: (profileID: String, listener: ProxyTerminalListener?)?
+
+     
+     
+    private var terminalListenerIsSettling: Bool {
+        guard let profileYAML else { return false }
+        guard let yaml = profileYAML() else { return kernelShareBinding?.profileID() != nil }
+        if case .preparing = preparedProfileListener.read(yaml: yaml) { return true }
+        return false
     }
 
      

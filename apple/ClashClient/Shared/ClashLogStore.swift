@@ -799,11 +799,16 @@ public final class ClashLogStore: @unchecked Sendable {
         while offset > 0, newlines <= count {
             let readSize = min(chunkSize, offset)
             offset -= readSize
-            guard (try? handle.seek(toOffset: offset)) != nil,
-                  let chunk = try? handle.read(upToCount: Int(readSize)),
-                  !chunk.isEmpty else { break }
-            newlines += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
-            buffer = chunk + buffer
+             
+            let joined: Bool = autoreleasepool {
+                guard (try? handle.seek(toOffset: offset)) != nil,
+                      let chunk = try? handle.read(upToCount: Int(readSize)),
+                      !chunk.isEmpty else { return false }
+                newlines += chunk.reduce(into: 0) { if $1 == 0x0A { $0 += 1 } }
+                buffer = chunk + buffer
+                return true
+            }
+            guard joined else { break }
         }
         if offset > 0 {
             guard let cut = buffer.firstIndex(of: 0x0A) else { return [] }
@@ -898,9 +903,13 @@ public final class ClashLogStore: @unchecked Sendable {
             for url in section.urls {
                 guard let reader = try? FileHandle(forReadingFrom: url) else { continue }
                 defer { try? reader.close() }
-                while let chunk = try? reader.read(upToCount: 256 * 1024), !chunk.isEmpty {
+                 
+                 
+                while autoreleasepool(invoking: { () -> Bool in
+                    guard let chunk = try? reader.read(upToCount: 256 * 1024), !chunk.isEmpty else { return false }
                     try? handle.write(contentsOf: chunk)
-                }
+                    return true
+                }) {}
             }
         }
         return true
@@ -1034,17 +1043,20 @@ public final class ClashLogStore: @unchecked Sendable {
          
         try? source.seek(toOffset: size / 2)
         var alignedToLine = false
-        while true {
+         
+         
+        while autoreleasepool(invoking: { () -> Bool in
             guard let chunk = try? source.read(upToCount: Self.rotationChunkBytes),
-                  !chunk.isEmpty else { break }
+                  !chunk.isEmpty else { return false }
             var payload = chunk
             if !alignedToLine {
-                guard let newline = payload.firstIndex(of: 0x0A) else { continue }
+                guard let newline = payload.firstIndex(of: 0x0A) else { return true }
                 payload = payload[payload.index(after: newline)...]
                 alignedToLine = true
             }
             try? sink.write(contentsOf: payload)
-        }
+            return true
+        }) {}
         try? sink.close()
         try? source.close()
         _ = try? fileManager.replaceItemAt(url, withItemAt: temporary)
@@ -1061,37 +1073,147 @@ public final class ClashLogStore: @unchecked Sendable {
      
      
      
+     
+     
+     
+     
     public func composition(of stream: ClashLogStream = .core) -> String {
         queue.sync {
             let url = url(for: stream, day: Self.day(clock()))
             let size = (try? fileManager.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
             guard let handle = try? FileHandle(forReadingFrom: url) else {
-                return "core-log bytes=\(size ?? 0) (unreadable)"
+                return "core-log bytes=\(size) (unreadable)"
             }
             defer { try? handle.close() }
-            var counts: [String: Int] = [:]
-            var carry = Data()
+            var shapes = ShapeTally()
             var lines = 0
-            while let chunk = try? handle.read(upToCount: Self.rotationChunkBytes),
-                  !chunk.isEmpty {
-                carry.append(chunk)
-                while let newline = carry.firstIndex(of: 0x0A) {
-                    let raw = carry[carry.startIndex..<newline]
-                    carry = carry[carry.index(after: newline)...]
-                    lines += 1
-                    guard let stored = String(data: raw, encoding: .utf8) else { continue }
-                    let text = stored
-                     
-                     
-                    let shape = text.split(separator: " ", omittingEmptySubsequences: true)
-                        .dropFirst(3).prefix(4).joined(separator: " ")
-                    counts[String(shape.prefix(60)), default: 0] += 1
+            var buffer = [UInt8](repeating: 0, count: Self.rotationChunkBytes)
+            buffer.withUnsafeMutableBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                 
+                var kept = 0
+                 
+                var overlong = false
+                while true {
+                    let read = Darwin.read(handle.fileDescriptor, base + kept, raw.count - kept)
+                    if read < 0, errno == EINTR { continue }
+                    if read <= 0 { break }
+                    let filled = kept + read
+                    var start = 0
+                    while start < filled, let newline = memchr(base + start, 0x0A, filled - start) {
+                        let end = newline - UnsafeMutableRawPointer(base)
+                        if !overlong {
+                            shapes.add(UnsafeRawBufferPointer(start: base + start, count: end - start))
+                        }
+                        overlong = false
+                        lines += 1
+                        start = end + 1
+                    }
+                    if start == 0, filled == raw.count {
+                         
+                        if !overlong { shapes.add(UnsafeRawBufferPointer(start: base, count: filled)) }
+                        overlong = true
+                        kept = 0
+                        continue
+                    }
+                    kept = filled - start
+                    if kept > 0, start > 0 { memmove(base, base + start, kept) }
                 }
             }
-            let top = counts.sorted { $0.value > $1.value }.prefix(3)
-                .map { "\($0.value)× \($0.key)" }
+            return "core-log bytes=\(size) lines=\(lines) top=[\(shapes.top(3))]"
+        }
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    private struct ShapeTally {
+        private static let slots = 64
+        private static let shapeBytes = 60
+        private var hashes = [UInt64](repeating: 0, count: slots)
+        private var counts = [Int](repeating: 0, count: slots)
+        private var errors = [Int](repeating: 0, count: slots)
+        private var lengths = [Int](repeating: 0, count: slots)
+        private var names = [UInt8](repeating: 0, count: slots * shapeBytes)
+        private var used = 0
+        private var shape = [UInt8](repeating: 0, count: shapeBytes)
+
+        mutating func add(_ line: UnsafeRawBufferPointer) {
+            var length = 0
+            var words = 0
+            var inWord = false
+            for byte in line {
+                if byte == 0x20 {
+                    inWord = false
+                    continue
+                }
+                if !inWord {
+                    inWord = true
+                    words += 1
+                    if words > 7 { break }
+                    if words > 4, length < Self.shapeBytes {
+                        shape[length] = 0x20
+                        length += 1
+                    }
+                }
+                if words > 3 {
+                    if length == Self.shapeBytes { break }
+                    shape[length] = byte
+                    length += 1
+                }
+            }
+            length = Self.characterBoundary(shape, length)
+            var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+            for index in 0..<length {
+                hash = (hash ^ UInt64(shape[index])) &* 0x0000_0100_0000_01b3
+            }
+            for slot in 0..<used where hashes[slot] == hash && lengths[slot] == length {
+                counts[slot] += 1
+                return
+            }
+            let slot: Int
+            if used < Self.slots {
+                slot = used
+                used += 1
+                counts[slot] = 1
+                errors[slot] = 0
+            } else {
+                var least = 0
+                for index in 1..<Self.slots where counts[index] < counts[least] { least = index }
+                slot = least
+                errors[slot] = counts[slot]
+                counts[slot] += 1
+            }
+            hashes[slot] = hash
+            lengths[slot] = length
+            for index in 0..<length { names[slot * Self.shapeBytes + index] = shape[index] }
+        }
+
+         
+         
+        private static func characterBoundary(_ bytes: [UInt8], _ length: Int) -> Int {
+            var lead = length
+            while lead > 0, bytes[lead - 1] & 0xC0 == 0x80 { lead -= 1 }
+            guard lead > 0, bytes[lead - 1] >= 0xC0 else { return length }
+            let first = bytes[lead - 1]
+            let needs = first >= 0xF0 ? 4 : first >= 0xE0 ? 3 : 2
+            return length - (lead - 1) < needs ? lead - 1 : length
+        }
+
+        func top(_ count: Int) -> String {
+            (0..<used).sorted { counts[$0] - errors[$0] > counts[$1] - errors[$1] }.prefix(count)
+                .map { slot in
+                    let start = slot * Self.shapeBytes
+                    let name = String(decoding: names[start..<start + lengths[slot]], as: UTF8.self)
+                    return "\(counts[slot] - errors[slot])× \(name)"
+                }
                 .joined(separator: " | ")
-            return "core-log bytes=\(size ?? 0) lines=\(lines) top=[\(top)]"
         }
     }
 

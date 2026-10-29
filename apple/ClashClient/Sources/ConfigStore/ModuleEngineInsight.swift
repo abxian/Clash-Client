@@ -24,9 +24,7 @@ struct ModuleEngineInsight: Equatable {
      
      
      
-     
-     
-    static func read(_ report: ModuleEngineReport?, platform: ModuleCertificatePlatform = .current) -> ModuleEngineInsight {
+    static func read(_ report: ModuleEngineReport?) -> ModuleEngineInsight {
         guard let report else { return ModuleEngineInsight() }
         var insight = ModuleEngineInsight()
         let counters = report.counters
@@ -44,12 +42,9 @@ struct ModuleEngineInsight: Equatable {
         case .normal:
             break
         case .scriptsStopped:
-            insight.notices.append(report.rungCause == .scriptsUnavailable ? Copy.scriptsUnavailable : Copy.scriptsPaused)
-        case .bodiesStopped:
-            insight.notices.append(Copy.bodiesPaused)
+            insight.notices.append(report.rungCause == .scriptsUnavailable ? Copy.scriptsUnavailable : Copy.scriptsOnHold)
         case .engineStopped:
-            insight.notices.append(platform == .mac ? Copy.decryptionPausedUntilReconnect
-                                   : ModuleDegradeReason.stoppedForMemory.authoredText)
+            insight.notices.append(Copy.rewritesAndScriptsOnHold)
         }
          
          
@@ -69,16 +64,18 @@ struct ModuleEngineInsight: Equatable {
      
      
      
+     
     enum Copy {
-        static let scriptsPaused: AuthoredText = .app("Rewrites and scripts are paused to keep your network steady; rules still work.")
+         
+        static let scriptsOnHold: AuthoredText = .app("Some scripts are on hold for now and will resume automatically.")
+         
+        static let rewritesAndScriptsOnHold: AuthoredText =
+            .app("Rewrites and scripts are on hold for now and will resume automatically.")
+         
+        static let onHold: [AuthoredText] = [scriptsOnHold, rewritesAndScriptsOnHold]
         static let scriptsUnavailable: AuthoredText = .app("Scripts can't run on this device right now; rules still work.")
-        static let bodiesPaused: AuthoredText = scriptsPaused
          
         static var certificateUnreadable: AuthoredText { ModuleDegradeReason.certificateUnusable.authoredText }
-         
-         
-        static let decryptionPausedUntilReconnect: AuthoredText =
-            .app("HTTPS Decryption is paused to keep your network steady; rules still work. It comes back when you reconnect.")
          
          
         static let rewritesStopped: AuthoredText =
@@ -131,7 +128,8 @@ struct ModuleEngineInsight: Equatable {
         }
 
         static var every: [AuthoredText] {
-            [scriptsPaused, scriptsUnavailable, bodiesPaused, certificateUnreadable, decryptionPausedUntilReconnect, rewritesStopped,
+            [scriptsOnHold, rewritesAndScriptsOnHold, scriptsUnavailable,
+             certificateUnreadable, rewritesStopped,
              rewritesTooLarge, tooManyRewrites, moduleNotLoaded("A"), moduleTooLarge("A"), tooManyModulesOn("A"),
              leftOut(.init(id: "a", name: "", reason: .unreadable, detail: "")),
              leftOut(.init(id: "a", name: "", reason: .overBudget, detail: "")),

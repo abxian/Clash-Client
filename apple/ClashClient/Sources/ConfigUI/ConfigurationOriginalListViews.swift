@@ -15,7 +15,9 @@ extension ConfigurationEditorSession {
      
     @discardableResult
     func editOriginal(steps: [ConfigurationTextStep]) async -> Bool {
-        await run { try await self.model.editOriginalConfiguration(self.profileID, steps: steps) }
+        await handingOn(steps) {
+            await run { try await self.model.editOriginalConfiguration(self.profileID, steps: steps) }
+        }
     }
 
      
@@ -236,7 +238,7 @@ struct ConfigurationRawRuleEditor: View {
     let raw: String
     let save: (String) -> Void
     @State private var text = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var trimmed: String { text.trimmingCharacters(in: .whitespacesAndNewlines) }
 
@@ -308,6 +310,7 @@ struct ConfigurationOriginalSubRulesView: View {
                     NavigationLink {
                         ConfigurationOriginalRulesView(session: session, base: ["sub-rules", branch.name],
                                                        title: .verbatim(branch.name))
+                            .configurationPushedAlertHost(session)
                     } label: {
                         HStack {
                             Text(verbatim: branch.name)
@@ -361,7 +364,7 @@ struct ConfigurationNewSubRuleSheet: View {
     let taken: Set<String>
     let save: (String) -> Void
     @State private var name = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     private var trimmed: String { name.trimmingCharacters(in: .whitespaces) }
 
@@ -744,6 +747,7 @@ struct ConfigurationOriginalProxyProvidersView: View {
                 ForEach(ownEntries) { entry in
                     NavigationLink {
                         ConfigurationOriginalProxyProviderView(session: session, name: entry.name)
+                            .configurationPushedAlertHost(session)
                     } label: {
                         HStack(alignment: .firstTextBaseline) {
                             Text(verbatim: entry.name).lineLimit(1)
@@ -771,11 +775,12 @@ struct ConfigurationOriginalProxyProvidersView: View {
      
     private func linkSwitch(_ source: ConfigurationLibraryPicks.Source) -> some View {
         let name = ConfigurationLibraryPicks.addedSetName(source, in: document)
-        return Toggle(isOn: Binding(get: { name != nil }, set: { on in
+        let key = "library-link." + source.id
+        return Toggle(isOn: Binding(get: { session.shownSwitch(key, else: name != nil) }, set: { on in
             if on, name == nil {
-                Task { await session.addLibraryProvider(source) }
+                session.pressSwitch(key, true) { await session.addLibraryProvider(source) }
             } else if !on, let name {
-                delete([name])
+                deleteLink(name, key: key)
             }
         })) {
             VStack(alignment: .leading, spacing: 2) {
@@ -828,6 +833,17 @@ struct ConfigurationOriginalProxyProvidersView: View {
             if !places.isEmpty { return session.refuseDeleting(name, usedBy: places) }
         }
         Task { await session.editOriginal(steps: OriginalListEdits.deleting(names, fromMappingAt: "proxy-providers")) }
+    }
+
+     
+     
+    private func deleteLink(_ name: String, key: String) {
+        guard let document = session.page?.document else { return }
+        let places = OriginalListEdits.uses(ofProvider: name, in: document)
+        if !places.isEmpty { return session.refuseDeleting(name, usedBy: places) }
+        session.pressSwitch(key, false) {
+            await session.editOriginal(steps: OriginalListEdits.deleting([name], fromMappingAt: "proxy-providers"))
+        }
     }
 }
 
@@ -909,6 +925,7 @@ struct ConfigurationOriginalProxyProviderView: View {
                                                            choices: field.key == "type" ? Self.types(session.catalog) : nil) { json in
                                 await session.editOriginal(path + [.key(field.key)], .set(json: json))
                             }
+                            .configurationPushedAlertHost(session)
                         } label: {
                             HStack(alignment: .firstTextBaseline) {
                                 Text(verbatim: field.key)
@@ -946,7 +963,7 @@ struct ConfigurationNewProxyProviderForm: View {
     @State private var name = ""
     @State private var type = ""
     @State private var location = ""
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.configurationFieldCopy) private var fieldCopy
     @Environment(\.locale) private var locale
 

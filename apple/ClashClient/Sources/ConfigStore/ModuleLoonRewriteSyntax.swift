@@ -39,13 +39,8 @@ enum ModuleLoonRewriteSyntax {
     }
 
      
-    static let maximumLineBytes = 64 * 1024
-     
      
     static let maximumDepth = 16
-     
-     
-    static let maximumJQBytes = ModuleJSONRewriteSyntax.maximumJQBytes
 
      
      
@@ -327,7 +322,6 @@ enum ModuleLoonRewriteSyntax {
      
     static func reading(_ line: String, origin: ModuleLineOrigin, arguments: [String: String?], types: [String: SettingType] = [:],
                         moduleURL: String? = nil) -> Result<(rule: ModuleRewriteRule, files: [ModuleAnswerFileReference]), ModuleIgnoredReason> {
-        guard line.utf8.count <= maximumLineBytes else { return .failure(.lineTooLong(maximumLineBytes)) }
         guard isPrintable(line), let tokens = tokens(line) else { return .failure(.unreadableLine) }
         do {
             var reader = Reader(tokens: tokens, arguments: arguments, types: types, moduleURL: moduleURL)
@@ -352,7 +346,6 @@ enum ModuleLoonRewriteSyntax {
      
     static func scriptRule(_ line: String, origin: ModuleLineOrigin, arguments: [String: String?],
                            types: [String: SettingType] = [:], moduleURL: String? = nil) -> Result<ModuleScript, ModuleIgnoredReason> {
-        guard line.utf8.count <= maximumLineBytes else { return .failure(.lineTooLong(maximumLineBytes)) }
         guard isPrintable(line), let tokens = tokens(line) else { return .failure(.unreadableLine) }
         do {
             var reader = Reader(tokens: tokens, arguments: arguments, types: types, moduleURL: moduleURL)
@@ -389,7 +382,6 @@ enum ModuleLoonRewriteSyntax {
      
     static func appScriptRule(_ line: String, origin: ModuleLineOrigin, arguments: [String: String?],
                               types: [String: SettingType] = [:], moduleURL: String? = nil) -> Result<ModuleAppScript, ModuleIgnoredReason> {
-        guard line.utf8.count <= maximumLineBytes else { return .failure(.lineTooLong(maximumLineBytes)) }
         guard let kind = appScriptKind(line), isPrintable(line) else { return .failure(.unreadableLine) }
         let text = line.trimmingCharacters(in: .whitespaces)
         guard let kindEnd = text.firstIndex(where: { $0 == " " || $0 == "\t" }),
@@ -1652,10 +1644,10 @@ private extension ModuleLoonRewriteSyntax.Reader {
         if address.lowercased().contains("boxjs") || pattern.lowercased().contains("boxjs") {
             throw ModuleIgnoredReason.boxJSNotSupported
         }
+         
         guard let url = URL(string: address), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.host?.isEmpty == false else { throw ModuleIgnoredReason.scriptWithoutAddress }
         guard address.utf8.count <= ModuleParser.maximumShownBytes else { throw ModuleIgnoredReason.unreadableLine }
-        guard scheme == "https" else { throw ModuleIgnoredReason.scriptAddressNotSecure }
 
          
         let file = URL(string: path)?.lastPathComponent ?? ""
@@ -1753,10 +1745,10 @@ private extension ModuleLoonRewriteSyntax.Reader {
         case .failure(let reason): throw reason
         }
         if address.lowercased().contains("boxjs") { throw ModuleIgnoredReason.boxJSNotSupported }
+         
         guard let url = URL(string: address), let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
               url.host?.isEmpty == false else { throw ModuleIgnoredReason.scriptWithoutAddress }
         guard address.utf8.count <= ModuleParser.maximumShownBytes else { throw ModuleIgnoredReason.unreadableLine }
-        guard scheme == "https" else { throw ModuleIgnoredReason.scriptAddressNotSecure }
          
         let file = URL(string: call.path)?.lastPathComponent ?? ""
         let fallback = kind == .networkChanged ? "network-changed" : kind.rawValue

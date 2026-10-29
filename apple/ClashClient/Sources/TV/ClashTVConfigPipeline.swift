@@ -561,13 +561,19 @@ final class ClashTVConfigPipeline {
         let previousDirectory = try? store.activeProvidersDirectory()
         let previous = previousDirectory.flatMap { ClashTVProviderCatalog.read(from: $0) }
         let sourceSHA256 = try ClashTVRuleRecovery.sha256(ofFile: source)
+         
+         
+         
+         
+        let identity = userAgent
+        let providerUserAgent = ClientUserAgent.written(in: try? skeleton.get()) ?? identity
         let candidate = try store.beginCandidate(profileID: profileID)
         do {
             let materialized = try await ClashTVProviderMaterializer.materialize(
                 plan: plan,
                 candidate: candidate,
                 session: session,
-                userAgent: userAgent,
+                userAgent: providerUserAgent,
                 ageSecretKeys: ageSecretKeys,
                 ruleSnapshots: snapshots,
                 routeSetNames: ClashTVRuleRecovery.routeSetNames(plan: plan, skeleton: try? skeleton.get()),
@@ -590,7 +596,7 @@ final class ClashTVConfigPipeline {
                 sourceSHA256: sourceSHA256
             )
             try Task.checkCancellation()
-            let finalYAML = try ConfigTransforms.finalize(
+            var finalYAML = try ConfigTransforms.finalize(
                 atPath: runtimeFile,
                 providerPaths: materialized.paths,
                 providerReadPaths: materialized.readPaths,
@@ -600,6 +606,9 @@ final class ClashTVConfigPipeline {
                  
                 ruleIndexDirectory: Self.nodeLibraryDirectory(container: container)
             )
+             
+             
+            try ConfigTransforms.carryGlobalUA(identity, into: &finalYAML)
             let ruleFacts = try ClashTVRuleFacts.of(publishedYAML: finalYAML)
             try ruleFacts?.write(to: candidate.stagingProvidersDirectory)
             if let record {

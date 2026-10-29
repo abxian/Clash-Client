@@ -131,7 +131,7 @@ struct CustomNodesView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.clashPushRoute) private var pushRoute
      
      
@@ -464,7 +464,13 @@ struct CustomNodesView: View {
              
              
             if let pastedNode {
-#if os(macOS)
+                 
+                 
+                 
+                 
+                 
+                 
+                 
                 Button {
                     editorSelection = .addFromLink(pastedNode.json)
                 } label: {
@@ -480,32 +486,9 @@ struct CustomNodesView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+#if os(macOS)
                 .accessibilityIdentifier("custom-nodes.pasted.\(pastedNode.name)")
 #else
-                ClashStableNavigationLink(
-                    value: CustomNodeRoute.addFromLink(pastedNode.json)
-                ) {
-                    ProxyNodeDetailsView(
-                        record: Self.record(fromNodeJSON: pastedNode.json)
-                            ?? Self.newNodeTemplate,
-                        retest: {},
-                        saveNode: { _, edited in
-                            try appendCustomNode(json: edited)
-                        },
-                        showsTesting: false,
-                        isNew: true,
-                        dialerRouting: .payloadField,
-                        dialerCandidates: { [dialerCandidatesOverride] in
-                            if let dialerCandidatesOverride { return dialerCandidatesOverride() }
-                            return DialerProxyCandidates.make(
-                                sourceYAML: sourceYAML,
-                                excluding: ""
-                            )
-                        }
-                    )
-                } label: {
-                    nodeRow(name: pastedNode.name, type: pastedNode.type)
-                }
                 .accessibilityIdentifier("custom-nodes.pasted")
 #endif
                  
@@ -639,6 +622,11 @@ struct CustomNodesView: View {
                 retest: {},
                 saveNode: { _, edited in
                     try appendCustomNode(json: edited)
+                     
+                     
+                     
+                    pastedNode = nil
+                    fieldsLeftBehind = ""
                 },
                 showsTesting: false,
                 isNew: true,

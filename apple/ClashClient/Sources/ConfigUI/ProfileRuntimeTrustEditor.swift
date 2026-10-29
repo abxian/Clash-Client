@@ -20,7 +20,7 @@ struct ProfileRuntimeTrustEditor: View {
      
      
     @State private var openedWith: ProfileRuntimeTrustDraft?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var draft: ProfileRuntimeTrustDraft
     @State private var error = ""
     @State private var addingCertificate = false
@@ -105,7 +105,7 @@ struct ProfileRuntimeTrustEditor: View {
                         .accessibilityIdentifier("profile-runtime-trust.certificate.\(index)")
                          
                          
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 guard var kept = draft.customTrustCertificates
                                 else { return }
@@ -440,7 +440,7 @@ struct ProfileTrustPage: View {
     let patchJSON: String
     let save: (String) async throws -> Void
 
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var error = ""
 
     var body: some View {

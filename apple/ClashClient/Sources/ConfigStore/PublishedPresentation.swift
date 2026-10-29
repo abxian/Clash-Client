@@ -44,6 +44,13 @@ enum PublishedPresentation {
     struct Record: Codable, Equatable {
         let revision: String
         let inputs: String
+         
+         
+         
+         
+         
+         
+        var modeAsChosen: Bool?
     }
 
      
@@ -106,7 +113,11 @@ enum PublishedPresentation {
     }
 
      
-    static func inputs(sourcePrefix: SHA256, profile: Profile, settings: Settings) -> String? {
+     
+    static func inputs(sourcePrefix: SHA256, profile: Profile, settings: Settings,
+                       modeAsChosen: Bool = true) -> String? {
+        var settings = settings
+        if modeAsChosen { settings.runtime = runtimeWithModeAsChosen(settings.runtime) }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
          
@@ -132,6 +143,26 @@ enum PublishedPresentation {
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
+     
+     
+     
+     
+    static func runtimeWithModeAsChosen(_ runtime: OverrideSpec) -> OverrideSpec {
+        guard ClashTunnelOutboundMode.chosen(inPatchJSON: runtime.patchJSON) != nil else { return runtime }
+        var patch = OverridePatch(patchJSON: runtime.patchJSON)
+        patch.mode = "chosen"
+        var counted = runtime
+        counted.patchJSON = patch.patchJSON
+        return counted
+    }
+
+     
+     
+    static func withModeChosen(_ text: String, runtime: OverrideSpec = FlClashRuntimeConfig.load()) -> String {
+        ClashTunnelOutboundMode.chosen(inPatchJSON: runtime.patchJSON)
+            .map { ClashTunnelOutboundMode.applying($0, to: text) } ?? text
+    }
+
     static func url(profileID: String, workingDirectory: URL) -> URL {
         ProfileSourceStore.runnableURL(workingDirectory: workingDirectory, profileID: profileID)
             .deletingLastPathComponent()
@@ -143,7 +174,7 @@ enum PublishedPresentation {
     static func record(_ pointer: ActiveConfigurationPointer, inputs: String?, workingDirectory: URL) {
         let file = url(profileID: pointer.profileID, workingDirectory: workingDirectory)
         guard let inputs,
-              let data = try? JSONEncoder().encode(Record(revision: pointer.revision, inputs: inputs))
+              let data = try? JSONEncoder().encode(Record(revision: pointer.revision, inputs: inputs, modeAsChosen: true))
         else {
             try? FileManager.default.removeItem(at: file)
             return
@@ -183,7 +214,8 @@ enum PublishedPresentation {
         guard pointer.profileID == profile.id,
               let record = read(profileID: pointer.profileID, workingDirectory: workingDirectory),
               record.revision == pointer.revision,
-              let now = inputs(sourcePrefix: sourcePrefix, profile: profile, settings: settings)
+              let now = inputs(sourcePrefix: sourcePrefix, profile: profile, settings: settings,
+                               modeAsChosen: record.modeAsChosen == true)
         else { return false }
         return record.inputs == now
     }
@@ -227,8 +259,11 @@ enum PublishedPresentation {
               namedFilesArePresent(in: text)
         else { return nil }
          
-        return PublishedRulesAsWritten.restoring(text, profileID: pointer.profileID, revision: pointer.revision,
-                                                 workingDirectory: workingDirectory)
+         
+        return withModeChosen(
+            PublishedRulesAsWritten.restoring(text, profileID: pointer.profileID, revision: pointer.revision,
+                                              workingDirectory: workingDirectory),
+            runtime: settings.runtime)
     }
 
      
@@ -522,7 +557,8 @@ extension LargeConfigurationDisplay {
                     ?? url.flatMap { ConfigurationSections.entryCount(ofSection: "proxies", inFileAt: $0) }
             let rules = ConfigTransforms.ruleIndexPath(in: published) == nil ? nil
                 : PublishedRules.summary(ofPublishedText: published)?.written
-            return text(of: published, nodeCount: nodes, ruleCount: rules, containerPath: containerPath,
+            return text(of: PublishedPresentation.withModeChosen(published), nodeCount: nodes, ruleCount: rules,
+                        containerPath: containerPath,
                         telling: { phrase($0) })
         }
         guard let url else { return nil }

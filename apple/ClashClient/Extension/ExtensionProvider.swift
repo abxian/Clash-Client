@@ -67,6 +67,10 @@ private struct PhysicalPathEvent {
 
 final class ExtensionProvider: NSObject {
     private let tunnelProvider: NEPacketTunnelProvider
+     
+     
+     
+    private let packetFlowReads: SharedPacketFlowReads
     private let startupMemorySampler: StartupMemorySampler
 #if os(iOS) || os(macOS)
      
@@ -249,6 +253,7 @@ final class ExtensionProvider: NSObject {
             ExtensionProvider.makeDefaultPhysicalPathMonitor
     ) {
         self.tunnelProvider = tunnelProvider
+        self.packetFlowReads = SharedPacketFlowReads(tunnelProvider.packetFlow)
         self.startupMemorySampler = startupMemorySampler
         self.physicalPathMonitorFactory = physicalPathMonitorFactory
         super.init()
@@ -944,6 +949,18 @@ final class ExtensionProvider: NSObject {
         options.startupPhaseLogPath = container.appendingPathComponent(
             MemorySampleLog.startupPhaseFileName
         ).path
+         
+         
+         
+         
+         
+         
+         
+        #if os(iOS)
+        options.persistentCacheDirectory = NSHomeDirectory() + "/Library/Application Support"
+        #elseif os(tvOS)
+        options.persistentCacheDirectory = NSHomeDirectory() + "/Library/Caches"
+        #endif
         options.timeZone = TimeZone.current.identifier  
         options.logMaxLines = 1000
          
@@ -1255,6 +1272,10 @@ final class ExtensionProvider: NSObject {
                 return .init(profileID: loaded.profileID, revision: loaded.revision, yaml: text, recovered: true)
             },
             start: { yaml in
+                 
+                 
+                 
+                let yaml = ClashTunnelOutboundMode.applyingChoice(in: UserDefaults(suiteName: appGroupID), to: yaml)
                 let outcome = service.startClassified(yaml)
                 return .init(errorClass: outcome?.errorClass ?? "unknown",
                              message: outcome?.message ?? "clash: StartClassified returned nothing")
@@ -1471,6 +1492,7 @@ final class ExtensionProvider: NSObject {
             stream: .app,
             level: .warning
         )
+        Self.clearOutlivedPressureEvidence()
         ClashLogStore.shared.flush()
         let steps = await teardownResources(policy: .systemStop)
         ClashLogStore.shared.append(
@@ -1480,6 +1502,20 @@ final class ExtensionProvider: NSObject {
         ClashLogStore.shared.flush()
         lifecycle.didStop()
         await operationGate.leave()
+    }
+
+     
+     
+     
+     
+     
+     
+     
+    private static func clearOutlivedPressureEvidence() {
+        var error: NSError?
+        guard let evidence = ClashConsumeOOMEvidence(&error) else { return }
+        ClashLogStore.shared.append(#"memory pressure this run outlived, cleared at a clean stop: "# + evidence.value,
+                                    stream: .app, level: .warning)
     }
 
     private static func milliseconds(since start: DispatchTime) -> Int {
@@ -1920,7 +1956,7 @@ final class ExtensionProvider: NSObject {
      
      
     private func reloadThroughCore(
-        _ service: ClashBoxService, stored: StoredConfiguration, yaml: String
+        _ service: ClashBoxService, stored: StoredConfiguration, yaml published: String
     ) -> () -> ProviderReloadEnvelope.Verdict {
         { [weak self] in
             guard let self else {
@@ -1945,6 +1981,8 @@ final class ExtensionProvider: NSObject {
              
             ClashSetAllowLanPermitted(LocalNetworkPermission.isPermitted(UserDefaults(suiteName: appGroupID)))
             self.applyRemoteControlSetting()
+             
+            let yaml = ClashTunnelOutboundMode.applyingChoice(in: UserDefaults(suiteName: appGroupID), to: published)
             let outcome = service.reloadClassified(yaml)
             let verdict = ProviderReloadEnvelope.Verdict(
                 errorClass: outcome?.errorClass ?? "unknown",
@@ -2188,6 +2226,30 @@ final class ExtensionLogBatchWriter: NSObject, ClashLogBatchWriterProtocol, @unc
  
  
 extension ExtensionProvider: ClashPlatformInterfaceProtocol {
+     
+     
+     
+     
+    func tunFailed(_ reason: String?) {
+        guard let generation = withStateLock({ settingsGeneration }) else { return }
+        tunFailed(reason, generation: generation)
+    }
+
+     
+     
+     
+    fileprivate func tunFailed(_ reason: String?, generation: TunnelNetworkSettingsWriter.Generation) {
+        let reason = reason ?? "no reason given"
+        guard withStateLock({ settingsGeneration }) == generation else {
+            ClashLogStore.shared.append("tunnel descriptor failed under a service that was replaced; the tunnel stays  \(reason)",
+                                        stream: .app, level: .warning)
+            return
+        }
+        log.error("tunnel descriptor failed: \(reason, privacy: .public)")
+        ClashLogStore.shared.append("tunnel descriptor failed, ending the tunnel  \(reason)", stream: .app, level: .error)
+        tunnelProvider.cancelTunnelWithError(ExtensionError.serviceUnavailable("the tunnel's descriptor failed: \(reason)"))
+    }
+
     func writeLog(_ message: String?) {
         guard let message else { return }
         log.info("[core] \(message, privacy: .private)")
@@ -2306,7 +2368,15 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
             let v4 = NEIPv4Settings(addresses: v4Addr, subnetMasks: v4Mask)
             let included = collectV4Routes(includedIt)
             let effective = included.isEmpty ? defaultV4Routes(strict: splitTable) : included
-            v4.includedRoutes = effective
+             
+             
+             
+             
+            let loopback4 = options.getInet4LoopbackAddress().map(collectV4Routes) ?? []
+            v4.includedRoutes = ClashTunnelRouteShaping.v4Included(
+                effective.map { .init(address: $0.destinationAddress, mask: $0.destinationSubnetMask) },
+                loopback: loopback4.map { .init(address: $0.destinationAddress, mask: $0.destinationSubnetMask) }
+            ).map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
             v4.excludedRoutes = ClashTunnelRouteShaping.v4Excluded(
                 collectV4Routes(excludedIt).map { .init(address: $0.destinationAddress, mask: $0.destinationSubnetMask) },
                 includedIsEmpty: effective.isEmpty,
@@ -2332,7 +2402,13 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
             let v6 = NEIPv6Settings(addresses: v6Addr, networkPrefixLengths: v6Prefix)
             let included = collectV6Routes(includedIt)
             let effective = included.isEmpty ? defaultV6Routes(strict: splitTable) : included
-            v6.includedRoutes = effective
+             
+             
+            let loopback6 = options.getInet6LoopbackAddress().map(collectV6Routes) ?? []
+            v6.includedRoutes = ClashTunnelRouteShaping.v6Included(
+                effective.map { .init(address: $0.destinationAddress, prefix: $0.destinationNetworkPrefixLength.intValue) },
+                loopback: loopback6.map { .init(address: $0.destinationAddress, prefix: $0.destinationNetworkPrefixLength.intValue) }
+            ).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
             v6.excludedRoutes = ClashTunnelRouteShaping.v6Excluded(
                 collectV6Routes(excludedIt).map { .init(address: $0.destinationAddress, prefix: $0.destinationNetworkPrefixLength.intValue) },
                 includedIsEmpty: effective.isEmpty,
@@ -2399,14 +2475,24 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
 
         try detachPacketFlowBridge(in: generation, session: session)?.stop()
         let provider = tunnelProvider
-        let bridge = PacketFlowBridge(
-            packetFlow: provider.packetFlow,
-            configuration: packetFlowConfiguration,
+         
+         
+        let bridge: PacketFlowBridge?
+        let bridgeFD: Int32
+        if let direct = Self.systemTunnelDescriptor() {
+            bridge = nil
+            bridgeFD = direct
+        } else {
+            let made = PacketFlowBridge(
+                packetFlow: packetFlowReads,
+                configuration: packetFlowConfiguration,
             logLine: { ClashLogStore.shared.append($0, stream: .app, level: .warning) }
-        ) { [weak provider] error in
-            provider?.cancelTunnelWithError(error)
+            ) { [weak provider] error in
+                provider?.cancelTunnelWithError(error)
+            }
+            bridgeFD = try made.start()
+            bridge = made
         }
-        let bridgeFD = try bridge.start()
          
          
          
@@ -2427,12 +2513,15 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
              
              
              
-            bridge.stop()
+             
+            bridge?.stop()
              
              
              
             ClashLogStore.shared.append(
-                "packet bridge stopped  fd=\(bridgeFD) reason=session-superseded preapplied=not-remembered",
+                bridge == nil
+                    ? "tunnel descriptor not handed over  fd=\(bridgeFD) reason=session-superseded preapplied=not-remembered"
+                    : "packet bridge stopped  fd=\(bridgeFD) reason=session-superseded preapplied=not-remembered",
                 stream: .app
             )
              
@@ -2450,7 +2539,9 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
             ? "preapplied=not-remembered(no-tun-intent)"
             : "preapplied-remembered-key=\(rememberedKey.prefix(12))"
         ClashLogStore.shared.append(
-            "packet bridge started  fd=\(bridgeFD) \(remembered)",
+            bridge == nil
+                ? "tunnel descriptor handed to the core  fd=\(bridgeFD) \(remembered)"
+                : "packet bridge started  fd=\(bridgeFD) \(remembered)",
             stream: .app
         )
         startupMemorySampler.note("tun: bridge-up", token: samplingToken)
@@ -2505,6 +2596,41 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
             }
         }
         return accepted
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    static let readsTheTunnelDirectly = false
+
+    static func systemTunnelDescriptor() -> Int32? {
+#if os(iOS)
+        guard readsTheTunnelDirectly else { return nil }
+         
+         
+        let controlProtocol: Int32 = 2
+        let interfaceNameOption: Int32 = 2
+        var name = [CChar](repeating: 0, count: Int(IFNAMSIZ))
+        for descriptor: Int32 in 0..<1024 {
+            var length = socklen_t(name.count)
+            guard getsockopt(descriptor, controlProtocol, interfaceNameOption, &name, &length) == 0 else { continue }
+            if String(cString: name).hasPrefix("utun") { return descriptor }
+        }
+#endif
+        return nil
     }
 
     private func detachPacketFlowBridge(
@@ -2572,8 +2698,15 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
 
 
             try self.detachPacketFlowBridge(in: generation)?.stop()
+             
+            if let direct = Self.systemTunnelDescriptor() {
+                guard !Task.isCancelled, self.settingsWriter.commitIfCurrent(generation, {}) else {
+                    throw CancellationError()
+                }
+                return direct
+            }
             let bridge = PacketFlowBridge(
-                packetFlow: provider.packetFlow,
+                packetFlow: self.packetFlowReads,
                 configuration: self.packetFlowConfiguration,
                 logLine: { ClashLogStore.shared.append($0, stream: .app, level: .warning) }
             ) { [weak provider = provider] error in
@@ -2635,9 +2768,12 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
         let v4 = descriptor.inet4Addresses.compactMap(Self.splitPrefix)
         if !v4.isEmpty {
             let ipv4 = NEIPv4Settings(addresses: v4.map(\.0), subnetMasks: v4.map(\.1))
-            ipv4.includedRoutes = descriptor.inet4IncludedRoutes
-                .compactMap(Self.splitPrefix)
-                .map { NEIPv4Route(destinationAddress: $0.0, subnetMask: $0.1) }
+             
+             
+            ipv4.includedRoutes = ClashTunnelRouteShaping.v4Included(
+                descriptor.inet4IncludedRoutes.compactMap(Self.splitPrefix).map { .init(address: $0.0, mask: $0.1) },
+                loopback: []
+            ).map { NEIPv4Route(destinationAddress: $0.address, subnetMask: $0.mask) }
             ipv4.excludedRoutes = descriptor.inet4ExcludedRoutes
                 .compactMap(Self.splitPrefix)
                 .map { NEIPv4Route(destinationAddress: $0.0, subnetMask: $0.1) }
@@ -2649,14 +2785,10 @@ extension ExtensionProvider: ClashPlatformInterfaceProtocol {
                 addresses: v6.map(\.0),
                 networkPrefixLengths: v6.map { NSNumber(value: Int($0.1) ?? 128) }
             )
-            ipv6.includedRoutes = descriptor.inet6IncludedRoutes
-                .compactMap(Self.splitPrefix)
-                .map {
-                    NEIPv6Route(
-                        destinationAddress: $0.0,
-                        networkPrefixLength: NSNumber(value: Int($0.1) ?? 128)
-                    )
-                }
+            ipv6.includedRoutes = ClashTunnelRouteShaping.v6Included(
+                descriptor.inet6IncludedRoutes.compactMap(Self.splitPrefix).map { .init(address: $0.0, prefix: Int($0.1) ?? 128) },
+                loopback: []
+            ).map { NEIPv6Route(destinationAddress: $0.address, networkPrefixLength: NSNumber(value: $0.prefix)) }
             ipv6.excludedRoutes = descriptor.inet6ExcludedRoutes
                 .compactMap(Self.splitPrefix)
                 .map {
@@ -2995,6 +3127,7 @@ private final class StartupPlatformInterface: NSObject, ClashPlatformInterfacePr
     }
 
     func writeLog(_ message: String?) { provider?.writeLog(message) }
+    func tunFailed(_ reason: String?) { provider?.tunFailed(reason, generation: settingsGeneration) }
     func openTun(_ options: (any ClashTunOptionsProtocol)?, ret0_: UnsafeMutablePointer<Int32>?) throws {
         try owner().openTun(options, ret0_: ret0_, samplingToken: samplingToken, generation: settingsGeneration)
     }

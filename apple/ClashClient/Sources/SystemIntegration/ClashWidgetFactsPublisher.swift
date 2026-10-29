@@ -89,6 +89,15 @@ enum ClashWidgetFactsPublisher {
      
      
      
+    static func tunnelChanged(reload: () -> Void = { WidgetCenter.shared.reloadAllTimelines() }) {
+        reload()
+    }
+
+     
+     
+     
+     
+     
     static func takeModeChosenOnACard(store: ClashWidgetMailboxStore = store) -> String? {
         guard let choice = store.readModeChoice() else { return nil }
         store.clearModeChoice()

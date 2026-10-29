@@ -945,8 +945,14 @@ final class VPNController: ObservableObject {
             container: container
         )
         stageMark("provisioned")
-        if try store.activePointer() == nil,
-           try store.lastKnownGoodPointer() == nil {
+         
+         
+         
+        let hasConfiguration = try await Task.detached(priority: .userInitiated) {
+            let store = try ConfigResourceStore(containerURL: container)
+            return try store.activePointer() != nil || store.lastKnownGoodPointer() != nil
+        }.value
+        if !hasConfiguration {
              
              
              
@@ -2775,6 +2781,9 @@ final class VPNController: ObservableObject {
             }(),
             stream: .app, level: .warning)
         noteTunnelState(connection)
+        if connection.status == .connected || connection.status == .disconnected || connection.status == .invalid {
+            ClashWidgetFactsPublisher.tunnelChanged()
+        }
          
          
          

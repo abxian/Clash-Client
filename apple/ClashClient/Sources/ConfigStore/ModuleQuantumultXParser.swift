@@ -42,14 +42,12 @@ enum ModuleQuantumultXParser {
             let origin = ModuleLineOrigin(section: "", line: index + 1)
              
             if let key = headerKey(line), key == "arguments" || key == "arguments-desc" {
-                notes.append(ModuleIgnoredEntry(text: ModuleParser.prefix(line, bytes: ModuleParser.maximumArgumentBytes),
+                notes.append(ModuleIgnoredEntry(text: ModuleParser.prefix(line, bytes: ModuleParser.maximumShownBytes),
                                                 reason: .argumentsNotSupported, origin: origin))
                 continue
             }
             guard let reason = ModuleParser.readMetadata(line, loon: false, into: &manifest) else { continue }
-            let shown = reason == .headerOverLimit
-                ? line.firstIndex(of: "=").map { String(line[..<$0]).trimmingCharacters(in: .whitespaces) } ?? "#!" : line
-            notes.append(ModuleIgnoredEntry(text: ModuleParser.prefix(shown, bytes: ModuleParser.maximumArgumentBytes), reason: reason,
+            notes.append(ModuleIgnoredEntry(text: ModuleParser.prefix(line, bytes: ModuleParser.maximumShownBytes), reason: reason,
                                             origin: origin))
         }
         if !manifest.system.isEmpty, !manifest.system.contains(platform.rawValue) {

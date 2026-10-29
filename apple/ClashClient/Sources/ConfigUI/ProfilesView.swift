@@ -13,9 +13,11 @@ private actor LocalProfilePreviewCache {
     private var values: [String: String] = [:]
 
     func text(for profile: Profile, container: URL?) -> String? {
-        guard let source = activeRevisionSource(for: profile, container: container)
-            ?? sidecarSource(for: profile, container: container)
-        else { return nil }
+        if let published = activeRevisionSource(for: profile, container: container) {
+             
+            return text(for: published).map { PublishedPresentation.withModeChosen($0) }
+        }
+        guard let source = sidecarSource(for: profile, container: container) else { return nil }
         return text(for: source)
     }
 
@@ -356,7 +358,8 @@ final class ProfilesViewModel: ObservableObject {
                         }.value
                     }, updateCollection: { entry in
                         let source = try await Task.detached { try store.payload(.init(entry.source)) }.value
-                        try await ConfigurationCollectionContentBridge.refresh(entry, source: source)
+                        try await ConfigurationCollectionContentBridge.refresh(entry, source: source,
+                                                                               inUse: self.providerCatalogInUse())
                     }, progress: { phase, index, total, name in
                         let key = phase == .sources ? "Updating Sources…" : "Updating Node Collections…"
                         if phase == .sources { sourceTotal = max(sourceTotal, total) }
@@ -482,9 +485,11 @@ final class ProfilesViewModel: ObservableObject {
     private var ruleCollectionUpdateTask: Task<Void, Never>?
      
      
-    var downloadRuleCollection: (ConfigurationCollectionEntry, ConfigurationLibraryStore) async throws -> Void = { entry, store in
+     
+     
+    lazy var downloadRuleCollection: (ConfigurationCollectionEntry, ConfigurationLibraryStore) async throws -> Void = { [weak self] entry, store in
         let source = try await Task.detached { try store.payload(.init(entry.source)) }.value
-        try await ConfigurationCollectionContentBridge.refresh(entry, source: source)
+        try await ConfigurationCollectionContentBridge.refresh(entry, source: source, inUse: self?.providerCatalogInUse())
     }
     var isUpdatingRuleCollections: Bool { ruleCollectionUpdate.map { !$0.finished } ?? false }
      
@@ -678,7 +683,9 @@ final class ProfilesViewModel: ObservableObject {
 
      
      
-    private func providerCatalogInUse() -> ProviderCatalog? {
+     
+     
+    nonisolated func providerCatalogInUse() -> ProviderCatalog? {
         guard let container, let store = try? ConfigResourceStore(containerURL: container),
               store.activeIdentityOrNil() != nil,
               let directory = try? store.activeProvidersDirectory() else { return nil }
@@ -999,6 +1006,10 @@ final class ProfilesViewModel: ObservableObject {
         var skippedNames: Set<String> = []
         var switched = false
         var savedForNext = false
+         
+         
+        let refusedAsAsked = running.failedAsAsked
+        missed.formUnion(refusedAsAsked)
         let appFetched = running.forced.union(running.fromLibrary)
         if !appFetched.isEmpty {
             do {
@@ -1637,6 +1648,8 @@ final class ProfilesViewModel: ObservableObject {
                  
                  
                 self.recomposeIfModulesMovedSincePublication()
+                 
+                if self.storageSweepOwed { self.sweepStorageInFront() }
                 guard let pending = BackgroundRefresh.pendingHandover() else { return }
                  
                  
@@ -2259,25 +2272,7 @@ final class ProfilesViewModel: ObservableObject {
             if !failures.isEmpty { throw PipelineError.sourceUnavailable(failures.joined(separator: "\n")) }
              
              
-             
-             
-             
-            if let container {
-                let running = StorageView.tunnelIsRunning(vpn.status)
-                Task.detached(priority: .utility) {
-                     
-                     
-                     
-                     
-                    _ = try? ConfigResourceStore(containerURL: container).adoptProviderPayloads()
-                    let maintenance = StorageMaintenance(containerURL: container, tunnelIsRunning: { running })
-                    _ = try? maintenance.reclaim([.configurations, .geodata])
-                     
-                     
-                     
-                     
-                }
-            }
+            sweepStorageInFront()
         }
         legacyRegistration = (registrationID, task)
         defer {
@@ -2289,6 +2284,54 @@ final class ProfilesViewModel: ObservableObject {
             restageOwedBuiltinUpgrade()
         }
         try await task.value
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    func sweepStorageInFront() {
+        guard let container else { return }
+        guard !appIsInBackground() else {
+            storageSweepOwed = true
+            return
+        }
+        storageSweepOwed = false
+        let running = StorageView.tunnelIsRunning(vpn.status)
+        let library = configurationLibraryStore
+        storageSweep = Task.detached(priority: .utility) {
+             
+             
+            if let library { ConfigurationCenterPublicationBridge.collectLibraryGarbage(library) }
+             
+             
+             
+             
+            _ = try? ConfigResourceStore(containerURL: container).adoptProviderPayloads()
+            let maintenance = StorageMaintenance(containerURL: container, tunnelIsRunning: { running })
+            _ = try? maintenance.reclaim([.configurations, .geodata])
+             
+             
+             
+             
+        }
+    }
+
+     
+     
+    private(set) var storageSweepOwed = false
+    private var storageSweep: Task<Void, Never>?
+
+     
+    func waitForStorageSweep() async {
+        await storageSweep?.value
     }
 
      
@@ -3010,15 +3053,12 @@ final class ProfilesViewModel: ObservableObject {
             _ = await selectAndWait(profile)
         }
         return ProfileQuickAddOutcome(id: created.id, isFirstUserProfile: !created.hadUserProfile,
-            ownRouting: ProfileQuickAddOutcome.ownRouting(of: created.record, suppliesOwnRouting: created.suppliesOwnRouting,
-                                                          runsAsOriginal: created.runsAsOriginal))
+                                      runsAsOriginal: created.runsAsOriginal)
     }
 
      
     private struct QuickCreated {
         let id: String
-        let record: ConfigurationSourceRecord
-        let suppliesOwnRouting: Bool
         let runsAsOriginal: Bool
         let hadUserProfile: Bool
     }
@@ -3051,9 +3091,11 @@ final class ProfilesViewModel: ObservableObject {
         }
 
 
-        let isDocument: Bool = { if case .document = input { return true }; return false }()
-        let suppliesOwnRouting = await Task.detached(priority: .userInitiated) { payload.suppliesOwnRouting }.value
-        let routed = (isDocument || preservingRouting) && suppliesOwnRouting
+        let (suppliesOwnRouting, resolvesItsNodesItself) = await Task.detached(priority: .userInitiated) {
+            payload.routing
+        }.value
+        let routed = (preservingRouting && suppliesOwnRouting) || ConfigurationCreationDraft.runsAsWritten(
+            payload, suppliesOwnRouting: suppliesOwnRouting, resolvesItsNodesItself: resolvesItsNodesItself)
         var draft = ConfigurationCreationDraft()
         if preservingRouting {
             // Official subscriptions own their policy groups, DNS and rules.
@@ -3073,7 +3115,8 @@ final class ProfilesViewModel: ObservableObject {
         } else {
              
              
-            try draft.acceptNewImport(payload, suppliesOwnRouting: routed)
+            try draft.acceptNewImport(payload, suppliesOwnRouting: suppliesOwnRouting,
+                                      resolvesItsNodesItself: resolvesItsNodesItself)
         }
          
          
@@ -3081,8 +3124,7 @@ final class ProfilesViewModel: ObservableObject {
         let generation = try await Task.detached { try library.snapshot().generation }.value
         let id = UUID().uuidString.lowercased()
         _ = try await createConfiguration(draft, generation: generation, id: id)
-        return QuickCreated(id: id, record: payload.record, suppliesOwnRouting: suppliesOwnRouting,
-                            runsAsOriginal: draft.originalSourceID != nil, hadUserProfile: hadUserProfile)
+        return QuickCreated(id: id, runsAsOriginal: draft.originalSourceID != nil, hadUserProfile: hadUserProfile)
     }
 
     func createConfiguration(_ draft: ConfigurationCreationDraft, generation: UInt64,
@@ -3181,9 +3223,11 @@ final class ProfilesViewModel: ObservableObject {
     func downloadNeverFetchedNodeCollections() {
         guard let library = configurationLibraryStore else { return }
         let downloader = downloader, credentials = credentials
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .utility) { [weak self] in
+             
+            let inUse = self?.providerCatalogInUse()
             let fetched = await ConfigurationCollectionContentBridge.fetchNeverFetchedNodeCollections(
-                library, downloader: downloader, credentials: credentials)
+                library, inUse: inUse, downloader: downloader, credentials: credentials)
             if fetched > 0 { ProviderFirstLoadRetry.kick(trigger: .activation) }
         }
     }
@@ -5446,6 +5490,27 @@ final class ProfilesViewModel: ObservableObject {
      
      
      
+    func scriptedSettings(profileID: String) async -> ScriptedSettings? {
+        guard let profile = profiles.first(where: { $0.id == profileID }), ScriptedSettings.runs(on: profile),
+              !hasLargeSource(profile), let workingDir else { return nil }
+        return await Task.detached(priority: .utility) {
+            Self.sidecarYAML(for: profile, workingDir: workingDir).flatMap { ScriptedSettings.make(raw: $0, profile: profile) }
+        }.value
+    }
+
+     
+     
+     
+    func publishedModules() async -> ModuleGlobalManifest? {
+        guard let container else { return nil }
+        return await Task.detached(priority: .userInitiated) {
+            ModuleStore.publishedGlobalManifest(ModuleLocations(container: container))
+        }.value
+    }
+
+     
+     
+     
      
      
      
@@ -5479,6 +5544,12 @@ final class ProfilesViewModel: ObservableObject {
                 guard let self, let id = id() else { return false }
                 await self.waitForPendingActivation()
                 return Self.restartNotice(profileID: id, since: since, last: self.lastTunnelApply) != nil
+            },
+            settled: { [weak self] in await self?.waitForPendingActivation() },
+             
+            modulesListenerKeys: { [weak self] in
+                self?.container.flatMap { ModuleStore.publishedGlobalManifest(ModuleLocations(container: $0)) }?
+                    .listenerKeys ?? KernelLANShareOverride()
             }
         )
     }
@@ -5578,10 +5649,21 @@ final class ProfilesViewModel: ObservableObject {
             )
             patch.mode = mode.rawValue
             projected.override.patchJSON = patch.patchJSON
+             
+             
+             
+             
+             
+             
+             
+            let modeWasChosen = ClashTunnelOutboundMode.chosen(
+                inPatchJSON: FlClashRuntimeConfig.load(from: runtimeDefaults).patchJSON
+            ) != nil
             try updateGlobalConfiguration(
                 projected,
                 replacing: ["mode"],
-                runtimeAlreadyCarriesChange: kernelCarriesTheChange
+                runtimeAlreadyCarriesChange: kernelCarriesTheChange,
+                publicationStands: modeWasChosen
             )
             ClashWidgetFactsPublisher.appChoseMode()
         }
@@ -5593,6 +5675,22 @@ final class ProfilesViewModel: ObservableObject {
      
      
     func outboundModeSetOnHome() -> Profile.OutboundMode? { patchedOutboundMode() }
+
+     
+     
+     
+     
+    func keysHeldOverModules(profileID: String) -> Set<String> {
+        var held: Set<String> = []
+        if logLevelForcedByLogSettings() != nil { held.insert("log-level") }
+        if outboundModeSetOnHome() != nil { held.insert("mode") }
+        if let profile = profiles.first(where: { $0.id == profileID }) {
+            if profile.outboundMode != nil { held.insert("mode") }
+            held.formUnion(OverridePatch(patchJSON: profile.override.patchJSON)
+                .retainingTopLevelKeys(OverridePatch.listenerKeys).topLevelKeys)
+        }
+        return held
+    }
 
      
      
@@ -5626,7 +5724,9 @@ final class ProfilesViewModel: ObservableObject {
      
      
     func platformConditionsHolding() -> Set<String> {
-        vpn.tunnelSettings.includeAllNetworks ? ["includeAllNetworks"] : []
+         
+         
+        vpn.tunnelSettings.overlaid(by: ModuleDeviceSettingOverlay.load()).includeAllNetworks ? ["includeAllNetworks"] : []
     }
 
      
@@ -5674,6 +5774,73 @@ final class ProfilesViewModel: ObservableObject {
     }
 
 
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    func publishWhatOnlyAPublicationTakes(container: URL, handedOn: [PendingProviderCompile.Held] = []) {
+        for item in handedOn where !compileHandedOn.contains(where: { $0.key == item.key }) { compileHandedOn.append(item) }
+        guard pendingPublication == nil else { return }
+        let working = container.appendingPathComponent("working", isDirectory: true)
+        let state = ProviderRefreshState.read(workingDirectory: working)
+        let stillHeld = PendingProviderCompile.heldKeys(in: state)
+        compileHandedOn.removeAll { !stillHeld.contains($0.key) }
+        var held = PendingProviderCompile.waitingForAPublication(in: state)
+        for item in compileHandedOn where !held.contains(where: { $0.key == item.key }) { held.append(item) }
+        held.removeAll { publishedPendings.contains($0.key) }
+         
+         
+         
+        guard !held.isEmpty, let store = try? ConfigResourceStore(containerURL: container),
+              let id = store.activeIdentityOrNil()?.profileID,
+              let profile = profiles.first(where: { $0.id == id })
+                ?? ProfileStore(fileURL: working.appendingPathComponent("store/profiles.json")).load().first(where: { $0.id == id })
+        else { return }
+        publishedPendings.formUnion(held.map(\.key))
+        let names = held.map(\.name)
+        ClashLogStore.shared.append(#"pending publish  sets=\#(names.joined(separator: ","))"#, stream: .app)
+        let vpn = self.vpn
+        pendingPublication = Task { @MainActor [weak self] in
+            let report = await ProviderUpdater.update(names, in: .live(
+                profile: profile, store: store, container: container, vpn: vpn,
+                stillInUse: { store.activeIdentityOrNil()?.profileID == id }))
+            for item in held {
+                let outcome = report.outcomes[item.name] ?? .skipped
+                ClashLogStore.shared.append(#"pending publish  \#(item.name)  outcome=\#(outcome)"#, stream: .app)
+                 
+                 
+                switch outcome {
+                case .failed, .notConfirmed, .skipped: self?.publishedPendings.remove(item.key)
+                default: break
+                }
+            }
+            self?.pendingPublication = nil
+             
+             
+             
+            guard let self else { return }
+            let started = Set(held.map(\.key))
+            if self.compileHandedOn.contains(where: { !started.contains($0.key) && !self.publishedPendings.contains($0.key) }) {
+                self.publishWhatOnlyAPublicationTakes(container: container)
+            }
+        }
+    }
+
+     
+    private var pendingPublication: Task<Void, Never>?
+     
+    private var publishedPendings: Set<String> = []
+     
+    private var compileHandedOn: [PendingProviderCompile.Held] = []
 
     func restageForClientRuntimeSetting() {
          
@@ -6898,7 +7065,8 @@ final class ProfilesViewModel: ObservableObject {
         _ candidate: Profile,
         replacing keys: Set<String>,
         configureSpec: ((inout OverrideSpec) -> Void)? = nil,
-        runtimeAlreadyCarriesChange: Bool = false
+        runtimeAlreadyCarriesChange: Bool = false,
+        publicationStands: Bool = false
     ) throws {
         try withProfileLock {
             guard let profileStore else {
@@ -6963,12 +7131,16 @@ final class ProfilesViewModel: ObservableObject {
              
              
             afterTheHold { [weak self] in
-                self?.restageAfterGlobalSave(runtimeAlreadyCarriesChange: runtimeAlreadyCarriesChange)
+                self?.restageAfterGlobalSave(runtimeAlreadyCarriesChange: runtimeAlreadyCarriesChange,
+                                             publicationStands: publicationStands)
             }
         }
     }
 
-    private func restageAfterGlobalSave(runtimeAlreadyCarriesChange: Bool) {
+     
+     
+     
+    private func restageAfterGlobalSave(runtimeAlreadyCarriesChange: Bool, publicationStands: Bool = false) {
         load()
 
         guard let activeProfileID,
@@ -6985,6 +7157,14 @@ final class ProfilesViewModel: ObservableObject {
         ) {
         case .persistOnly:
             break
+        case .restageOnly where publicationStands
+            && vpn.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "connecting":
+             
+             
+             
+             
+             
+            ClashLogStore.shared.append(#"mode changed  publication kept"#, stream: .app)
         case .restageOnly:
              
              
@@ -8575,9 +8755,9 @@ final class ProfilesViewModel: ObservableObject {
         guard let container, let revision = profile.activeRevision,
               let text = (try? ConfigResourceStore(containerURL: container)
                   .loadConfiguration(profileID: profile.id, revision: revision))?.text else { return nil }
-        return PublishedRulesAsWritten.restoring(
+        return PublishedPresentation.withModeChosen(PublishedRulesAsWritten.restoring(
             text, profileID: profile.id, revision: revision,
-            workingDirectory: container.appendingPathComponent("working", isDirectory: true))
+            workingDirectory: container.appendingPathComponent("working", isDirectory: true)))
     }
 
     func previewText(for profile: Profile) -> String? {
@@ -8674,9 +8854,10 @@ final class ProfilesViewModel: ObservableObject {
                 return LargeConfigurationDisplay.text(for: shown, sourceAt: large, container: container)
             }
              
-            return PublishedRulesAsWritten.restoring(
+             
+            return PublishedPresentation.withModeChosen(PublishedRulesAsWritten.restoring(
                 text, profileID: profileID, revision: revision,
-                workingDirectory: container.appendingPathComponent("working", isDirectory: true))
+                workingDirectory: container.appendingPathComponent("working", isDirectory: true)))
         }.value
     }
 

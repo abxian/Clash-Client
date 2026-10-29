@@ -127,16 +127,25 @@ protocol ModuleScriptRunning: AnyObject {
      
      
      
+     
+     
     func releaseAll()
      
      
      
     func cancel(_ requestID: String)
+     
+     
+     
+     
+    func relieve()
 }
 
 extension ModuleScriptRunning {
      
     func cancel(_ requestID: String) {}
+     
+    func relieve() {}
 }
 
  
@@ -171,10 +180,6 @@ final class ModuleNoScripts: ModuleScriptRunning {
  
 final class ModuleScriptCall {
      
-     
-     
-    static let maximumTimeout = 300
-     
     static let grace: TimeInterval = 5
 
     enum Answer: Equatable, Sendable {
@@ -201,17 +206,15 @@ final class ModuleScriptCall {
      
      
     static func defaultTimeout(of match: ModuleScriptMatch) -> Int {
-        switch match.format {
-        case .surge, .stash: return 5
-        case .loon: return 10
-        case .quantumultX: return Int(ModuleScriptDefaults.quantumultXHTTPSeconds)
-        }
+        Int(ModuleScriptDefaults.timeoutSeconds(family: match.writtenFor, kind: .http(.request)))
     }
 
      
      
+     
+     
     static func limit(for match: ModuleScriptMatch, grace: TimeInterval = ModuleScriptCall.grace) -> TimeInterval {
-        TimeInterval(min(maximumTimeout, max(0, match.script.timeout ?? defaultTimeout(of: match)))) + max(0, grace)
+        TimeInterval(max(0, match.script.timeout ?? defaultTimeout(of: match))) + max(0, grace)
     }
 
     private var timer: DispatchSourceTimer?
@@ -237,7 +240,7 @@ final class ModuleScriptCall {
          
          
         let timer = DispatchSource.makeTimerSource(queue: queue)
-        timer.schedule(deadline: .now() + max(0, limit))
+        timer.schedule(deadline: limit < ModuleScriptDefaults.neverSeconds ? .now() + max(0, limit) : .distantFuture)
         timer.setEventHandler { call.finish(.noAnswer(within: limit)) }
         call.timer = timer
         timer.resume()

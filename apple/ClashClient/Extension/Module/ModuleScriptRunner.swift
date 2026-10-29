@@ -11,9 +11,11 @@ import Foundation
 final class ModuleScriptRunner: ModuleScriptRunning, @unchecked Sendable {
      
      
+     
     static let networkStopped = #"scripts are stopped for memory (rung 1)"#
 
     private let host: ModuleScriptHosting
+     
      
      
     private let network: ModuleScriptNetwork?
@@ -60,9 +62,18 @@ final class ModuleScriptRunner: ModuleScriptRunning, @unchecked Sendable {
      
      
      
+     
     func releaseAll() {
         host.stop(.engine(#"memory rung 1"#))
         network?.stop(Self.networkStopped)
+    }
+
+     
+     
+     
+     
+    func relieve() {
+        host.trim()
     }
 
     private func start(
@@ -139,8 +150,6 @@ final class ModuleScriptRunner: ModuleScriptRunning, @unchecked Sendable {
         switch stop {
         case .javaScriptUnavailable(let why):
             return #"JavaScriptCore could not start: \#(why)"#
-        case .footprint(let over, let allowance):
-            return #"scripts used \#(over) bytes over the reading before they began, past their \#(allowance)-byte allowance"#
         case .overran(let name, let sha256, let seconds):
             return #"\#(name) ran synchronous code past its \#(seconds) s timeout; its body \#(sha256) is quarantined"#
         case .engine(let why):
@@ -155,15 +164,13 @@ final class ModuleScriptRunner: ModuleScriptRunning, @unchecked Sendable {
      
      
      
-     
     static func declaration(_ match: ModuleScriptMatch) -> ModuleScriptDeclaration? {
         guard let file = match.bodyFile, let sha = match.script.bodySHA256 else { return nil }
         let script = match.script
         return ModuleScriptDeclaration(
             name: script.name,
             kind: .http(script.phase == .request ? .request : .response),
-            family: ModuleScriptFamily(format: match.format),
-            syntax: .classic,
+            family: match.writtenFor,
             scriptPath: script.scriptURL,
             sourceFile: file,
             sourceSHA256: sha,

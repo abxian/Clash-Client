@@ -63,6 +63,9 @@ struct ModuleRecord: Equatable, Identifiable, Sendable {
     var enabled: Bool
     var name: String
      
+     
+    var label: String?
+     
     var updateInterval: Int
     var lastCheckedAt: Date?
     var lastUpdatedAt: Date?
@@ -112,6 +115,14 @@ struct ModuleRecord: Equatable, Identifiable, Sendable {
      
      
     var heldScriptBodies: [String: ModuleHeldScriptBody] = [:]
+     
+     
+     
+     
+     
+     
+     
+    var countedWithoutSizeCaps = true
     var schemaVersion = ModuleRecord.currentSchemaVersion
      
      
@@ -174,9 +185,10 @@ extension ModuleRecord.Origin: Codable {
 
 extension ModuleRecord: Codable {
     private enum CodingKeys: String, CodingKey {
-        case id, origin, enabled, name, updateInterval, lastCheckedAt, lastUpdatedAt, lastFailure
+        case id, origin, enabled, name, label, updateInterval, lastCheckedAt, lastUpdatedAt, lastFailure
         case scriptFetchedAt, sourceSHA256, scriptAttemptedAt, scriptFailureCount, linkFailureCount, fileStates, appScriptAddresses
         case argumentValues, storedValues, heldScriptBodies
+        case countedWithoutSizeCaps
         case schemaVersion
     }
 
@@ -196,6 +208,7 @@ extension ModuleRecord: Codable {
         origin = try c.decode(Origin.self, forKey: .origin)
         enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        label = try c.decodeIfPresent(String.self, forKey: .label)
         updateInterval = try c.decodeIfPresent(Int.self, forKey: .updateInterval) ?? ModuleLineSyntax.defaultScriptUpdateInterval
         lastCheckedAt = try c.decodeIfPresent(Date.self, forKey: .lastCheckedAt)
         lastUpdatedAt = try c.decodeIfPresent(Date.self, forKey: .lastUpdatedAt)
@@ -216,6 +229,18 @@ extension ModuleRecord: Codable {
         argumentValues = try c.decodeIfPresent([String: String].self, forKey: .argumentValues) ?? [:]
         storedValues = try c.decodeIfPresent([String: String].self, forKey: .storedValues) ?? [:]
         heldScriptBodies = (try? c.decodeIfPresent([String: ModuleHeldScriptBody].self, forKey: .heldScriptBodies)) ?? [:]
+        if try c.decodeIfPresent(Bool.self, forKey: .countedWithoutSizeCaps) != true {
+            scriptAttemptedAt = [:]
+            scriptFailureCount = [:]
+            linkFailureCount = 0
+            fileStates = fileStates.mapValues { state in
+                var state = state
+                state.failures = 0
+                state.attemptedAt = nil
+                return state
+            }
+        }
+        countedWithoutSizeCaps = true
         schemaVersion = version
     }
 
@@ -225,6 +250,9 @@ extension ModuleRecord: Codable {
         try c.encode(origin, forKey: .origin)
         try c.encode(enabled, forKey: .enabled)
         try c.encode(name, forKey: .name)
+         
+         
+        try c.encodeIfPresent(label, forKey: .label)
         try c.encode(updateInterval, forKey: .updateInterval)
         try c.encodeIfPresent(lastCheckedAt, forKey: .lastCheckedAt)
         try c.encodeIfPresent(lastUpdatedAt, forKey: .lastUpdatedAt)
@@ -243,17 +271,22 @@ extension ModuleRecord: Codable {
         if !argumentValues.isEmpty { try c.encode(argumentValues, forKey: .argumentValues) }
         if !storedValues.isEmpty { try c.encode(storedValues, forKey: .storedValues) }
         if !heldScriptBodies.isEmpty { try c.encode(heldScriptBodies, forKey: .heldScriptBodies) }
+        try c.encode(countedWithoutSizeCaps, forKey: .countedWithoutSizeCaps)
         try c.encode(schemaVersion, forKey: .schemaVersion)
     }
 
      
-    static let knownKeys: Set<String> = Set(["id", "origin", "enabled", "name", "updateInterval", "lastCheckedAt", "lastUpdatedAt",
+    static let knownKeys: Set<String> = Set(["id", "origin", "enabled", "name", "label", "updateInterval", "lastCheckedAt", "lastUpdatedAt",
                                               "lastFailure", "scriptFetchedAt", "sourceSHA256", "scriptAttemptedAt",
                                               "scriptFailureCount", "linkFailureCount", "fileStates", "appScriptAddresses",
-                                              "argumentValues", "storedValues", "heldScriptBodies", "schemaVersion"])
+                                              "argumentValues", "storedValues", "heldScriptBodies", "countedWithoutSizeCaps",
+                                              "schemaVersion"])
 }
 
 extension ModuleRecord {
+     
+    var displayName: String { label ?? name }
+
      
      
     var isUnprotectedLink: Bool {
@@ -549,9 +582,6 @@ actor ModuleStore {
      
     @TaskLocal static var publishing: AnnouncementOrigin?
 
-     
-     
-    static let maximumScriptBytes = 4 << 20
     static let defaultUpdateInterval = ModuleLineSyntax.defaultScriptUpdateInterval
     static let portRange: ClosedRange<UInt16> = 42_000...48_999
 
@@ -629,10 +659,6 @@ actor ModuleStore {
 #endif
      
      
-     
-    static let maximumScriptsPerModule = 78
-     
-     
     private(set) var runsScripts: Bool
      
      
@@ -688,9 +714,37 @@ actor ModuleStore {
     }
 
      
+     
+     
+     
+    func publishedModules(_ ids: [String]) -> [String: ModuleIR] {
+        settle()
+        var out: [String: ModuleIR] = [:]
+        for id in ids { out[id] = storedIR(id) }
+        return out
+    }
+
+     
+     
+     
+     
+    private var decodedIRs: [String: (sha256: String, ir: ModuleIR)] = [:]
+
+    private func decodedIR(_ id: String, _ data: Data) -> (sha256: String, ir: ModuleIR)? {
+        let sha256 = ModuleJSON.sha256(data)
+        if let decoded = decodedIRs[id], decoded.sha256 == sha256 { return decoded }
+        guard let ir = try? ModuleJSON.decoder().decode(ModuleIR.self, from: data) else {
+            decodedIRs[id] = nil
+            return nil
+        }
+        decodedIRs[id] = (sha256, ir)
+        return (sha256, ir)
+    }
+
+     
     private func storedIR(_ id: String) -> ModuleIR? {
         guard let data = try? Data(contentsOf: locations.moduleManifest(id)) else { return nil }
-        return try? ModuleJSON.decoder().decode(ModuleIR.self, from: data)
+        return decodedIR(id, data)?.ir
     }
 
      
@@ -698,17 +752,16 @@ actor ModuleStore {
      
      
      
-    private func publishedIR(of record: ModuleRecord) -> (data: Data, ir: ModuleIR)? {
+    private func publishedIR(of record: ModuleRecord) -> (sha256: String, ir: ModuleIR)? {
         let url = locations.moduleManifest(record.id)
         guard let data = try? Data(contentsOf: url) else { return nil }
-        if let ir = try? ModuleJSON.decoder().decode(ModuleIR.self, from: data),
-           ir.schemaVersion == ModuleIR.currentSchemaVersion {
-            return (data, ir)
+        if let decoded = decodedIR(record.id, data), decoded.ir.schemaVersion == ModuleIR.currentSchemaVersion {
+            return decoded
         }
         guard readAgainFromSavedText(record, earlier: data), let again = try? Data(contentsOf: url),
-              let ir = try? ModuleJSON.decoder().decode(ModuleIR.self, from: again),
-              ir.schemaVersion == ModuleIR.currentSchemaVersion else { return nil }
-        return (again, ir)
+              let decoded = decodedIR(record.id, again),
+              decoded.ir.schemaVersion == ModuleIR.currentSchemaVersion else { return nil }
+        return decoded
     }
 
      
@@ -746,7 +799,6 @@ actor ModuleStore {
             log("module \(record.id) was published in IR \(version) and could not be read again now (\(error.localizedDescription))")
             return false
         }
-         
          
         let scripts: [ModuleLineSyntax.DeclaredScript] = ir.scripts.map { .http($0) } + ir.appScripts.map { .app($0) }
         ir.scripts = []
@@ -863,7 +915,11 @@ actor ModuleStore {
         return ir
     }
 
-    func publishedGlobalManifest() -> ModuleGlobalManifest? {
+    func publishedGlobalManifest() -> ModuleGlobalManifest? { Self.publishedGlobalManifest(locations) }
+
+     
+     
+    nonisolated static func publishedGlobalManifest(_ locations: ModuleLocations) -> ModuleGlobalManifest? {
         guard let data = try? Data(contentsOf: locations.globalManifest) else { return nil }
         return try? ModuleJSON.decoder().decode(ModuleGlobalManifest.self, from: data)
     }
@@ -924,6 +980,38 @@ actor ModuleStore {
         state.modules[index].enabled = enabled
          
         if enabled, let ir = storedIR(id) { seedStoredChoices(&state.modules[index], ir: ir) }
+        try save(state)
+        try publish(state)
+    }
+
+     
+     
+     
+    func rename(_ id: String, to label: String) throws {
+        settle()
+        var state = try loadForWrite()
+        guard let index = state.modules.firstIndex(where: { $0.id == id }) else { throw ModuleStoreError.moduleGone }
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let given = trimmed.isEmpty || trimmed == state.modules[index].name ? nil : trimmed
+        guard state.modules[index].label != given else { return }
+        state.modules[index].label = given
+        try save(state)
+        try publish(state)
+    }
+
+     
+     
+    func move(_ ids: [String]) throws {
+        settle()
+        var state = try loadForWrite()
+        var rest = state.modules
+        var ordered: [ModuleRecord] = []
+        for id in ids {
+            if let at = rest.firstIndex(where: { $0.id == id }) { ordered.append(rest.remove(at: at)) }
+        }
+        let modules = ordered + rest
+        guard modules.map(\.id) != state.modules.map(\.id) else { return }
+        state.modules = modules
         try save(state)
         try publish(state)
     }
@@ -1128,20 +1216,11 @@ actor ModuleStore {
      
      
      
-    static func maximumRunnableBytes(_ script: ModuleLineSyntax.DeclaredScript) -> Int {
-        let table = ModuleScriptLimitsTable.current
-        return script.isApp ? table.app.maximumSourceBytes : table.tunnel.maximumSourceBytes
-    }
-
-     
      
      
      
     static func scriptFailureText(for error: Error) -> AuthoredText {
         switch error as? DownloadError {
-        case .tooLarge?:
-             
-            return .app(ModuleStoredSentence.scriptTooLarge, arguments: [ModuleCopy.size(maximumScriptBytes)])
         case .badStatus(let status)? where status >= 0:
              
             return .app(ModuleStoredSentence.scriptStatus, arguments: [String(status)])
@@ -1402,13 +1481,8 @@ actor ModuleStore {
 
      
      
-     
     func downloadModule(_ url: URL) async throws -> Data {
-        do {
-            return try await download(url, maxBytes: ModuleParser.maximumBytes, agent: ModuleUserAgent.forLink(url.absoluteString))
-        } catch DownloadError.tooLarge(let observed) {
-            throw ModuleRefusal.tooLarge(observed)
-        }
+        try await download(url, maxBytes: .max, agent: ModuleUserAgent.forLink(url.absoluteString))
     }
 
     private func drawPorts(avoiding taken: Set<UInt16>) -> ModulePorts {
@@ -1475,7 +1549,8 @@ actor ModuleStore {
      
     func prepare(data: Data, sourceURL: String?, fetchedAt: Date, id: String, previous: ModuleIR?,
                  previousFetchedAt: [String: Date], retrying record: ModuleRecord? = nil,
-                 fetchingScripts: Bool = true, argumentValues given: [String: String]? = nil) async throws -> Prepared {
+                 fetchingScripts: Bool = true, argumentValues given: [String: String]? = nil,
+                 readerAsked: Bool = false) async throws -> Prepared {
          
          
          
@@ -1488,6 +1563,7 @@ actor ModuleStore {
         defer {
             if let count = preparing[id], count > 1 { preparing[id] = count - 1 } else { preparing[id] = nil }
         }
+         
          
          
          
@@ -1515,13 +1591,9 @@ actor ModuleStore {
         var ranOutOfTime = false
          
          
+         
         let scripts: [ModuleLineSyntax.DeclaredScript] = ir.scripts.map { .http($0) } + ir.appScripts.map { .app($0) }
         let appAddresses = Set(ir.appScripts.map(\.scriptURL))
-         
-         
-         
-        let capped = runsScripts ? Set(scripts.indices.dropFirst(Self.maximumScriptsPerModule)) : []
-        let uncappedAddresses = Set(scripts.indices.filter { !capped.contains($0) }.map { scripts[$0].scriptURL })
          
          
         func earlierBody(_ address: String) -> String? {
@@ -1533,19 +1605,6 @@ actor ModuleStore {
         func earlierFetchedAt(_ address: String) -> Date? {
             previousFetchedAt[address] ?? record?.heldScriptBodies[address]?.fetchedAt
         }
-         
-         
-         
-        var sizes: [String: Int] = [:]
-        var refusedRead = 0
-        func size(of sha: String) -> Int {
-            if let known = sizes[sha] { return known }
-            let bytes = newBodies[sha]?.count
-                ?? ((try? FileManager.default.attributesOfItem(atPath: locations.script(id, sha256: sha).path))?[.size] as? Int) ?? 0
-            sizes[sha] = bytes
-            return bytes
-        }
-        func scriptBytes() -> Int { Set(shas.values).reduce(refusedRead) { $0 + size(of: $1) } }
          
          
          
@@ -1575,30 +1634,9 @@ actor ModuleStore {
             var script = scripts[index]
             try Task.checkCancellation()
             let address = script.scriptURL
-             
-             
-             
-             
-             
-            if capped.contains(index) {
-                setAsideAt[index] = ModuleIgnoredEntry(text: address, reason: .scriptDownloadFailed(Self.tooManyFiles), origin: script.origin)
-                if !uncappedAddresses.contains(address) {
-                    attempted[address] = now()
-                    failedAddresses.insert(address)
-                }
-                log(#"module \#(id): script \#(script.name) from \#(address) is past the \#(Self.maximumScriptsPerModule) scripts a module may have"#)
-                continue
-            }
             if let sha = shas[address] {
                  
                  
-                 
-                let runsHere = Self.maximumRunnableBytes(script)
-                if size(of: sha) > runsHere {
-                    setAsideAt[index] = ModuleIgnoredEntry(text: address, reason: .platformCannot(.scriptTooLargeHere), origin: script.origin)
-                    log(#"module \#(id): script \#(script.name) from \#(address) is past the \#(runsHere) bytes this device runs; not kept"#)
-                    continue
-                }
                 script.bodySHA256 = sha
                 keptAt[index] = script
                 continue
@@ -1654,23 +1692,6 @@ actor ModuleStore {
             }
              
              
-             
-            func pastTheBytes() {
-                failedAddresses.insert(address)
-                if let earlier, earlierOnDisk, size(of: earlier) <= maximumModuleFileBytes - scriptBytes() {
-                    shas[address] = earlier
-                    if let at = previousFetchedAt[address] { fetched[address] = at }
-                    script.bodySHA256 = earlier
-                    keptAt[index] = script
-                    log("module \(id): script \(script.name) from \(address) is past the \(maximumModuleFileBytes) bytes the module's files may come to; the copy downloaded before stays")
-                } else {
-                    failed[address] = Self.tooManyFiles
-                    setAsideAt[index] = ModuleIgnoredEntry(text: address, reason: .scriptDownloadFailed(Self.tooManyFiles), origin: script.origin)
-                    log("module \(id): script \(script.name) from \(address) is past the \(maximumModuleFileBytes) bytes the module's files may come to")
-                }
-            }
-             
-             
             if !runsScripts {
                  
                 if earlier == nil || !earlierOnDisk || !keptAsItWas(script) {
@@ -1688,7 +1709,8 @@ actor ModuleStore {
              
              
              
-            if let record, let failures = record.scriptFailureCount[address], failures > 0,
+             
+            if !readerAsked, let record, let failures = record.scriptFailureCount[address], failures > 0,
                let tried = record.scriptAttemptedAt[address],
                now().timeIntervalSince(tried) < Self.retryDelay(
                    failures: failures, interval: earlier != nil && earlierOnDisk ? script.updateInterval : record.updateInterval),
@@ -1711,18 +1733,10 @@ actor ModuleStore {
             if let left = scriptDownloadsLeft { scriptDownloadsLeft = left - 1 }
             attempted[address] = now()
              
-            let room = maximumModuleFileBytes - scriptBytes()
-            guard room >= 1 else {
-                pastTheBytes()
-                continue
-            }
              
-             
-            let runsHere = Self.maximumRunnableBytes(script)
             do {
-                let body = try await download(try Self.address(address), maxBytes: min(Self.maximumScriptBytes, room, runsHere),
-                                              agent: ModuleUserAgent.forModule(ir.manifest))
-                do { try Self.checkScript(body) } catch { refusedRead += body.count; throw error }
+                let body = try await download(try Self.address(address), maxBytes: .max, agent: ModuleUserAgent.forModule(ir.manifest))
+                try Self.checkScript(body)
                 let sha = ModuleJSON.sha256(body)
                 newBodies[sha] = body
                 shas[address] = sha
@@ -1730,18 +1744,6 @@ actor ModuleStore {
                 script.bodySHA256 = sha
                 keptAt[index] = script
                 log("module \(id): script \(script.name) downloaded from \(address), \(body.count) bytes, sha256 \(sha)")
-            } catch DownloadError.tooLarge where runsHere < min(Self.maximumScriptBytes, room) {
-                 
-                 
-                 
-                failedAddresses.insert(address)
-                setAsideAt[index] = ModuleIgnoredEntry(text: address, reason: .platformCannot(.scriptTooLargeHere), origin: script.origin)
-                log(#"module \#(id): script \#(script.name) from \#(address) is past the \#(runsHere) bytes this device runs; not downloaded"#)
-            } catch DownloadError.tooLarge(let observed) where room < Self.maximumScriptBytes {
-                 
-                 
-                refusedRead += min(max(0, observed), room + 1)
-                pastTheBytes()
             } catch ModuleRefusal.notAnAddress {
                  
                  
@@ -1784,8 +1786,8 @@ actor ModuleStore {
         if !ranOutOfTime, let left = timeLeft(), left < Self.moduleTimeFloor { ranOutOfTime = true }
         let files = try await resolveFiles(ir, id: id, previous: previous, states: record?.fileStates ?? [:],
                                            interval: record?.updateInterval ?? Self.defaultUpdateInterval, at: fetchedAt,
-                                           spent: scriptBytes(),
-                                           fetchingFiles: fetchingScripts && !ranOutOfTime, fetchingSets: !ranOutOfTime)
+                                           fetchingFiles: fetchingScripts && !ranOutOfTime, fetchingSets: !ranOutOfTime,
+                                           readerAsked: readerAsked)
         ir = files.ir
         if files.ranOutOfTime { ranOutOfTime = true }
          
@@ -1827,19 +1829,12 @@ actor ModuleStore {
 
      
      
-    nonisolated var maximumAnswerFileBytes: Int { platform == .mac ? ModuleAnswerFileLimit.macOS : ModuleAnswerFileLimit.iOS }
      
-    static let maximumJQFileBytes = ModuleLoonRewriteSyntax.maximumJQBytes
+     
+     
+     
      
     static let maximumRuleSetBytes = 16 << 20
-     
-     
-     
-    static let maximumFileReferences = max(64, 2 * 39)
-     
-     
-     
-    nonisolated var maximumModuleFileBytes: Int { platform == .mac ? 256 << 20 : 64 << 20 }
 
      
      
@@ -1890,7 +1885,13 @@ actor ModuleStore {
      
      
     static let fileNotDownloaded = ModuleSentence.app("The file this line uses couldn't be downloaded, so it was skipped.", arguments: [])
+     
+     
+     
     static let fileNotSecure = ModuleSentence.app("The file this line uses isn't at an HTTPS address, so it was skipped.", arguments: [])
+     
+     
+     
     static let tooManyFiles = ModuleSentence.app("This module uses too many or too large files, so this line was skipped.", arguments: [])
 
      
@@ -1941,8 +1942,6 @@ actor ModuleStore {
          
         case waiting
         case failed(ModuleIgnoredReason)
-         
-        case capped
     }
 
      
@@ -2011,10 +2010,9 @@ actor ModuleStore {
      
      
      
-     
     func resolveFiles(_ ir: ModuleIR, id: String, previous: ModuleIR?, states: [String: ModuleFileState] = [:],
-                      interval: Int = ModuleStore.defaultUpdateInterval, at passTime: Date? = nil, spent scripts: Int = 0,
-                      fetchingFiles: Bool, fetchingSets: Bool) async throws -> ResolvedFiles {
+                      interval: Int = ModuleStore.defaultUpdateInterval, at passTime: Date? = nil,
+                      fetchingFiles: Bool, fetchingSets: Bool, readerAsked: Bool = false) async throws -> ResolvedFiles {
         guard !ir.answerFiles.isEmpty || ir.ruleSets.contains(where: { $0.url != nil }) else { return ResolvedFiles(ir: ir, states: [:]) }
          
         preparing[id, default: 0] += 1
@@ -2073,27 +2071,19 @@ actor ModuleStore {
         var resolution: [String: Resolution] = [:]
         var newStates: [String: ModuleFileState] = [:]
         var jqTexts: [String: JQText] = [:]
-         
-         
-        var spent = scripts
-        var admitted = 0
         var ranOutOfTime = false
         for item in wanted {
-            guard admitted < Self.maximumFileReferences else {
-                resolution[item.key] = .capped
-                continue
-            }
-            admitted += 1
             var state = states[item.key] ?? ModuleFileState()
             let exists = { (sha: String) in FileManager.default.fileExists(atPath: self.published(id, sha, item.place).path) }
              
             let earlier = [state.sha256, Self.namedBefore(item, in: previous)].compactMap { $0 }.first(where: exists)
             let jqUses = item.uses.filter(\.slot.jq).count
-            let bodyUse = item.uses.contains { !$0.slot.jq }
-            let cap = item.place == .sets ? Self.maximumRuleSetBytes : bodyUse ? maximumAnswerFileBytes : Self.maximumJQFileBytes
+            let cap = item.place == .sets ? Self.maximumRuleSetBytes : .max
             let tried = item.place == .sets ? fetchingSets : fetchingFiles
             let due: Bool = {
+                 
                 if state.failures > 0, let at = state.attemptedAt {
+                    if readerAsked { return true }
                     let widest = Self.retryInterval(item.interval, module: interval)
                     return now().timeIntervalSince(at) >= Self.fileRetryDelay(failures: state.failures, interval: widest)
                 }
@@ -2103,29 +2093,19 @@ actor ModuleStore {
             var sha = earlier
             var failure: ModuleResourceFetcher.Failure?
             var jqWords: String?
-             
-            var pastTheBytes = false
-            var fetchedNow = false
             if due, tried, !ranOutOfTime {
                 try Task.checkCancellation()
                  
                 if let left = timeLeft(), left < Self.moduleTimeFloor { ranOutOfTime = true }
             }
-            let room = max(0, maximumModuleFileBytes - spent)
-            if due, tried, !ranOutOfTime, room < 1 {
-                 
-                log("module \(id): \(item.url) was not downloaded: the module's files have come to the \(maximumModuleFileBytes) bytes they may")
-                pastTheBytes = true
-                state.failures += 1
-                state.attemptedAt = now()
-            } else if due, tried, !ranOutOfTime {
+            if due, tried, !ranOutOfTime {
                 let request = ModuleResourceFetcher.Request(
-                    url: item.url, place: item.place, cap: cap, budget: room,
+                    url: item.url, place: item.place, cap: cap,
                     base64: item.base64, acceptsHTML: item.uses.contains { $0.slot.acceptsHTML(item.url) },
                     earlier: earlier.map { .init(sha256: $0, etag: state.etag, lastModified: state.lastModified) },
                     headers: item.headers)
                 switch try await fetcher.fetch(request, module: id) {
-                case .fetched(let new, let count, let etag, let lastModified):
+                case .fetched(let new, _, let etag, let lastModified):
                      
                     var reads = true
                     if jqUses > 0 {
@@ -2139,12 +2119,10 @@ actor ModuleStore {
                     }
                     if reads {
                         sha = new
-                        fetchedNow = true
                         state = ModuleFileState(sha256: new, fetchedAt: passTime, attemptedAt: now(), failures: 0,
                                                  etag: etag, lastModified: lastModified)
                     } else {
                         log("module \(id): \(item.url) is not a jq program Clash reads (\(jqWords ?? #"not text"#))")
-                        spent += count
                         failure = .unusable
                         state.failures += 1
                         state.attemptedAt = now()
@@ -2156,13 +2134,7 @@ actor ModuleStore {
                     state.failures = 0
                     state.etag = etag
                     state.lastModified = lastModified
-                case .failed(.overTheModuleBudget, let read):
-                    spent += read
-                    pastTheBytes = true
-                    state.failures += 1
-                    state.attemptedAt = now()
-                case .failed(let why, let read):
-                    spent += read
+                case .failed(let why):
                     failure = why
                     state.failures += 1
                     state.attemptedAt = now()
@@ -2172,30 +2144,15 @@ actor ModuleStore {
             }
             if state != ModuleFileState() { newStates[item.key] = state }
             if let current = sha {
-                 
                 let size = ((try? FileManager.default.attributesOfItem(atPath: published(id, current, item.place).path))?[.size] as? Int) ?? 0
-                guard size <= maximumModuleFileBytes - spent else {
-                    log("module \(id): \(item.url) is past the \(maximumModuleFileBytes) bytes the module's files may come to")
-                    resolution[item.key] = .capped
-                    if fetchedNow {
-                         
-                        state.failures += 1
-                        state.attemptedAt = now()
-                        newStates[item.key] = state
-                    }
-                    continue
-                }
-                spent += size
                 if jqUses > 0, jqTexts[current] == nil { jqTexts[current] = await Self.jqText(published(id, current, .files)) }
-                if failure != nil || pastTheBytes { log("module \(id): \(item.url) was not updated; the copy downloaded before stays") }
+                if failure != nil { log("module \(id): \(item.url) was not updated; the copy downloaded before stays") }
                 resolution[item.key] = .file(sha256: current, byteCount: size)
-            } else if pastTheBytes {
-                resolution[item.key] = .capped
             } else if let failure {
                  
                  
                 resolution[item.key] = .failed(item.place == .sets && failure == .unusable
-                    ? .ruleSetNotDownloadedYet : Self.reason(for: failure, jqWords: jqWords, answers: bodyUse))
+                    ? .ruleSetNotDownloadedYet : Self.reason(for: failure, jqWords: jqWords))
             } else if state.failures > 0, let had = Self.skippedBefore(item, in: previous) {
                  
                 resolution[item.key] = .failed(had)
@@ -2216,7 +2173,6 @@ actor ModuleStore {
             for use in item.uses {
                 let origin = ir.answerFiles[use.reference].origin
                 switch resolution[item.key] {
-                case .capped?: skip(origin, item.url, .fileDownloadFailed(Self.tooManyFiles))
                 case .failed(let reason)?: skip(origin, item.url, reason)
                 case .file(let sha, let size)?:
                     out.answerFiles[use.reference].sha256 = sha
@@ -2252,14 +2208,11 @@ actor ModuleStore {
         }
          
         out.answerFiles = out.answerFiles.enumerated().compactMap { r, reference in
-            guard let key = keyOfReference[r] else { return nil }
-            if case .capped? = resolution[key] { return nil }
-            return reference
+            keyOfReference[r] == nil ? nil : reference
         }
         out.ignored += skipped.sorted { ($0.key.section, $0.key.line) < ($1.key.section, $1.key.line) }
             .map { ModuleIgnoredEntry(text: $0.value.url, reason: $0.value.reason, origin: $0.key) }
 
-         
          
          
          
@@ -2271,9 +2224,6 @@ actor ModuleStore {
             case .file(let sha, _)?:
                 set.sha256 = sha
                 keptSets.append(set)
-            case .capped?:
-                out.ignored.append(ModuleIgnoredEntry(text: url, reason: .fileDownloadFailed(Self.tooManyFiles), origin: set.origin))
-                leftOut.append(set.reference)
             case .failed(let reason)?:
                 out.ignored.append(ModuleIgnoredEntry(text: url, reason: reason, origin: set.origin))
                 leftOut.append(set.reference)
@@ -2307,19 +2257,15 @@ actor ModuleStore {
         previous?.ignored.first { entry in
             guard entry.text == item.url else { return false }
             switch entry.reason {
-            case .fileDownloadFailed, .jqExpressionInvalid, .answerFileTooLarge, .noEffectInItsOwnApp, .ruleSetNotDownloadedYet: return true
+            case .fileDownloadFailed, .jqExpressionInvalid, .noEffectInItsOwnApp, .ruleSetNotDownloadedYet: return true
             default: return false
             }
         }?.reason
     }
 
-    private static func reason(for failure: ModuleResourceFetcher.Failure, jqWords: String?,
-                               answers: Bool) -> ModuleIgnoredReason {
+    private static func reason(for failure: ModuleResourceFetcher.Failure, jqWords: String?) -> ModuleIgnoredReason {
         if let jqWords { return jqReason(jqWords) }
         switch failure {
-        case .tooLarge(let limit) where answers: return .answerFileTooLarge(limit)
-        case .notSecure: return .fileDownloadFailed(fileNotSecure)
-        case .overTheModuleBudget: return .fileDownloadFailed(tooManyFiles)
         case .tooLarge, .unusable: return .fileDownloadFailed(fileNotDownloaded)
         }
     }
@@ -2342,7 +2288,7 @@ actor ModuleStore {
      
      
     static func jqText(_ file: URL) async -> JQText {
-        guard let data = try? Data(contentsOf: file), data.count <= maximumJQFileBytes,
+        guard let data = try? Data(contentsOf: file),
               let text = String(data: data, encoding: .utf8) else { return .unusable }
         do {
             _ = try await ModuleJQ.parseOnLargeStack(text)
@@ -2501,12 +2447,12 @@ actor ModuleStore {
         var enabled: [(moduleID: String, ir: ModuleIR, choice: String?)] = []
         for record in state.modules where record.enabled {
              
-            guard let (data, ir) = publishedIR(of: record) else {
+            guard let (irSHA256, ir) = publishedIR(of: record) else {
                 log("module \(record.id) is left out of the publication: its manifest could not be read")
                 continue
             }
             var published = ModuleGlobalManifest.Module(
-                id: record.id, name: record.name, irSHA256: ModuleJSON.sha256(data),
+                id: record.id, name: record.displayName, irSHA256: irSHA256,
                 effectiveCount: ir.effectiveCount, ignoredCount: ir.ignoredCount)
              
             if ir.mitmOverHTTP2 { published.http2 = true }
@@ -2621,6 +2567,7 @@ actor ModuleStore {
     private func collectGarbage(keeping state: ModuleState, published: Bool) {
         let files = FileManager.default
         let ids = Set(state.modules.map(\.id))
+        decodedIRs = decodedIRs.filter { ids.contains($0.key) || preparing[$0.key] != nil }
         do {
             for entry in (try? files.contentsOfDirectory(at: locations.publishedRoot, includingPropertiesForKeys: [.isDirectoryKey])) ?? [] {
                 let isDirectory = (try? entry.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) ?? false
@@ -3036,8 +2983,11 @@ extension ModuleStore {
      
      
      
+     
+     
+     
     func refresh(_ id: String, refetchModule: Bool = true, fetchingScripts: Bool = true,
-                 movingClocks: Bool = true) async -> RefreshResult {
+                 movingClocks: Bool = true, readerAsked: Bool = false) async -> RefreshResult {
         let list: ModuleState
         do { list = try state() } catch {
             log("module \(id) was not checked: the module list could not be used right now")
@@ -3069,7 +3019,7 @@ extension ModuleStore {
             let previous = publishedModule(id)
             let prepared = try await prepare(data: data, sourceURL: link, fetchedAt: checkedAt, id: id,
                                              previous: previous, previousFetchedAt: record.scriptFetchedAt,
-                                             retrying: record, fetchingScripts: fetchingScripts)
+                                             retrying: record, fetchingScripts: fetchingScripts, readerAsked: readerAsked)
             guard generations[id] == mine else { return .superseded }
             var updated = record
             if movesClock {
@@ -3311,7 +3261,13 @@ extension ModuleStore {
         if published.ignored.contains(where: { entry in
             entry.reason == .ruleSetNotDownloadedYet && !retrying.contains(Self.listAddress(entry.text))
         }) { sets = true }
-        return (module, setAside || passed || appPassed, files, sets, appPassed || appSetAside)
+         
+         
+         
+         
+        let readAgain = published.ignored.contains { $0.reason == .scriptAddressNotSecure }
+            || ModuleRuleMapping.listingPlainHTTPHosts(published).forceHTTPEngineHostLines.count != published.forceHTTPEngineHostLines.count
+        return (module, setAside || passed || appPassed || readAgain, files, sets, appPassed || appSetAside || readAgain)
     }
 
      
@@ -3581,6 +3537,7 @@ extension ModuleStore {
                  
                  
                 record.argumentValues = module.argumentValues ?? [:]
+                record.label = module.label
                 let store = scriptStore
                 for (key, value) in (module.storedValues ?? [:]).sorted(by: { $0.key < $1.key }) where store.readShared(key: key) == nil {
                     guard store.writeShared(value, key: key) else {

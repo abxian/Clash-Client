@@ -325,7 +325,7 @@ enum OnDemandValidationError: Error, Equatable, LocalizedError {
         case .invalidDNSServer:
             return "DNS server conditions must use an IPv4 or IPv6 address."
         case .invalidProbeURL:
-            return "Probe URLs must be credential-free HTTPS URLs with a host."
+            return "Probe URLs must be credential-free http or https URLs with a host."
         case .missingEvaluateRules:
             return "Evaluate Connection needs at least one connection rule."
         case .missingMatchDomains:
@@ -502,8 +502,9 @@ enum OnDemandSettings {
 
     private static func validatedProbeURL(_ raw: String) throws -> URL? {
         guard !raw.isEmpty else { return nil }
+         
         guard let components = URLComponents(string: raw),
-              components.scheme?.lowercased() == "https",
+              ["http", "https"].contains(components.scheme?.lowercased() ?? ""),
               components.host != nil,
               components.user == nil,
               components.password == nil,

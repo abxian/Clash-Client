@@ -1,5 +1,6 @@
 import ClashClientKit
 import ClashClientUI
+import ClashMacClient
 import SwiftUI
 
  
@@ -60,6 +61,7 @@ struct ClashMacSourceEditorWindow: View {
      
      
      
+     
     @State private var tooLarge = false
 
     var body: some View {
@@ -98,15 +100,14 @@ struct ClashMacSourceEditorWindow: View {
 
     @ViewBuilder
     private func content(for profile: Profile) -> some View {
-        if tooLarge {
-            Text(clash: ClashMacKeptRulesList.note)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(ClashTheme.Spacing.section)
-                .frame(minWidth: 480, maxWidth: .infinity, minHeight: 320, maxHeight: .infinity)
-                .accessibilityIdentifier("source-editor.too-large")
-                .navigationTitle(Text(verbatim: profile.label))
-                .navigationSubtitle("Edit Source")
+        if tooLarge, let workingDir = profiles.workingDir {
+             
+             
+            ClashMacSourceViewer(
+                url: workingDir.appendingPathComponent("store/\(profile.id)/source.yaml"),
+                title: profile.label
+            )
+            .accessibilityIdentifier("source-editor.too-large")
         } else if let rawYAML {
             ClashWindowDepartureHost {
                 ProfileEditView(

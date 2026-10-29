@@ -149,6 +149,10 @@ public struct ConfigurationCollectionEntry: Identifiable, Equatable, Sendable {
     public let collection: ConfigurationCollection
     public var memberCount: Int?
     public var subscriptionUsage: ConfigurationSubscriptionUsage? = nil
+     
+     
+     
+    public var sourceUserAgent: String? = nil
     public var id: ConfigurationCollection.ID { collection.id }
     public init(source: ConfigurationSourceRecord, collection: ConfigurationCollection) {
         self.source = source; self.collection = collection; self.memberCount = collection.inlineCount
@@ -175,7 +179,16 @@ public extension ConfigurationLibraryStore {
              
              
              
-            let members = try OrderedJSON.topLevel(payload(.init(source)).documentJSON)
+             
+            let sections = try providerSections(.init(source))
+            let sourceUserAgent: String? = {
+                switch sections["global-ua"] {
+                case .string(let value)?: return value
+                 
+                case .scalar(let value)? where value != "null": return value
+                default: return nil
+                }
+            }()
              
              
              
@@ -185,10 +198,14 @@ public extension ConfigurationLibraryStore {
                 kind == .nodes ? source.suppliesNodes
                     : (!source.suppliesNodes || (source.registersSuppliedRules != false && read.contains(source.id)))
             }.flatMap { kind -> [ConfigurationCollectionEntry] in
-                let section = try members?.value(kind.rawValue)
+                let section = sections[kind.rawValue]
                 let document = OrderedJSON.object(section.map { [(key: kind.rawValue, value: $0)] } ?? [])
                 return ConfigurationCollection.read(sourceID: source.id, document: document, kind: kind)
-                    .map { ConfigurationCollectionEntry(source: source, collection: $0) }
+                    .map {
+                        var entry = ConfigurationCollectionEntry(source: source, collection: $0)
+                        entry.sourceUserAgent = sourceUserAgent
+                        return entry
+                    }
             }
         }
     }

@@ -68,19 +68,27 @@ struct ProxyNodeRecord: Equatable, Identifiable, Sendable {
     let delay: Int?
     let groupNames: [String]
     let protocolDetails: ProxyProtocolDetails?
+     
+     
+    let failureCategory: String?
+    let failureMessage: String?
 
     init(
         name: String,
         type: String,
         delay: Int?,
         groupNames: [String],
-        protocolDetails: ProxyProtocolDetails? = nil
+        protocolDetails: ProxyProtocolDetails? = nil,
+        failureCategory: String? = nil,
+        failureMessage: String? = nil
     ) {
         self.name = name
         self.type = type
         self.delay = delay
         self.groupNames = groupNames
         self.protocolDetails = protocolDetails
+        self.failureCategory = failureCategory
+        self.failureMessage = failureMessage
     }
 
     var id: String { name }

@@ -55,10 +55,8 @@ enum ModuleNodeScriptPresentation {
             return .failed("Update the module, then try again.", detail: nil)
         case .skipped(.paused):
             return .failed("Scripts are paused for now. Try again later.", detail: nil)
-        case .skipped(.tooLarge):
-            return .failed("This script is too large to run.", detail: nil)
-        case .skipped(.busy):
-            return .failed("This script is still running.", detail: nil)
+        case .skipped(.lowMemory):
+            return .failed("There isn't enough memory to run this script right now. Try again later.", detail: nil)
         case .skipped(.other):
             return .failed("The script didn't run.", detail: nil)
         case .notRun(.tunnelNotConnected):

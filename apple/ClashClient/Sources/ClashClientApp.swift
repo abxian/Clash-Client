@@ -578,6 +578,7 @@ struct AppShellView: View {
                     guard command.isConnected, scenePhaseWitness.phase == .active,
                           let container = ClashAppIdentifiers.appGroupContainer else { return }
                     command.startPendingCompiles(container: container)
+                    profiles.publishWhatOnlyAPublicationTakes(container: container)
                 }
             } else {
                 command.stopPendingCompiles()
@@ -718,8 +719,9 @@ struct AppShellView: View {
                  
                  
                 Task { await profiles.republishIfLibraryGone() }
-                if let container = ClashAppIdentifiers.appGroupContainer {
+                if let container = ClashAppIdentifiers.appGroupContainer, command.isConnected {
                     command.startPendingCompiles(container: container)
+                    profiles.publishWhatOnlyAPublicationTakes(container: container)
                 }
                  
                  
@@ -780,6 +782,13 @@ struct AppShellView: View {
             }
         }
         .task {
+             
+             
+             
+            command.takesWhatTheCompileCouldNotTake = { [weak profiles] held in
+                guard let container = ClashAppIdentifiers.appGroupContainer else { return }
+                profiles?.publishWhatOnlyAPublicationTakes(container: container, handedOn: held)
+            }
              
             await profiles.republishIfLibraryGone()
              
@@ -898,26 +907,19 @@ struct AppShellView: View {
          
          
          
-        .environment(\.configurationLinkedPage) { [proxyShare, profiles, command] page in
+         
+         
+        .environment(\.configurationLinkedPage, ConfigurationLinkedPages(from: [proxyShare, profiles, command]) {
+            [proxyShare, profiles, command] page in
             switch page {
             case .owner(.lanSharing):
                 return AnyView(ProxyShareView(model: proxyShare))
             case .owner(.clientSettings):
-                let active = profiles.profiles.first { $0.id == profiles.activeProfileID }
-                return AnyView(ClientSettingsView(
-                    command: command,
-                    activeProfileUDPFallback: active?.udpFallbackPolicy,
-                    activeProfileUDPFallbackGuardInput: { [profiles] in
-                        guard let active else { return nil }
-                        return await profiles.udpFallbackGuardInput(for: active)
-                    }
-                ) {
-                    profiles.restageForClientRuntimeSetting()
-                })
+                return AnyView(ConfigurationClientSettingsPage(profiles: profiles, command: command))
             case .owner:
                 return nil
             }
-        }
+        })
     }
 
      
@@ -1618,6 +1620,7 @@ struct AppShellView: View {
                   let container = ClashAppIdentifiers.appGroupContainer
             else { return }
             command.startPendingCompiles(container: container)
+            profiles.publishWhatOnlyAPublicationTakes(container: container)
         }
     }
 
@@ -2411,6 +2414,29 @@ private struct DeferredPage {
      
      
     var confirmsAppearance = false
+}
+
+ 
+ 
+ 
+ 
+private struct ConfigurationClientSettingsPage: View {
+    @ObservedObject var profiles: ProfilesViewModel
+    let command: ClashCommandClient
+
+    var body: some View {
+        let active = profiles.profiles.first { $0.id == profiles.activeProfileID }
+        ClientSettingsView(
+            command: command,
+            activeProfileUDPFallback: active?.udpFallbackPolicy,
+            activeProfileUDPFallbackGuardInput: { [profiles] in
+                guard let active = profiles.profiles.first(where: { $0.id == profiles.activeProfileID }) else { return nil }
+                return await profiles.udpFallbackGuardInput(for: active)
+            }
+        ) {
+            profiles.restageForClientRuntimeSetting()
+        }
+    }
 }
 
  

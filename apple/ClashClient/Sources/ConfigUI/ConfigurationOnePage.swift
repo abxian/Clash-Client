@@ -22,31 +22,19 @@ import SwiftUI
 final class ConfigurationAlertHosts: ObservableObject {
     @Published private(set) var stack: [UUID] = []
 
+     
+     
     func appeared(_ id: UUID) {
-        stack.removeAll { $0 == id }
-        stack.append(id)
+        guard stack.last != id else { return }
+        stack = stack.filter { $0 != id } + [id]
     }
 
-    func disappeared(_ id: UUID) { stack.removeAll { $0 == id } }
+    func disappeared(_ id: UUID) {
+        guard stack.contains(id) else { return }
+        stack = stack.filter { $0 != id }
+    }
 
     func isTop(_ id: UUID) -> Bool { stack.last == id }
-}
-
- 
- 
-struct ConfigurationAlertHosting {
-    let hosts: ConfigurationAlertHosts
-}
-
-private struct ConfigurationAlertHostingKey: EnvironmentKey {
-    static let defaultValue: ConfigurationAlertHosting? = nil
-}
-
-extension EnvironmentValues {
-    var configurationAlertHosting: ConfigurationAlertHosting? {
-        get { self[ConfigurationAlertHostingKey.self] }
-        set { self[ConfigurationAlertHostingKey.self] = newValue }
-    }
 }
 
  
@@ -55,25 +43,20 @@ extension EnvironmentValues {
  
 struct ConfigurationPushedAlertHost: ViewModifier {
     @ObservedObject var session: ConfigurationEditorSession
-    @Environment(\.configurationAlertHosting) private var hosting
     @State private var editingSource = false
 
     func body(content: Content) -> some View {
-        if let hosting {
-            content
-                .modifier(ConfigurationAlertHost(session: session, hosts: hosting.hosts, editSource: { editingSource = true },
-                                                 covered: editingSource))
-                .sheet(isPresented: $editingSource, onDismiss: { Task { await session.reload() } }) {
-                    if let profile = session.model.profiles.first(where: { $0.id == session.profileID }) {
-                        ProfileSourceEditorLoader(profile: profile, model: session.model,
-                                                  savesIndependentSource: session.isComposed)
-                            .configurationEditorOwnsItsScreen()
-                            .clashModalPresentation(.page)
-                    }
+        content
+            .modifier(ConfigurationAlertHost(session: session, hosts: session.alertHosts, editSource: { editingSource = true },
+                                             covered: editingSource))
+            .sheet(isPresented: $editingSource, onDismiss: { Task { await session.reload() } }) {
+                if let profile = session.model.profiles.first(where: { $0.id == session.profileID }) {
+                    ProfileSourceEditorLoader(profile: profile, model: session.model,
+                                              savesIndependentSource: session.isComposed)
+                        .configurationEditorOwnsItsScreen()
+                        .clashModalPresentation(.page)
                 }
-        } else {
-            content
-        }
+            }
     }
 }
 
@@ -95,8 +78,12 @@ private struct ConfigurationAlertHost: ViewModifier {
         content
             .modifier(ConfigurationEditorAlerts(session: session, editSource: editSource,
                                                 isActive: hosts.isTop(id) && !covered))
-            .onAppear { hosts.appeared(id) }
-            .onDisappear { hosts.disappeared(id) }
+             
+             
+             
+            .clashOnScreen { onScreen in
+                if onScreen { hosts.appeared(id) } else { hosts.disappeared(id) }
+            }
     }
 }
 
@@ -107,16 +94,39 @@ final class ConfigurationPageState: ObservableObject {
     let model: ProfilesViewModel
     let profileID: String
     let session: ConfigurationEditorSession
-    let alertHosts = ConfigurationAlertHosts()
-    @Published var sheet: ConfigurationEditorSheet?
-    @Published var editingSource = false
+     
+    var alertHosts: ConfigurationAlertHosts { session.alertHosts }
+     
+     
+     
+     
+     
+     
+    var sheet: ConfigurationEditorSheet? {
+        willSet { if newValue != sheet { objectWillChange.send() } }
+    }
+    var editingSource = false {
+        willSet { if newValue != editingSource { objectWillChange.send() } }
+    }
     @Published var compiling = false
-    @Published var compileAnswer: ConfigurationCompileResult?
+    var compileAnswer: ConfigurationCompileResult? {
+        willSet { if newValue?.id != compileAnswer?.id { objectWillChange.send() } }
+    }
     @Published var schemes: [ConfigurationRuleScheme] = []
     @Published var choosing = false
      
      
-    @Published var query = ""
+    var query = "" {
+        willSet { if newValue != query { objectWillChange.send() } }
+    }
+     
+     
+    @Published private(set) var scripts: [ConfigScript] = ScriptLibrary.load()
+
+    func loadScripts() {
+        let loaded = ScriptLibrary.load()
+        if loaded != scripts { scripts = loaded }
+    }
     var isSearching: Bool { !ConfigurationPageSearch.normalized(query).isEmpty }
      
      
@@ -211,7 +221,14 @@ struct ConfigurationPageHost: View {
              
              
              
-            .task(id: profile?.activeRevision ?? "") { await state.session.reload() }
+             
+             
+             
+             
+            .task(id: profile?.activeRevision ?? "") {
+                state.loadScripts()
+                await state.session.reload()
+            }
             .task { await state.loadSchemes() }
             .modifier(ConfigurationAlertHost(session: state.session, hosts: state.alertHosts,
                                              editSource: { state.editingSource = true },
@@ -274,6 +291,11 @@ struct ConfigurationPageSections: View {
         if let page = session.page {
             let current = currentChoice(page.form)
             let own = Self.configurationsOwn(of: page.rows)
+            if let reason = session.loadFailure {
+                 
+                 
+                Section { ConfigurationPageLoadFailure(session: session, reason: reason) }
+            }
             if current != nil || session.isSaving || state.choosing || !own.isEmpty {
                 Section {
                     if session.isSaving || state.choosing {
@@ -317,9 +339,13 @@ struct ConfigurationPageSections: View {
             }
         } else {
             Section {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .accessibilityIdentifier("configuration-editor.loading")
+                if let reason = session.loadFailure {
+                    ConfigurationPageLoadFailure(session: session, reason: reason)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity)
+                        .accessibilityIdentifier("configuration-editor.loading")
+                }
             } header: {
                 detailsHeader
             }
@@ -476,7 +502,7 @@ struct ConfigurationPageSections: View {
      
     private var overrideScriptName: ClashDisplayText? {
         guard let profile = state.model.profiles.first(where: { $0.id == state.profileID }) else { return nil }
-        return Self.overrideScriptName(profile, scripts: ScriptLibrary.load())
+        return Self.overrideScriptName(profile, scripts: state.scripts)
     }
 
     static func overrideScriptName(_ profile: Profile, scripts: [ConfigScript]) -> ClashDisplayText? {
@@ -759,6 +785,13 @@ struct ConfigurationPageActions: View {
     @EnvironmentObject private var state: ConfigurationPageState
     @EnvironmentObject private var session: ConfigurationEditorSession
 
+     
+     
+    private var sourceToView: URL? {
+        session.page?.keptRules?.file
+            ?? state.model.workingDir?.appendingPathComponent("store/\(state.profileID)/source.yaml")
+    }
+
     var body: some View {
         if session.page != nil, !state.isSearching {
             Group {
@@ -767,6 +800,33 @@ struct ConfigurationPageActions: View {
                  
                  
                 let keepsRules = session.page?.opensEditSource == false
+#if os(iOS)
+                if keepsRules {
+                     
+                     
+                    NavigationLink {
+                        if let url = sourceToView {
+                            ConfigurationSourceViewerPage(url: url, title: session.page?.label ?? "")
+                                .environment(\.clashProductModalDismiss, nil)
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Label { Text(clash: .copy("View Source")) } icon: {
+                                Image(systemName: ClashSymbol.docTextMagnifyingglass.name)
+                            }
+                            Text(clash: .copy("Too large to edit here. View only."))
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .accessibilityIdentifier("configuration-editor.action.view-source")
+                } else {
+                    Button { state.editingSource = true } label: {
+                        Label { Text(clash: .copy("Edit Source")) } icon: { Image(systemName: ClashSymbol.curlybraces.name) }
+                    }
+                    .accessibilityIdentifier("configuration-editor.action.edit-source")
+                }
+#else
                 Button { state.editingSource = true } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Label { Text(clash: .copy("Edit Source")) } icon: { Image(systemName: ClashSymbol.curlybraces.name) }
@@ -779,6 +839,7 @@ struct ConfigurationPageActions: View {
                 }
                 .disabled(keepsRules)
                 .accessibilityIdentifier("configuration-editor.action.edit-source")
+#endif
                 Button { state.compile() } label: {
                     HStack {
                         Label { Text(clash: .copy("Compile Configuration")) } icon: { Image(systemName: ClashSymbol.checkmarkCircle.name) }
@@ -967,7 +1028,10 @@ struct ConfigurationSectionDestination: View, Equatable {
     @ObservedObject var session: ConfigurationEditorSession
     let section: ConfigurationOutlineSection
     let form: ProfilesViewModel.ConfigurationEditorPage.Form
-    @ObservedObject var alertHosts: ConfigurationAlertHosts
+     
+     
+     
+    let alertHosts: ConfigurationAlertHosts
     var libraryChanged: ((ConfigurationLibrarySnapshot) -> Void)?
      
      
@@ -989,13 +1053,20 @@ struct ConfigurationSectionDestination: View, Equatable {
     var body: some View {
         destination
              
-            .environment(\.configurationLinkedPage, { linkedPage($0) })
              
-            .environment(\.configurationAlertHosting, ConfigurationAlertHosting(hosts: alertHosts))
+             
+            .environment(\.configurationLinkedPage,
+                         ConfigurationLinkedPages(from: [model, session], over: shellPage) { linkedPage($0) })
+             
             .modifier(ConfigurationAlertHost(session: session, hosts: alertHosts, editSource: { editingSource = true },
                                              covered: editingSource))
              
-            .onDisappear { Task { await session.reload() } }
+             
+             
+             
+             
+             
+             
             .sheet(isPresented: $editingSource, onDismiss: { Task { await session.reload() } }) {
                 if let profile {
                     ProfileSourceEditorLoader(profile: profile, model: model, savesIndependentSource: session.isComposed)
@@ -1008,31 +1079,22 @@ struct ConfigurationSectionDestination: View, Equatable {
      
      
      
+     
+     
+     
+     
     private func linkedPage(_ page: ConfigurationLinkedPage) -> AnyView? {
         switch page {
         case .owner(.certificatesAndTrust):
-            guard let profile else { return nil }
-             
-             
-             
-            return AnyView(ProfileRuntimeTrustEditor.opening(profile: profile, sourceYAML: model.sourceYAML(for: profile),
-                                                             patchJSON: profile.override.patchJSON) { patchJSON in
-                Task {
-                    var draft = ProfileAdvancedOverridesDraft(profile: profile)
-                    draft.rawPatchJSON = patchJSON
-                    do { try await model.updateAdvancedOverrides(draft) } catch {
-                        session.failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-                    }
-                    await session.reload()
-                }
-            })
+            guard profile != nil else { return nil }
+            return AnyView(ConfigurationTrustPage(model: model, profileID: profileID, session: session))
         case .owner(.tunnelAndRoutes):
-            guard let profile else { return nil }
-            return AnyView(ConfigurationTunnelRoutesPage(model: model, profile: profile))
+            guard profile != nil else { return nil }
+            return AnyView(ConfigurationTunnelRoutesPage(model: model, profileID: profileID))
         case .owner(.lanSharing):
             return AnyView(ProxyShareConfigurationView(profiles: model, session: session))
         default:
-            return shellPage?(page)
+            return shellPage?.open(page)
         }
     }
 
@@ -1136,15 +1198,48 @@ struct ConfigurationSectionDestination: View, Equatable {
  
 private struct ConfigurationTunnelRoutesPage: View {
     @ObservedObject var model: ProfilesViewModel
-    let profile: Profile
+    let profileID: String
 
     var body: some View {
-        CurrentConfigurationSettingsHost(profiles: model, profile: profile) { settings, reread in
-            ProfileBaseDocumentHost(profiles: model, profile: settings.profile) { base in
-                ProfileRoutePresetView(profile: settings.profile, sourceYAML: base, ownsNavigationContainer: false,
-                                       scopeFooter: settings.scopeSentence) {
-                    try await model.updateRoutePreset($0, readAs: settings)
-                    await reread()
+        if let profile = model.profiles.first(where: { $0.id == profileID }) {
+            CurrentConfigurationSettingsHost(profiles: model, profile: profile) { settings, reread in
+                ProfileBaseDocumentHost(profiles: model, profile: settings.profile) { base in
+                    ProfileRoutePresetView(profile: settings.profile, sourceYAML: base, ownsNavigationContainer: false,
+                                           scopeFooter: settings.scopeSentence) {
+                        try await model.updateRoutePreset($0, readAs: settings)
+                        await reread()
+                    }
+                }
+            }
+        }
+    }
+}
+
+ 
+ 
+ 
+private struct ConfigurationTrustPage: View {
+    let model: ProfilesViewModel
+    let profileID: String
+    let session: ConfigurationEditorSession
+
+    private var profile: Profile? { model.profiles.first { $0.id == profileID } }
+
+    var body: some View {
+        if let profile {
+             
+             
+             
+            ProfileRuntimeTrustEditor.opening(profile: profile, sourceYAML: model.sourceYAML(for: profile),
+                                              patchJSON: profile.override.patchJSON) { patchJSON in
+                Task {
+                    guard let latest = self.profile else { return }
+                    var draft = ProfileAdvancedOverridesDraft(profile: latest)
+                    draft.rawPatchJSON = patchJSON
+                    do { try await model.updateAdvancedOverrides(draft) } catch {
+                        session.failure = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    }
+                    await session.reload()
                 }
             }
         }
@@ -1178,7 +1273,7 @@ private struct ConfigurationSchemeRulesPushed: View {
     }
     @State private var loaded: ConfigurationSchemeRulesLoader.Loaded?
     @State private var failure: String?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         Group {

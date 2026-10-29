@@ -23,6 +23,9 @@ enum ConfigStoreSuspensionShield {
             begin: { holder.coalescer.acquire(); return nil },
             end: { _ in holder.coalescer.release() }
         )
+         
+         
+        ReaderTunnelIntent.holdAwake = { beginLibraryAccess() }
     }
 
     static func beginLibraryAccess() -> @Sendable () -> Void {

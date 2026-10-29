@@ -6,7 +6,7 @@ import SwiftUI
 struct ProfilePreviewView: View {
     let title: ClashDisplayText
     private let loader: () async throws -> String?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @State private var text = ""
     @State private var isAvailable = false
     @State private var isLoading = true
@@ -117,7 +117,7 @@ struct ProfileFinalConfigurationView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
     @State private var previewKind: FinalConfigurationPreviewKind = .effective
      

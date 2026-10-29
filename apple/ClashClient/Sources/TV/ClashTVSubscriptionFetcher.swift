@@ -71,7 +71,7 @@ enum ClashTVSubscriptionFetcher {
     static func userAgent(
         defaults: UserDefaults = ClientUserAgent.appGroupDefaults
     ) -> String {
-        ClientUserAgent.preset(from: defaults).value
+        ClientUserAgent.downloadIdentity(from: defaults)
     }
 
     static func fetch(

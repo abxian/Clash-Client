@@ -6,6 +6,9 @@ import SwiftUI
  
  
  
+ 
+ 
+ 
 struct ModuleAddModuleSheet: View {
     enum Input: Equatable {
         case link(String)
@@ -17,52 +20,75 @@ struct ModuleAddModuleSheet: View {
      
      
     let offeredLink: String?
-    let add: (Input) -> Void
+     
+    let add: (Input, String) -> Void
     let cancel: () -> Void
     let edited: () -> Void
+    @State private var mode: ClashModulesAddMode
     @State private var link: String
+     
+    @State private var written: String?
+    @State private var name = ""
+    @Environment(\.locale) private var locale
      
     @Environment(\.clashInsideProductModalPresentation) private var insideProductModal
 
-    init(isAdding: Bool, refusal: ClashDisplayText?, offeredLink: String? = nil, add: @escaping (Input) -> Void,
-         cancel: @escaping () -> Void, edited: @escaping () -> Void) {
+    init(mode: ClashModulesAddMode = .link, isAdding: Bool, refusal: ClashDisplayText?, offeredLink: String? = nil,
+         add: @escaping (Input, String) -> Void, cancel: @escaping () -> Void, edited: @escaping () -> Void) {
         self.isAdding = isAdding
         self.refusal = refusal
         self.offeredLink = offeredLink
         self.add = add
         self.cancel = cancel
         self.edited = edited
+        _mode = State(initialValue: offeredLink == nil ? mode : .link)
         _link = State(initialValue: offeredLink ?? "")
     }
 
     private var typedLink: String { link.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var template: String { ClashModuleEditorSnapshot.template(locale: locale) }
+    private var text: String { written ?? template }
+    private var isWriting: Bool { written.map { $0 != template } ?? false }
+
+     
+    private var input: Input? {
+        switch mode {
+        case .link: return typedLink.isEmpty ? nil : .link(typedLink)
+         
+        case .manual: return isWriting && ClashModuleEditorSnapshot.canSave(text) ? .text(text) : nil
+        }
+    }
+
+    private func confirm() {
+        guard !isAdding, let input else { return }
+        add(input, name)
+    }
 
     var body: some View {
         ClashClientUI.ClashSingleColumnNavigationContainer {
             Form {
                 Section {
-                     
-                     
-                     
-                     
-                    HStack(spacing: ClashTheme.Spacing.standard) {
-                        linkField
-                        ClashPasteControl(style: .square) { pasted in
-                            let input = Self.input(forPasted: pasted)
-                            if case .link(let value) = input { link = value }
-                            add(input)
-                        }
-                        .disabled(isAdding)
-                        .accessibilityIdentifier("modules.add.paste")
+                    Picker(selection: $mode) {
+                        Text("Link").tag(ClashModulesAddMode.link)
+                        Text("Manual").tag(ClashModulesAddMode.manual)
+                    } label: {
+                        Text("Add Module")
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .disabled(isAdding)
+                    .accessibilityIdentifier("modules.add.mode")
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                switch mode {
+                case .link: linkSection
+                case .manual: manualSection
+                }
+                Section {
+                    nameField
                 } footer: {
-                    if let refusal {
-                        Text(clash: refusal)
-                            .foregroundStyle(.red)
-                            .accessibilityIdentifier("modules.add.refusal")
-                    } else {
-                        Text("Paste a link to a module, or the module itself.")
-                    }
+                    Text("Leave blank to use the source's suggested name.")
                 }
             }
             .clashPageTitle("Add Module")
@@ -77,25 +103,91 @@ struct ModuleAddModuleSheet: View {
                     if isAdding {
                         ProgressView()
                     } else {
-                        Button {
-                            add(.link(typedLink))
-                        } label: {
+                        Button(action: confirm) {
                             Text("Add")
                         }
-                        .disabled(typedLink.isEmpty)
+                        .disabled(input == nil)
                         .accessibilityIdentifier("modules.add.confirm")
                     }
                 }
             }
             .clashMacProductModalBar {
                 if insideProductModal {
-                    ClashModalActionBar(primaryTitle: "Add", primaryDisabled: typedLink.isEmpty, isBusy: isAdding,
-                                        onPrimary: { add(.link(typedLink)) })
+                    ClashModalActionBar(primaryTitle: "Add", primaryDisabled: input == nil, isBusy: isAdding,
+                                        onPrimary: confirm)
                 }
             }
             .clashProductModalRoot(title: "Add Module", actionTitle: "Add",
-                                  actionDisabled: isAdding || typedLink.isEmpty,
-                                  action: { add(.link(typedLink)) })
+                                  actionDisabled: isAdding || input == nil, action: confirm)
+        }
+         
+        .interactiveDismissDisabled(isWriting || isAdding)
+    }
+
+    private var linkSection: some View {
+        Section {
+             
+             
+             
+             
+            HStack(spacing: ClashTheme.Spacing.standard) {
+                linkField
+                ClashPasteControl(style: .square) { pasted in
+                    let input = Self.input(forPasted: pasted)
+                    if case .link(let value) = input { link = value }
+                    add(input, name)
+                }
+                .disabled(isAdding)
+                .accessibilityIdentifier("modules.add.paste")
+            }
+        } footer: {
+            refusalOr(Text("Paste a link to a module, or the module itself."))
+        }
+    }
+
+     
+     
+    @ViewBuilder
+    private var nameField: some View {
+#if os(macOS)
+        TextField(text: $name, prompt: Text("Optional")) {
+            Text("Name")
+        }
+        .multilineTextAlignment(.trailing)
+        .disabled(isAdding)
+        .accessibilityIdentifier("modules.add.name")
+#else
+        HStack(spacing: ClashTheme.Spacing.standard) {
+            Text("Name")
+            TextField(text: $name, prompt: Text("Optional")) {
+                Text("Name")
+            }
+            .multilineTextAlignment(.trailing)
+            .disabled(isAdding)
+            .accessibilityIdentifier("modules.add.name")
+        }
+#endif
+    }
+
+    private var manualSection: some View {
+        Section {
+            ClashModuleText(text: Binding(get: { text }, set: { written = $0; edited() }), isEditable: !isAdding)
+                .frame(height: Self.manualTextHeight)
+                .accessibilityLabel(Text("Module Content"))
+                .accessibilityIdentifier("modules.add.text")
+        } footer: {
+            refusalOr(Text("Write the module's name after #!name= on the first line."))
+        }
+    }
+
+    @ViewBuilder
+    private func refusalOr(_ hint: Text) -> some View {
+        if let refusal {
+            Text(clash: refusal)
+                .foregroundStyle(.red)
+                .accessibilityIdentifier("modules.add.refusal")
+        } else {
+            hint
         }
     }
 
@@ -103,6 +195,7 @@ struct ModuleAddModuleSheet: View {
         TextField(text: $link, prompt: Self.prompt) {
             Text("Module Link")
         }
+        .accessibilityIdentifier("modules.add.link")
         .disableAutocorrection(true)
 #if os(iOS)
         .textInputAutocapitalization(.never)
@@ -111,11 +204,17 @@ struct ModuleAddModuleSheet: View {
 #endif
         .onChange(of: link) { _ in edited() }
         .onChange(of: offeredLink) { offered in
-            if let offered { link = offered }
+            if let offered {
+                mode = .link
+                link = offered
+            }
         }
-        .onSubmit { if !typedLink.isEmpty { add(.link(typedLink)) } }
-        .accessibilityIdentifier("modules.add.link")
+        .onSubmit(confirm)
     }
+
+     
+     
+    static let manualTextHeight: CGFloat = 240
 
      
      
@@ -139,6 +238,77 @@ struct ModuleAddModuleSheet: View {
             return .link(trimmed)
         }
         return .text(pasted)
+    }
+}
+
+ 
+ 
+ 
+ 
+struct ModuleQuickAddCard: View {
+
+    let isAdding: Bool
+    let refusal: ClashDisplayText?
+    let add: (ModuleAddModuleSheet.Input) -> Void
+    let create: () -> Void
+    @State private var link = ""
+
+    private var typedLink: String { link.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    var body: some View {
+        Section {
+            HStack(spacing: ClashTheme.Spacing.standard) {
+                TextField(text: $link, prompt: ModuleAddModuleSheet.prompt) {
+                    Text("Module Link")
+                }
+                .disableAutocorrection(true)
+#if os(iOS)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+                .textContentType(.URL)
+#endif
+                .submitLabel(.done)
+                .onSubmit { if !typedLink.isEmpty { add(.link(typedLink)) } }
+                .disabled(isAdding)
+                .accessibilityIdentifier("modules.quick-add.link")
+                ClashPasteControl(style: .square) { pasted in
+                    let input = ModuleAddModuleSheet.input(forPasted: pasted)
+                    if case .link(let value) = input { link = value }
+                    add(input)
+                }
+                .disabled(isAdding)
+                .accessibilityIdentifier("modules.quick-add.paste")
+            }
+            if isAdding {
+                HStack(spacing: ClashTheme.Spacing.compact) {
+                    ProgressView().controlSize(.small)
+                    if let host = URL(string: typedLink)?.host {
+                        Text(clash: .format("Downloading %@…", [host]))
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .accessibilityIdentifier("modules.quick-add.status")
+            } else if let refusal {
+                ClashStatusMessage(text: refusal, kind: .error)
+                    .accessibilityIdentifier("modules.quick-add.status")
+            }
+             
+             
+             
+             
+            Button(action: create) {
+                Label(ClashCopy.key("New Module"), systemImage: ClashSymbol.docBadgePlus.name)
+            }
+            .disabled(isAdding)
+            .accessibilityIdentifier("modules.quick-add.create")
+        } header: {
+            ClashConfigurationLibraryHeader(title: .copy("Add Module"))
+        }
+        .onChange(of: isAdding) { adding in
+             
+            if !adding, refusal == nil { link = "" }
+        }
     }
 }
 

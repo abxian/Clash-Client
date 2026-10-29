@@ -18,6 +18,11 @@ public struct ClashModuleDetailView: View {
     private let perform: (ClashModulesAction) -> Void
     private let close: () -> Void
     @State private var confirmsDelete = false
+     
+    @State private var nameDraft = ClashModuleNameDraft()
+     
+     
+    @FocusState private var nameIsFocused: Bool
     @Environment(\.locale) private var locale
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -40,6 +45,7 @@ public struct ClashModuleDetailView: View {
         macSheet
             .modifier(ClashModulesEditorPresentation(editor: thisModulesEditor, perform: perform))
             .accessibilityIdentifier("modules.detail")
+            .onChange(of: snapshot?.name) { _ in nameDraft.moduleRenamed() }
 #else
         ClashSingleColumnNavigationContainer {
             content
@@ -47,7 +53,21 @@ public struct ClashModuleDetailView: View {
                 .clashToolbarUnlessInPanel {
                     ToolbarItem(placement: .cancellationAction) {
                         ClashSheetCloseButton {
+                             
+                            saveName()
                             close()
+                        }
+                    }
+                     
+                     
+                    ToolbarItem(placement: .confirmationAction) {
+                        if renamedTo != nil {
+                            Button {
+                                saveName()
+                            } label: {
+                                Text("Save")
+                            }
+                            .accessibilityIdentifier("modules.detail.save")
                         }
                     }
                 }
@@ -55,6 +75,7 @@ public struct ClashModuleDetailView: View {
         }
         .modifier(ClashModulesEditorPresentation(editor: thisModulesEditor, perform: perform))
         .accessibilityIdentifier("modules.detail")
+        .onChange(of: snapshot?.name) { _ in nameDraft.moduleRenamed() }
 #endif
     }
 
@@ -103,6 +124,8 @@ public struct ClashModuleDetailView: View {
      
      
      
+     
+     
     private func deleteButton(_ snapshot: ClashModuleDetailSnapshot, title: ClashDisplayText,
                               destructive: Bool = true) -> some View {
         Button(role: destructive ? .destructive : nil) {
@@ -111,21 +134,10 @@ public struct ClashModuleDetailView: View {
             Text(clash: title)
         }
         .accessibilityIdentifier("modules.detail.delete")
-        .confirmationDialog(
-            Text(clash: .format("Delete %@?", [snapshot.name])),
-            isPresented: $confirmsDelete,
-            titleVisibility: .visible
-        ) {
-            Button(role: .destructive) {
-                perform(.removeModule(id: snapshot.id))
-                close()
-            } label: {
-                Text("Delete Module")
-            }
-            .accessibilityIdentifier("modules.detail.delete.confirm")
-            Button(role: .cancel) {} label: {
-                Text("Cancel")
-            }
+        .clashDeleteConfirmation(snapshot.name, isPresented: $confirmsDelete, actionTitle: .copy("Delete Module"),
+                                identifier: "modules.detail.delete.confirm") {
+            perform(.removeModule(id: snapshot.id))
+            close()
         }
     }
 
@@ -164,11 +176,52 @@ public struct ClashModuleDetailView: View {
             .fixedSize(horizontal: false, vertical: true)
     }
 
+     
+    private var renamedTo: String? {
+        snapshot.flatMap { nameDraft.renamedTo(name: $0.name, ownName: $0.ownName) }
+    }
+
+    private func saveName() {
+        guard let snapshot, let name = nameDraft.save(name: snapshot.name, ownName: snapshot.ownName) else { return }
+        perform(.renameModule(id: snapshot.id, name: name))
+    }
+
+     
+     
+    private func nameText(_ snapshot: ClashModuleDetailSnapshot, ownName: String) -> Binding<String> {
+        Binding(get: { nameDraft.text(name: snapshot.name, ownName: ownName) }, set: { nameDraft.type($0) })
+    }
+
+     
+     
+     
+    @ViewBuilder
+    private func nameRow(_ snapshot: ClashModuleDetailSnapshot) -> some View {
+        if let ownName = snapshot.ownName {
+            HStack(spacing: ClashTheme.Spacing.standard) {
+                Text("Name")
+                TextField(text: nameText(snapshot, ownName: ownName),
+                          prompt: Text(verbatim: ownName)) {
+                    Text("Name")
+                }
+                .multilineTextAlignment(.trailing)
+                .submitLabel(.done)
+                .onSubmit { saveName() }
+                .accessibilityIdentifier("modules.detail.name")
+            }
+        }
+    }
+
     private func headerSection(_ snapshot: ClashModuleDetailSnapshot) -> some View {
         Section {
-            Toggle(isOn: Binding(get: { snapshot.enabled },
+            nameRow(snapshot)
+            Toggle(isOn: Binding(get: { snapshot.switching ?? snapshot.enabled },
                                  set: { perform(.setModule(id: snapshot.id, enabled: $0)) })) {
-                Text(verbatim: snapshot.name)
+                if snapshot.ownName != nil {
+                    Text("Enable")
+                } else {
+                    Text(verbatim: snapshot.name)
+                }
             }
             .modifier(ClashModulesSwitchStyle())
             .accessibilityIdentifier("modules.detail.toggle")
@@ -494,6 +547,9 @@ extension ClashModuleDetailView {
 
      
     enum MacFact: Identifiable {
+         
+         
+        case name(own: String)
         case author(String)
         case link(String)
         case updated(Date?)
@@ -507,6 +563,7 @@ extension ClashModuleDetailView {
 
         var id: String {
             switch self {
+            case .name: return "name"
             case .author: return "author"
             case .link: return "link"
             case .updated: return "updated"
@@ -522,8 +579,10 @@ extension ClashModuleDetailView {
 
      
      
+     
     nonisolated static func macFacts(_ snapshot: ClashModuleDetailSnapshot) -> [MacFact] {
         var facts: [MacFact] = []
+        if let own = snapshot.ownName { facts.append(.name(own: own)) }
         if let author = snapshot.author { facts.append(.author(author)) }
         switch snapshot.source {
         case .link(let link):
@@ -588,7 +647,10 @@ extension ClashModuleDetailView {
             macBar
         }
         .frame(minWidth: 480, idealWidth: Mac.width, minHeight: 420, idealHeight: Mac.height)
-        .onExitCommand(perform: close)
+        .onExitCommand {
+            saveName()
+            close()
+        }
          
          
          
@@ -614,7 +676,7 @@ extension ClashModuleDetailView {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Toggle(isOn: Binding(get: { snapshot.enabled },
+            Toggle(isOn: Binding(get: { snapshot.switching ?? snapshot.enabled },
                                  set: { perform(.setModule(id: snapshot.id, enabled: $0)) })) {
                 Text(verbatim: snapshot.name)
             }
@@ -632,6 +694,24 @@ extension ClashModuleDetailView {
     @ViewBuilder
     private func macFactRow(_ fact: MacFact, _ snapshot: ClashModuleDetailSnapshot) -> some View {
         switch fact {
+        case .name(let own):
+             
+             
+            macFact("Name") {
+                TextField(text: nameText(snapshot, ownName: own), prompt: Text(verbatim: own)) {
+                    Text("Name")
+                }
+                .labelsHidden()
+                .textFieldStyle(.plain)
+                .multilineTextAlignment(.trailing)
+                .frame(minWidth: 160, maxWidth: 280)
+                .focused($nameIsFocused)
+                .onSubmit { saveName() }
+                .onChange(of: nameIsFocused) { focused in
+                    if !focused { saveName() }
+                }
+                .accessibilityIdentifier("modules.detail.name")
+            }
         case .author(let author):
             macFact("Author") { authorText(author) }
         case .link(let link):
@@ -798,6 +878,7 @@ extension ClashModuleDetailView {
             }
             Spacer(minLength: 0)
             Button {
+                saveName()
                 close()
             } label: {
                 Text("Done")
@@ -1027,5 +1108,52 @@ extension Text {
         var text = AttributedString(value)
         text.languageIdentifier = "zxx"
         self.init(text)
+    }
+}
+
+ 
+ 
+ 
+ 
+struct ClashModuleNameDraft: Equatable {
+     
+    private(set) var typed: String?
+     
+     
+     
+    private(set) var sent: String?
+
+     
+     
+    func text(name: String, ownName: String) -> String {
+        typed ?? (name == ownName ? "" : name)
+    }
+
+    mutating func type(_ text: String) {
+        if text != typed { sent = nil }
+        typed = text
+    }
+
+     
+     
+     
+    func renamedTo(name: String, ownName: String?) -> String? {
+        guard ownName != nil, let typed else { return nil }
+        let trimmed = typed.trimmingCharacters(in: .whitespacesAndNewlines)
+        let current = name == ownName ? "" : name
+        return trimmed == current || trimmed == name || trimmed == sent ? nil : trimmed
+    }
+
+    mutating func save(name: String, ownName: String?) -> String? {
+        guard let renamed = renamedTo(name: name, ownName: ownName) else { return nil }
+        sent = renamed
+        return renamed
+    }
+
+     
+     
+    mutating func moduleRenamed() {
+        if let sent, typed?.trimmingCharacters(in: .whitespacesAndNewlines) == sent { typed = nil }
+        sent = nil
     }
 }

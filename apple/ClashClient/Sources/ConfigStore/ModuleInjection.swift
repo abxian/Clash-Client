@@ -762,12 +762,25 @@ enum ModuleInjection {
      
      
      
+     
+     
+     
+     
+     
+     
     static func engineProxyEntry(name: String, port: UInt16, credentials: ModuleEngineProxyCredentials,
                                  listener: ModuleReinjectCredentials) throws -> String {
         guard credentials.isWellFormed, credentials != listener else { throw ModuleInjectionError.unusableCredentials }
-        return "{ name: \(name), type: http, server: 127.0.0.1, port: \(port), username: \(credentials.username), password: \(credentials.password) }"
+        return "{ name: \(name), type: http, server: 127.0.0.1, port: \(port), username: \(credentials.username), password: \(credentials.password), x-clash-internal: true }"
     }
 
+     
+     
+     
+     
+    static let composition = 2
+
+     
      
      
      
@@ -789,15 +802,31 @@ enum ModuleInjection {
          
         let quic = ModuleEngineRoute.quic(mitm: plan.mitmHosts)
         out.append(contentsOf: quic.rules)
-        out.append(contentsOf: plan.moduleRules)
-        guard plan.engineReady else { return (out, quic.sets) }
+        guard plan.engineReady else { return (out + plan.moduleRules, quic.sets) }
+         
+         
+         
+         
+         
+         
+         
+         
+        let refusals = plan.moduleRules.prefix(while: refuses)
+        out.append(contentsOf: refusals)
          
          
         let route = ModuleEngineRoute.build(mitm: plan.decryptsTLS ? plan.mitmHosts : nil, forceHTTP: plan.forceHTTPEngineHosts,
                                              engine: plan.engineProxyName)
          
         var named = Set<String>()
-        return (out + route.rules, (quic.sets + route.sets).filter { named.insert($0.name).inserted })
+        return (out + route.rules + plan.moduleRules.dropFirst(refusals.count),
+                (quic.sets + route.sets).filter { named.insert($0.name).inserted })
+    }
+
+     
+     
+    static func refuses(_ rule: String) -> Bool {
+        ModuleRuleMapping.split(rule, family: .surge)?.policy.map(ModuleRuleMapping.isReject) ?? false
     }
 
      

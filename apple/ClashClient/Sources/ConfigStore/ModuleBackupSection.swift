@@ -13,6 +13,9 @@ struct ModuleBackupSection: Codable, Equatable, Sendable {
         var origin: ModuleRecord.Origin
         var name: String
         var enabled: Bool
+         
+         
+        var label: String? = nil
         var updateInterval: Int
          
          
@@ -118,7 +121,7 @@ struct ModuleBackupSection: Codable, Equatable, Sendable {
             }
             var stored: [String: String] = [:]
             for key in record.storedValues.keys { stored[key] = scripts.readShared(key: key) }
-            return Module(origin: record.origin, name: record.name, enabled: record.enabled,
+            return Module(origin: record.origin, name: record.name, enabled: record.enabled, label: record.label,
                           updateInterval: record.updateInterval, source: source ?? Data(),
                           lastUpdatedAt: record.lastUpdatedAt,
                           argumentValues: record.argumentValues.isEmpty ? nil : record.argumentValues,

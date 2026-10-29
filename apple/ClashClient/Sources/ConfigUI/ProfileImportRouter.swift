@@ -142,20 +142,49 @@ final class ProfileImportRouter: ObservableObject {
      
      
      
-    @Published private(set) var centresOnScreen: [UUID] = []
      
      
-    @Published private(set) var centreAppearances = 0
+     
+     
+     
+     
+     
+     
+     
+     
+    private(set) var centresOnScreen: [UUID] = []
+     
+     
+    private(set) var centreAppearances = 0
+    private var toldCentres: [UUID] = []
+    private var tellingCentres = false
 
     func centreAppeared(_ id: UUID) {
         centresOnScreen.removeAll { $0 == id }
         centresOnScreen.append(id)
         centreAppearances &+= 1
+        tellCentresAfterThisTurn()
     }
 
     func centreDisappeared(_ id: UUID) {
         centresOnScreen.removeAll { $0 == id }
+        tellCentresAfterThisTurn()
     }
+
+     
+     
+    private func tellCentresAfterThisTurn() {
+        guard !tellingCentres else { return }
+        tellingCentres = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.tellingCentres = false
+            guard self.centresOnScreen != self.toldCentres else { return }
+            self.objectWillChange.send()
+            self.toldCentres = self.centresOnScreen
+        }
+    }
+
     private var queue: [ProfileImportRequest] = []
     private let inbox: ProfileShareInbox?
     private let fetchLocalOrigin: (URL) async throws -> Data

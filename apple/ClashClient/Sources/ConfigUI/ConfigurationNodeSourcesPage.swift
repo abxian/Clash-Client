@@ -65,6 +65,8 @@ final class ConfigurationNodeSourcesModel: ObservableObject {
     @Published private(set) var busy = false
     @Published var failure: String?
      
+    @Published private(set) var pressed = ClashPressedSwitches<String>()
+     
      
     private(set) var library = ConfigurationLibrarySnapshot()
      
@@ -134,12 +136,20 @@ final class ConfigurationNodeSourcesModel: ObservableObject {
     }
 
      
+     
+     
+    func isOn(_ id: String) -> Bool { pressed.shown(id, else: rows.first { $0.id == id }?.isOn ?? false) }
+
+     
     func scope(of id: String) -> ConfigurationNodeScope? { scopes[id] }
 
     func record(of id: String) -> ConfigurationSourceRecord? { library.sources.first { $0.id == id } }
 
     func set(_ id: String, on: Bool) async {
         if !on, !canTurnOff(id) { return }
+        let press = pressed.press(id, on)
+         
+        defer { pressed.settle(id, press: press) }
         if on, let payload = legacy[id] {
             await edit { draft in Self.accept(payload, into: &draft) }
             return
@@ -363,7 +373,7 @@ struct ConfigurationNodeSourcesPage: View {
          
          
          
-        Toggle(isOn: Binding(get: { row.isOn }, set: { on in
+        Toggle(isOn: Binding(get: { sources.isOn(row.id) }, set: { on in
             if !on, !sources.canTurnOff(row.id) { keepsOneSource = true; return }
             Task { await sources.set(row.id, on: on) }
         })) {
@@ -385,7 +395,7 @@ struct ConfigurationNodeSourcesSheet: View {
     @ObservedObject var model: ProfilesViewModel
     let profileID: String
     var libraryChanged: ((ConfigurationLibrarySnapshot) -> Void)?
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
 
     var body: some View {
         ClashFeatureNavigationContainer {

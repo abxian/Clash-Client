@@ -866,6 +866,14 @@ public final class ClashMacConfigurationLibraryModel: ObservableObject {
      
      
      
+    nonisolated public static func link(of source: ConfigurationSourceRecord) -> String? {
+        guard source.nodeChain == nil, case .subscription(let link) = source.origin else { return nil }
+        return link
+    }
+
+     
+     
+     
      
      
     nonisolated public static func canDeleteSource(_ source: ConfigurationSourceRecord) -> Bool {

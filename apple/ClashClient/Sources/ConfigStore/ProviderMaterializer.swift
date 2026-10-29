@@ -390,6 +390,11 @@ struct ProviderFetchedByCore: LocalizedError, Equatable {
  
  
  
+ 
+ 
+ 
+ 
+ 
 enum ProviderRequestIdentity {
     static func of(url: String, headers: [String: [String]]) -> String {
         var fields: [String: [String]] = [:]
@@ -411,7 +416,7 @@ enum ProviderRequestIdentity {
 
      
     static func of(_ provider: RemoteResourcePlan.Provider) -> String {
-        of(url: provider.url, headers: provider.headers)
+        of(url: provider.url, headers: provider.requestHeaders)
     }
 }
 
@@ -1154,7 +1159,7 @@ final class ProviderMaterializer {
                     if let authorization = Self.basicAuthorization(from: url) {
                         request.setValue(authorization, forHTTPHeaderField: "Authorization")
                     }
-                    try applyHeaders(provider.headers, to: &request, provider: provider.name)
+                    try applyHeaders(provider.requestHeaders, to: &request, provider: provider.name)
                     if request.value(forHTTPHeaderField: "User-Agent") == nil {
                         request.setValue(
                             userAgent ?? ClientUserAgent.resolved(),
@@ -1185,7 +1190,7 @@ final class ProviderMaterializer {
             if let authorization = Self.basicAuthorization(from: url) {
                 request.setValue(authorization, forHTTPHeaderField: "Authorization")
             }
-            try applyHeaders(provider.headers, to: &request, provider: provider.name)
+            try applyHeaders(provider.requestHeaders, to: &request, provider: provider.name)
             if request.value(forHTTPHeaderField: "User-Agent") == nil {
                 request.setValue(
                     userAgent ?? ClientUserAgent.resolved(),

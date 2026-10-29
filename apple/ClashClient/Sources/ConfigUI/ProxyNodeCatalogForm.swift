@@ -165,6 +165,30 @@ enum ProxyNodeCatalog {
      
      
      
+    static func field(at path: [String], typeID: String, mapping: [String: Any],
+                      in catalog: ConfigurationFieldCatalog) -> ConfigurationField? {
+        var parent = typePath(typeID)
+        var plainParent: String?
+        for (index, key) in path.enumerated() {
+            let here = parent + "." + key
+            guard index < path.count - 1 else {
+                return catalog.field(atCatalogPath: here) ?? plainParent.flatMap { catalog.field(atCatalogPath: $0 + "." + key) }
+            }
+            if let chosen = variant(of: here, path: Array(path[...index]), mapping: mapping, in: catalog) {
+                plainParent = here
+                parent = here + "[" + chosen + "]"
+            } else {
+                plainParent = nil
+                parent = here
+            }
+        }
+        return nil
+    }
+
+     
+     
+     
+     
      
     static func variant(of catalogPath: String, path: [String], mapping: [String: Any],
                         in catalog: ConfigurationFieldCatalog) -> String? {
@@ -434,6 +458,16 @@ extension ProxyNodeEditorDraft {
         setString(typeID, key: "type", omitWhenEmpty: false)
         applyNewTypeDefaults(typeID)
     }
+
+     
+     
+     
+     
+    func shownFlag(path: [String], catalog: ConfigurationFieldCatalog?) -> Bool {
+        if hasValue(path: path) { return bool(path: path) }
+        guard let catalog else { return false }
+        return ProxyNodeCatalog.field(at: path, typeID: typeID, mapping: mapping, in: catalog)?.defaultFlag ?? false
+    }
 }
 
  
@@ -618,9 +652,10 @@ struct ProxyNodeCatalogRow: View {
     var body: some View {
         control
             .accessibilityIdentifier(identifier)
-            .swipeActions(edge: .trailing) {
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 if access.isWritten {
-                    Button { access.useDefault() } label: { Text(clash: .copy("Use Default")) }
+                    Button { access.useDefault() } label: { ClashSwipeLabel(.copy("Use Default"), symbol: .arrowUturnBackward) }
+                        .tint(.orange)
                 }
             }
     }

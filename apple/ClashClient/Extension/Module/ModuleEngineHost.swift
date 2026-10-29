@@ -260,6 +260,16 @@ final class ModuleEngineHost: ModuleTunnelHooks {
      
      
      
+     
+     
+     
+     
+#if os(iOS)
+    static let rulesOnDemandHere = true
+#else
+    static let rulesOnDemandHere = false
+#endif
+    static let idleReleaseHere: TimeInterval = 60
     static let rebindSpacing: TimeInterval = 10
     static let listenerFailureLimit = 3
     static let listenerFailureWindow: TimeInterval = 60
@@ -271,6 +281,23 @@ final class ModuleEngineHost: ModuleTunnelHooks {
      
      
     private let carriesEngineProxy: ((ModuleRunningRevision) -> Bool)?
+     
+     
+     
+     
+     
+    private let rulesOnDemand: Bool
+    private let idleRelease: TimeInterval?
+     
+     
+     
+    private let checkWithoutRules: ((ModuleEngine, ModuleEnginePlan.Entry, ModuleEngineReporter) -> Void)?
+     
+    private var demandedAt: Date?
+     
+     
+    private weak var builtOnQueue: ModuleEngine?
+    private weak var demandedOnQueue: ModuleEngine?
      
      
     private let readPlan: (ModuleRunningRevision, ModuleEngineLocations) -> ModuleEnginePlan.Lookup
@@ -286,6 +313,8 @@ final class ModuleEngineHost: ModuleTunnelHooks {
          listenerFailureLimit: Int = ModuleEngineHost.listenerFailureLimit,
          listenerFailureWindow: TimeInterval = ModuleEngineHost.listenerFailureWindow,
          carriesEngineProxy: ((ModuleRunningRevision) -> Bool)? = nil,
+         rulesOnDemand: Bool = false, idleRelease: TimeInterval? = nil,
+         checkWithoutRules: ((ModuleEngine, ModuleEnginePlan.Entry, ModuleEngineReporter) -> Void)? = nil,
          readPlan: @escaping (ModuleRunningRevision, ModuleEngineLocations) -> ModuleEnginePlan.Lookup
              = ModuleEnginePlan.entry(for:locations:),
          configure: @escaping (ModuleEngine, ModuleEngineInputs, ModuleEngineReporter, ModuleScriptRunning) -> Void
@@ -308,6 +337,9 @@ final class ModuleEngineHost: ModuleTunnelHooks {
         self.listenerFailureLimit = max(1, listenerFailureLimit)
         self.listenerFailureWindow = max(0, listenerFailureWindow)
         self.carriesEngineProxy = carriesEngineProxy
+        self.rulesOnDemand = rulesOnDemand
+        self.idleRelease = rulesOnDemand ? idleRelease : nil
+        self.checkWithoutRules = checkWithoutRules
         self.readPlan = readPlan
         self.configure = configure
     }
@@ -527,16 +559,6 @@ final class ModuleEngineHost: ModuleTunnelHooks {
          
          
          
-        if ModuleLadderThresholds.current.followsPressureOnly, let reporter = madeReporter {
-            queue.sync {
-                guard reporter.report.rung > .normal else { return }
-                reporter.record {
-                    $0.rung = .normal
-                    $0.rungCause = nil
-                    $0.rungAt = reporter.now()
-                }
-            }
-        }
     }
 
      
@@ -748,6 +770,8 @@ final class ModuleEngineHost: ModuleTunnelHooks {
         log.say("engine stopped: \(why)")
         queue.sync {
             if activeOnQueue === current.engine { activeOnQueue = nil }
+            if builtOnQueue === current.engine { builtOnQueue = nil }
+            if demandedOnQueue === current.engine { demandedOnQueue = nil }
              
             configurationOnQueue += 1
             checkGeneration += 1
@@ -795,10 +819,18 @@ final class ModuleEngineHost: ModuleTunnelHooks {
      
      
     private func configureOnQueue(_ engine: ModuleEngine, _ entry: ModuleEnginePlan.Entry,
-                                  _ reporter: ModuleEngineReporter, settling: Bool = true) {
+                                  _ reporter: ModuleEngineReporter, settling: Bool = true, demanded: Bool = false) {
         guard activeOnQueue === engine else { return }
         let entry = watching(engine, entry, reporter, settling: settling)
         configurationOnQueue += 1
+        if demanded { demandedOnQueue = engine }
+        if rulesOnDemand, !demanded, builtOnQueue !== engine, demandedOnQueue !== engine {
+             
+             
+            awaitRules(engine)
+            checkWithoutRules?(engine, entry, reporter)
+            return log.say("the modules are read at the first connection that needs them")
+        }
         let generation = configurationOnQueue
          
         let lists = ModuleEngineBudget.listsHeld(entry.assignment)
@@ -835,18 +867,56 @@ final class ModuleEngineHost: ModuleTunnelHooks {
         }
          
          
-        if let ladder = engine.ladder {
-            ladder.publication()
-        } else if ModuleLadderThresholds.current.followsPressureOnly, reporter.report.rung >= .engineStopped {
-             
-             
-            ModuleEngineAssembly.relax(engine: engine, reporter: reporter)(.bodiesStopped, .memoryPressure)
-        }
-         
-         
          
         if reporter.report.rung >= .engineStopped { engine.passThroughCauses.insert(.memory) }
         configure(engine, ModuleEngineInputs(entry: entry, modules: reading.modules), reporter, scripts)
+        if rulesOnDemand {
+            builtOnQueue = engine
+            if demandedOnQueue === engine { demandedOnQueue = nil }
+            if let began = demandedAt {
+                log.say("the rules a connection asked for were built in \(Int(now().timeIntervalSince(began) * 1000)) ms")
+                demandedAt = nil
+            }
+            engine.rulesReady()
+        }
+    }
+
+     
+
+     
+     
+    private func awaitRules(_ engine: ModuleEngine) {
+        engine.awaitsRules = true
+        engine.onRulesNeeded = { [weak self, weak engine] in
+            guard let self, let engine else { return }
+            self.buildDemanded(engine)
+        }
+        engine.idleAfter = idleRelease
+        engine.onIdle = { [weak self, weak engine] in
+            guard let self, let engine else { return }
+            self.releaseRules(engine)
+        }
+    }
+
+    private func buildDemanded(_ engine: ModuleEngine) {
+        guard engine === activeOnQueue, let entry = entryOnQueue, let reporter = reporterOnQueue else {
+             
+            return engine.rulesReady()
+        }
+         
+        guard demandedOnQueue !== engine else { return }
+        demandedAt = now()
+        configureOnQueue(engine, entry, reporter, settling: false, demanded: true)
+    }
+
+    private func releaseRules(_ engine: ModuleEngine) {
+        guard engine === activeOnQueue, builtOnQueue === engine else { return }
+        (engine.interceptor as? ModuleInterceptor)?.releaseRules()
+        builtOnQueue = nil
+         
+        configurationOnQueue += 1
+        awaitRules(engine)
+        log.say("no connection for \(idleRelease.map { "\($0)" } ?? "a while") s: the modules' rules are let go until a connection needs them")
     }
 
      
@@ -874,6 +944,14 @@ final class ModuleEngineHost: ModuleTunnelHooks {
             self.watch = watch
             watchedEngine = engine
             engine.onSession = { [weak watch] in watch?.sessionStarted() }
+             
+             
+            engine.onMemoryStopEnded = { [weak self, weak engine] in
+                guard let self, let engine, engine === self.watchedEngine, engine === self.activeOnQueue,
+                      let entry = self.entryOnQueue, let reporter = self.reporterOnQueue else { return }
+                self.log.say(#"the engine runs again after its memory stop: the modules are read again"#)
+                self.configureOnQueue(engine, entry, reporter, settling: false)
+            }
         }
         var entry = entry
         if settling, let listed = watch?.settle() {
@@ -896,6 +974,7 @@ final class ModuleEngineHost: ModuleTunnelHooks {
         watch?.stopObserving()
         watch = nil
         watchedEngine?.onSession = nil
+        watchedEngine?.onMemoryStopEnded = nil
         watchedEngine = nil
         entryOnQueue = nil
         reporterOnQueue = nil

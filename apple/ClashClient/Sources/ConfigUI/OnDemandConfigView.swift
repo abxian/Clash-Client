@@ -8,7 +8,7 @@ struct OnDemandConfigView: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @ObservedObject var vpn: VPNController
     @State private var draft = OnDemandConfiguration.disabled
     @State private var error = ""
@@ -336,7 +336,7 @@ private struct OnDemandRuleEditor: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
     private let openedWith: OnDemandRuleSpec
@@ -429,7 +429,7 @@ private struct OnDemandRuleEditor: View {
             } header: {
                 Text("Probe URL")
             } footer: {
-                Text("Optional. Clash accepts credential-free HTTPS probes only; Apple requires HTTP 200 for a match.")
+                Text("Optional. Use a credential-free http or https probe; Apple requires HTTP 200 for a match.")
             }
 
             if draft.action == .evaluate {
@@ -584,7 +584,7 @@ private struct OnDemandEvaluateRuleEditor: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
      
      
     private let openedWith: OnDemandEvaluateRuleSpec
@@ -650,7 +650,7 @@ private struct OnDemandEvaluateRuleEditor: View {
             } header: {
                 Text("Evaluation Probe URL")
             } footer: {
-                Text("Optional credential-free HTTPS URL used by Connect If Needed.")
+                Text("Optional credential-free http or https URL used by Connect If Needed.")
             }
             if !error.isEmpty {
                 Section { ClashStatusMessage(text: .copy(error), kind: .error) }

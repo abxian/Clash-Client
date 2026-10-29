@@ -159,6 +159,57 @@ public enum ClashTunnelRouteShaping {
         guard switches.hideVPNIcon, !includedIsEmpty, !configured.contains(v6IconHole) else { return configured }
         return configured + [v6IconHole]
     }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    public static func v4Included(_ effective: [V4], loopback: [V4]) -> [V4] {
+        let routes = unique(effective.flatMap { route -> [V4] in
+            guard let length = v4Length(route.mask), length > 0, startsAtZero(route.address, length, AF_INET) else { return [route] }
+            return v4SplitTable.filter { (v4Length($0.mask) ?? 0) > length }
+        })
+        return routes + loopback.filter { !routes.contains($0) }
+    }
+
+    public static func v6Included(_ effective: [V6], loopback: [V6]) -> [V6] {
+        let routes = unique(effective.flatMap { route -> [V6] in
+            guard route.prefix > 0, startsAtZero(route.address, route.prefix, AF_INET6) else { return [route] }
+            return v6SplitTable.filter { $0.prefix > route.prefix }
+        })
+        return routes + loopback.filter { !routes.contains($0) }
+    }
+
+    private static func unique<Route: Equatable>(_ routes: [Route]) -> [Route] {
+        routes.reduce(into: []) { kept, route in if !kept.contains(route) { kept.append(route) } }
+    }
+
+    private static func v4Length(_ mask: String) -> Int? {
+        var s = in_addr()
+        guard inet_pton(AF_INET, mask, &s) == 1 else { return nil }
+        return (~UInt32(bigEndian: s.s_addr)).leadingZeroBitCount
+    }
+
+     
+    private static func startsAtZero(_ address: String, _ length: Int, _ family: Int32) -> Bool {
+        var bytes = [UInt8](repeating: 0, count: family == AF_INET ? 4 : 16)
+        guard inet_pton(family, address, &bytes) == 1 else { return false }
+        return (0..<min(length, bytes.count * 8)).allSatisfy { bytes[$0 / 8] & UInt8(0x80 >> ($0 % 8)) == 0 }
+    }
 }
 
 extension ClashTunnelRouteShaping {

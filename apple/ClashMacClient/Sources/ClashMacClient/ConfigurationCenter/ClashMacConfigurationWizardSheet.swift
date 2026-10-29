@@ -83,13 +83,13 @@ public enum ClashMacConfigurationWizardRules {
      
      
      
+     
+     
     public static func addSource(_ payload: ConfigurationSourcePayload, to draft: inout ConfigurationCreationDraft) {
-        let isFile: Bool
-        if case .file = payload.record.origin { isFile = true } else { isFile = false }
-        if isFile, draft.selectedSourceIDs.isEmpty, draft.newSources.isEmpty,
+        if draft.selectedSourceIDs.isEmpty, draft.newSources.isEmpty,
            payload.record.suppliesNodes,
            payload.record.nodeCount > 0 || payload.record.providerCount > 0,
-           payload.suppliesOwnRouting {
+           ConfigurationCreationDraft.runsAsWritten(payload) {
             draft.useOriginal(payload)
         } else {
             draft.add(payload, rule: nil)
@@ -126,7 +126,7 @@ public struct ClashMacConfigurationWizardSheet: View {
      
      
      
-    @State private var dismiss = ClashDismissHandle()
+    @StateObject private var dismiss = ClashDismissHandle()
     @Environment(\.locale) private var locale
     @State private var draft = ConfigurationCreationDraft()
     @State private var creationID = UUID().uuidString.lowercased()

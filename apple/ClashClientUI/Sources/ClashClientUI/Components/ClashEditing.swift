@@ -141,15 +141,61 @@ private struct ClashConfigurationLibraryListStyle: ViewModifier {
 public extension View {
      
      
+     
+     
     func clashDeleteConfirmation(_ name: String, isPresented: Binding<Bool>,
                                 actionTitle: ClashDisplayText = .copy("Delete"),
-                                message: ClashDisplayText,
+                                message: ClashDisplayText? = nil,
                                 identifier: String,
                                 action: @escaping () -> Void) -> some View {
         alert(Text(clash: .format("Delete %@?", [name])), isPresented: isPresented) {
             Button(role: .destructive, action: action) { Text(clash: actionTitle) }
                 .accessibilityIdentifier(identifier)
             Button("Cancel", role: .cancel) {}
-        } message: { Text(clash: message) }
+        } message: {
+            if let message { Text(clash: message) }
+        }
+    }
+
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    func clashSwipeToDelete(identifier: String? = nil, disabled: Bool = false,
+                           _ delete: (() -> Void)?) -> some View {
+        swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if let delete {
+                Button(role: .destructive, action: delete) {
+                    Label { Text("Delete") } icon: { Image(systemName: ClashSymbol.trash.rawValue) }
+                }
+                .tint(.red)
+                .disabled(disabled)
+                .modifier(ClashOptionalIdentifier(identifier: identifier))
+            }
+        }
+    }
+}
+
+ 
+ 
+ 
+ 
+ 
+public struct ClashSwipeLabel: View {
+    private let title: ClashDisplayText
+    private let symbol: ClashSymbol
+
+    public init(_ title: ClashDisplayText, symbol: ClashSymbol) {
+        self.title = title
+        self.symbol = symbol
+    }
+
+    public var body: some View {
+        Label { Text(clash: title) } icon: { Image(systemName: symbol.rawValue) }
     }
 }
