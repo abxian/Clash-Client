@@ -392,7 +392,7 @@ struct ShenxianyunHomeView: View {
                     // Keep the original managed source and UID; never exchange a
                     // new credential to bypass revocation or file migration.
                     let activeURL = await client.activeSubscriptionURL()
-                    guard case let .remote(remote) = profile.source, remote.displayURL == activeURL else {
+                    guard case let .url(source) = profile.source, URL(string: source) == activeURL else {
                         notice = "当前配置已手动更改，未覆盖本地订阅"; return false
                     }
                     isWorking = true
