@@ -70,12 +70,22 @@ struct ShenxianyunHomeView: View {
             ShenxianyunImportView(client: client, onImported: handleImported)
                 .shenxianyunLight()
         }
+        .onChange(of: showsImport) { visible in
+            if visible {
+                session.recoveryTask?.cancel()
+            } else {
+                session.nextCheck = .distantPast
+                Task { _ = await checkRecovery(force: true) }
+            }
+        }
         .sheet(isPresented: $showsNodes) { ShenxianyunNodesView(nodes: nodes) }
         .task(id: session.refreshGeneration) { await loadState() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
-            await client.refreshEndpoints()
-            _ = await checkRecovery(force: true)
+            if !showsImport {
+                await client.refreshEndpoints()
+                _ = await checkRecovery(force: true)
+            }
             while !Task.isCancelled {
                 do { try await Task.sleep(nanoseconds: 5_000_000_000) } catch { return }
                 _ = await checkRecovery()
@@ -279,7 +289,7 @@ struct ShenxianyunHomeView: View {
         let generation = session.refreshGeneration
         guard !Task.isCancelled, !isWorking, !isStarting,
               session.refreshedGeneration != generation,
-              savedCode != nil else { return }
+              !showsImport, savedCode != nil else { return }
         guard profiles.busyProfileID == nil,
               profiles.profiles.contains(where: { $0.id == installedProfileID }) else { return }
         session.refreshedGeneration = generation
@@ -353,16 +363,21 @@ struct ShenxianyunHomeView: View {
     }
 
     private func updateNodes() {
-        Task { @MainActor in _ = await checkRecovery(force: true) }
+        guard !isWorking, !isStarting, !showsImport, !isTransitioning else { return }
+        Task { @MainActor in
+            let success = await checkRecovery(force: true, manual: true)
+            if success { notice = "节点已更新" }
+            else if notice == nil { notice = "更新失败，已保留原配置，请稍后重试" }
+        }
     }
 
     @MainActor
-    private func checkRecovery(force: Bool = false, starting: Bool = false) async -> Bool {
+    private func checkRecovery(force: Bool = false, starting: Bool = false, manual: Bool = false) async -> Bool {
         if let pending = session.recoveryTask { return await pending.value }
-        guard !isWorking, (!isStarting || starting), profiles.busyProfileID == nil,
+        guard !showsImport, !isWorking, (!isStarting || starting), profiles.busyProfileID == nil,
               accessCode != nil else { return false }
         guard Date() >= session.retryNotBefore else {
-            if starting { notice = "服务器繁忙，请稍后再试" }
+            if starting || manual { notice = "服务器繁忙，请稍后再试" }
             return false
         }
         if !force && Date() < session.nextCheck { return session.restriction == nil }
@@ -394,7 +409,7 @@ struct ShenxianyunHomeView: View {
                 expiresAt = snapshot.record.expiresAt
                 session.failures = 0
                 session.nextCheck = Date().addingTimeInterval(Double.random(in: 24...36))
-                notice = nil
+                if !manual { notice = nil }
                 UserDefaults(suiteName: ShenxianyunProfile.appGroup)?.removeObject(forKey: "shenxianyun.connection_error")
                 return true
             } catch is CancellationError {
@@ -409,7 +424,7 @@ struct ShenxianyunHomeView: View {
                     session.nextCheck = max(session.nextCheck, session.retryNotBefore)
                 }
                 if session.restriction != nil, isConnected, profiles.activeProfileID == profileID { await vpn.stop() }
-                if starting || session.restriction != nil {
+                if starting || manual || session.restriction != nil {
                     notice = (error as? ShenxianyunError)?.userMessage ?? "更新失败，已保留原配置"
                 }
                 return false

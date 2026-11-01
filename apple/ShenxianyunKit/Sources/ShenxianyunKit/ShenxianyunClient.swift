@@ -1,4 +1,5 @@
 import Foundation
+import CryptoKit
 
 /// 神仙云后端的统一入口。UI 与 Network Extension 都只跟它打交道。
 ///
@@ -167,9 +168,41 @@ public actor ShenxianyunClient {
     public func reportTraffic(_ counter: TrafficCounter, final: Bool = false, expectedDeviceToken: String? = nil) async throws {
         guard let activation = state.activation else { throw ShenxianyunError.notActivated }
         try checkCredential(activation, expected: expectedDeviceToken)
+        let fingerprint = SHA256.hash(data: Data(activation.deviceToken.utf8)).map { String(format: "%02x", $0) }.joined()
+        var reports = state.trafficOutbox
+        // One frozen packet per counter. Never re-date or change sequence on a
+        // retry; a new tunnel counter may coexist with a failed final snapshot.
+        let packet = PendingTrafficReport(credential: fingerprint, counter: counter)
+        if !reports.contains(packet) {
+            // The first packet is frozen for retry. Coalesce only a later,
+            // never-attempted cumulative snapshot from that same counter.
+            if let index = reports.lastIndex(where: { $0.credential == fingerprint && $0.counter.counterID == counter.counterID }), index > 0 {
+                reports[index] = packet
+            } else {
+                guard reports.count < 64 else { throw ShenxianyunError.rateLimited(retryAfter: 300) }
+                reports.append(packet)
+            }
+            state.trafficOutbox = reports
+        }
+        guard let pending = reports.first(where: { $0.credential == fingerprint }) else { return }
         let sender = final ? APITransport(http: transport.http, timeout: 2, platform: platform) : transport
-        try await sender.reportTraffic(counter: counter, deviceToken: activation.deviceToken,
+        try await sender.reportTraffic(counter: pending.counter, deviceToken: activation.deviceToken,
             bases: final ? Array(currentBases().prefix(1)) : currentBases())
+        try Task.checkCancellation()
+        guard state.activation?.deviceToken == activation.deviceToken else { throw CancellationError() }
+        // Read again after await; another lifecycle must not lose a newly queued
+        // session. Only a matching successful packet is removed, never on 202.
+        state.trafficOutbox = state.trafficOutbox.filter { $0 != pending }
+        if pending.counter != counter {
+            // Keep the latest cumulative observation too. It will follow this
+            // committed packet, without overwriting a frozen predecessor.
+            var remaining = state.trafficOutbox
+            if !remaining.contains(where: { $0.credential == fingerprint && $0.counter.counterID == counter.counterID }) {
+                remaining.append(PendingTrafficReport(credential: fingerprint, counter: counter))
+                state.trafficOutbox = remaining
+            }
+            throw ShenxianyunError.rateLimited(retryAfter: 30)
+        }
     }
 
     public func reportOffline(expectedDeviceToken: String? = nil) async throws {

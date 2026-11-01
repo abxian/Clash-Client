@@ -67,6 +67,7 @@ public struct ShenxianyunState: Sendable {
         static let activation = "shenxianyun.activation"
         static let endpoints = "shenxianyun.endpoints"
         static let recovery = "shenxianyun.subscription_recovery"
+        static let trafficOutbox = "shenxianyun.traffic_outbox.v1"
         static let restriction = "shenxianyun.access_restriction"
     }
 
@@ -121,6 +122,11 @@ public struct ShenxianyunState: Sendable {
     public var restriction: AccessRestriction? {
         get { store.data(forKey: Key.restriction).flatMap { try? JSONDecoder().decode(AccessRestriction.self, from: $0) } }
         nonmutating set { store.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: Key.restriction) }
+    }
+
+    var trafficOutbox: [PendingTrafficReport] {
+        get { store.data(forKey: Key.trafficOutbox).flatMap { try? JSONDecoder().decode([PendingTrafficReport].self, from: $0) } ?? [] }
+        nonmutating set { store.set(try? JSONEncoder().encode(newValue), forKey: Key.trafficOutbox) }
     }
 
     /// 退出登录 / 重置：清掉提取码与激活凭据，**但保留 clientID**。

@@ -259,3 +259,35 @@ final class TunnelTrafficAccumulatorTests: XCTestCase {
         XCTAssertEqual(usage.download, 110)
     }
 }
+
+final class DurableTrafficTests: XCTestCase {
+    func testQueuedResponsePreservesFrozenPacketAcrossRestartAndNewSession() async throws {
+        let http = StubHTTPClient(), store = InMemoryStore()
+        let state = ShenxianyunState(store: store)
+        state.activation = ShenxianyunActivation(code: "fixture", expiresAt: "", deviceToken: "fixture-token",
+            subscriptionURL: URL(string: "https://fixture.invalid/sub")!, deviceID: "fixture", limitMode: nil)
+        let client = ShenxianyunClient(http: http, store: store, bootstrapAPI: URL(string: "https://fixture.invalid")!)
+        http.stub("/api/v2/client/traffic", .init(status: 202, json: ["ok":true]))
+        var old = TrafficCounter(counterID:"old")
+        old.advance(uploadTotal:100,downloadTotal:200,now:Date(timeIntervalSince1970:1000))
+        do { try await client.reportTraffic(old); XCTFail("202 is not final ACK") } catch {}
+        XCTAssertEqual(state.trafficOutbox.first?.counter, old)
+        var newest = old
+        newest.advance(uploadTotal:150,downloadTotal:250,now:Date(timeIntervalSince1970:1100))
+        _ = try? await client.reportTraffic(newest,final:true)
+        XCTAssertEqual(state.trafficOutbox.count,2)
+        let restarted = ShenxianyunClient(http:http,store:store,bootstrapAPI:URL(string:"https://fixture.invalid")!)
+        var next = TrafficCounter(counterID:"next")
+        next.advance(uploadTotal:10,downloadTotal:20)
+        http.stub("/api/v2/client/traffic", .init(json:["ok":true]))
+        _ = try? await restarted.reportTraffic(next)
+        let request = try XCTUnwrap(http.request(forPath:"/api/v2/client/traffic")?.httpBody)
+        let sent = try XCTUnwrap(JSONSerialization.jsonObject(with:request) as? [String:Any])
+        XCTAssertEqual(sent["counter_id"] as? String,"old")
+        XCTAssertEqual(sent["observed_at"] as? Int,1000)
+        XCTAssertEqual(sent["sequence"] as? Int,1)
+        XCTAssertEqual(state.trafficOutbox.first?.counter,newest)
+        XCTAssertEqual(state.trafficOutbox.last?.counter,next)
+        XCTAssertFalse(String(data:try JSONEncoder().encode(state.trafficOutbox),encoding:.utf8)!.contains("fixture-token"))
+    }
+}

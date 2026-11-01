@@ -5,9 +5,10 @@ import Foundation
 /// 不是增量——这样它才能识别客户端重启导致的计数器归零，不会把重启当成流量暴涨。
 ///
 /// 因此每次隧道重新开始计数就要换一个 `counterID`，`sequence` 在同一个 counterID 内单调递增。
-public struct TrafficCounter: Equatable, Sendable {
+public struct TrafficCounter: Codable, Equatable, Sendable {
     public let counterID: String
     public private(set) var sequence: Int
+    public private(set) var observedAt: Int64 = 0
     public private(set) var uploadTotal: Int64
     public private(set) var downloadTotal: Int64
 
@@ -19,7 +20,8 @@ public struct TrafficCounter: Equatable, Sendable {
     }
 
     /// 记下这一轮的累计值并推进 sequence。后端要求 `sequence >= 1`。
-    public mutating func advance(uploadTotal: Int64, downloadTotal: Int64) {
+    public mutating func advance(uploadTotal: Int64, downloadTotal: Int64, now: Date = Date()) {
+        observedAt = Int64(now.timeIntervalSince1970)
         sequence += 1
         // 累计值只能增不能减；内核重启后回退的话保持旧值，避免后端把它当成异常。
         self.uploadTotal = max(self.uploadTotal, uploadTotal)
@@ -124,10 +126,15 @@ extension APITransport {
             body: [
                 "counter_id": counter.counterID,
                 "sequence": counter.sequence,
+                "observed_at": counter.observedAt,
                 "upload_total": counter.uploadTotal,
                 "download_total": counter.downloadTotal,
             ],
             deviceToken: deviceToken)
+        // Queued/accepted is not a committed billing acknowledgement.
+        guard response.status != 202 else {
+            throw ShenxianyunError.rateLimited(retryAfter: response.retryAfter ?? 30)
+        }
         _ = try decodeEnvelope(response)
     }
 
@@ -233,4 +240,11 @@ public struct ScopedTunnelTrafficAccumulator: Sendable {
         }
         self.scope = scope
     }
+}
+
+/// Private App Group delivery record. A token hash binds usage to its original
+/// credential without copying the device secret into another stored record.
+struct PendingTrafficReport: Codable, Equatable, Sendable {
+    let credential: String
+    let counter: TrafficCounter
 }

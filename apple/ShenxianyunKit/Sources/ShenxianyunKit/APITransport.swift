@@ -81,10 +81,9 @@ struct APITransport: Sendable {
 
     // MARK: - 多地址故障转移
 
-    /// 依次尝试每个 base，直到某个返回了 **HTTP 响应**（哪怕是 4xx/5xx）。
-    ///
-    /// 只有传输层错误（连不上、超时、TLS 失败）才继续换下一个地址；
-    /// 服务器明确回了业务错误说明这台是通的，换地址没有意义，直接抛出去。
+    /// Transport/5xx failures may use another official endpoint and the fixed
+    /// sxnn relay. Business denial, rate limits and consumed tickets never retry.
+    /// One total deadline includes every route; isolated QA cannot reach relay.
     func sendWithFailover(
         bases: [URL], path: String, method: String = "GET",
         body: [String: Any]? = nil, deviceToken: String? = nil
@@ -92,24 +91,65 @@ struct APITransport: Sendable {
         guard !bases.isEmpty else {
             throw ShenxianyunError.invalidResponse("没有可用的 API 地址")
         }
-        var lastError: Error = ShenxianyunError.invalidResponse("没有可用的 API 地址")
+        var lastError: Error = URLError(.cannotConnectToHost)
+        var lastResponse: RawResponse?
         let started = ProcessInfo.processInfo.systemUptime
-        for base in bases {
+        var routes = bases.map { ($0, path, method, body) }
+        if let relay = Self.relayRoute(bases: bases, path: path, method: method, body: body) {
+            routes.append(relay)
+        }
+        for (index, route) in routes.enumerated() {
             try Task.checkCancellation()
             let remaining = timeout - (ProcessInfo.processInfo.systemUptime - started)
-            guard remaining > 0 else { throw ShenxianyunError.allEndpointsFailed(underlying: URLError(.timedOut)) }
+            guard remaining > 0 else { break }
+            // Reserve time for fallback rather than let a dead primary consume
+            // the entire request budget. No background frequency increase.
+            let slice = max(0.001, remaining / Double(routes.count - index))
             do {
-                return try await send(
-                    base: base, path: path, method: method, body: body, deviceToken: deviceToken, remainingBudget: remaining)
+                let response = try await send(base: route.0, path: route.1, method: route.2,
+                    body: route.3, deviceToken: deviceToken, remainingBudget: slice)
+                if response.status < 500 || response.retryAfter != nil { return response }
+                lastResponse = response
             } catch is CancellationError {
                 throw CancellationError()
+            } catch let error as URLError where error.code == .cancelled {
+                throw CancellationError()
             } catch let error as ShenxianyunError {
-                throw error       // 拼 URL 之类的自身问题，换地址也没用
+                throw error
             } catch {
-                lastError = error // 传输层失败，试下一个
+                lastError = error
             }
         }
+        try Task.checkCancellation()
+        if let lastResponse { return lastResponse }
         throw ShenxianyunError.allEndpointsFailed(underlying: lastError)
+    }
+
+    /// The relay is a fixed tenant/operation allowlist, never an arbitrary URL
+    /// proxy. Only compiled official HTTPS hosts qualify; test/custom endpoints
+    /// and endpoint discovery do not send credentials to it.
+    static func relayRoute(bases: [URL], path: String, method: String,
+                           body: [String: Any]?) -> (URL, String, String, [String: Any]?)? {
+        guard !DevelopmentBootstrap.isolated,
+              bases.contains(where: { $0.scheme == "https" &&
+                  ["api.sxnn.de", "sxnn.de"].contains($0.host?.lowercased() ?? "") &&
+                  $0.user == nil && $0.password == nil && [nil, 443, 5443].contains($0.port) }) else { return nil }
+        var operation: String
+        var packet = body ?? [:]
+        switch (method, path) {
+        case ("POST", "/api/verify"): operation = "verify"
+        case ("POST", "/api/import/ticket"): operation = "ticket"
+        case ("POST", "/api/import/exchange"): operation = "exchange"
+        case ("POST", "/api/v2/client/heartbeat"): operation = "heartbeat"
+        case ("POST", "/api/v2/client/offline"): operation = "offline"
+        default:
+            guard method == "GET", path.hasPrefix("/api/update-state/"),
+                  let code = String(path.dropFirst("/api/update-state/".count)).removingPercentEncoding,
+                  !code.isEmpty, !code.contains("/") else { return nil }
+            operation = "state"
+            packet = ["code": code]
+        }
+        return (URL(string: "https://ll.sxnn.de")!, "/v1/client/sxnn/" + operation, "POST", packet)
     }
 
     // MARK: - 响应壳

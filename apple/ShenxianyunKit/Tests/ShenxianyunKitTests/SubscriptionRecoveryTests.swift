@@ -126,6 +126,6 @@ extension SubscriptionRecoveryTests {
             XCTFail()
         } catch {}
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 1)
-        let count = await http.count; XCTAssertEqual(count, 1)
+        let count = await http.count; XCTAssertEqual(count, 2) // one total deadline shared by two bounded routes
     }
 }

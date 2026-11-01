@@ -145,6 +145,6 @@ actor ShenxianyunTelemetryReporter {
 
     /// 从内核读累计流量。解析放在 ShenxianyunKit 里，好被单测覆盖。
     private static func readTrafficTotals() -> (up: Int64, down: Int64)? {
-        TrafficCounter.parseTotals(fromTrafficJSON: ClashTrafficJSON())
+        TrafficCounter.parseTotals(fromTrafficJSON: ClashProxyTrafficJSON())
     }
 }

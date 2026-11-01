@@ -8,6 +8,27 @@ import yaml
 
 ROOT=Path(__file__).resolve().parents[1]
 
+def normalize_group_membership(path):
+    """Xcode27.2 rejects XcodeGen file references in multiple navigator groups.
+    Remove only duplicate group-child entries; target build-file membership stays.
+    """
+    seen=set()
+    def group(match):
+        block=match.group(0)
+        def children(child):
+            lines=[]
+            for line in child.group(2).splitlines(keepends=True):
+                ref=re.match(r'\s*([A-F0-9]{24}) /\*',line)
+                if ref:
+                    if ref[1] in seen:continue
+                    seen.add(ref[1])
+                lines.append(line)
+            return child.group(1)+''.join(lines)+child.group(3)
+        return re.sub(r'(children = \(\n)(.*?)(\s*\);)',children,block,flags=re.S)
+    text=path.read_text()
+    text=re.sub(r'\t\t[A-F0-9]{24} /\*[^\n]+\*/ = \{\n\t\t\tisa = PBXGroup;.*?\n\t\t\};',group,text,flags=re.S)
+    path.write_text(text)
+
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--bundle-base');parser.add_argument('--team');args=parser.parse_args()
     path=ROOT/'apple/ClashClient/project.yml'
@@ -25,6 +46,7 @@ def main():
         p=ROOT/relative;p.write_text(p.read_text().replace(old,new))
     path.write_text(yaml.safe_dump(project,sort_keys=False,allow_unicode=True))
     subprocess.run(['xcodegen','generate','--spec',str(path)],cwd=ROOT,check=True)
+    normalize_group_membership(ROOT/'apple/ClashClient/ClashClient.xcodeproj/project.pbxproj')
     from build_cli import build
     build(new)
 

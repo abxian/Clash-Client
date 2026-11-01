@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "kernel": {
     "repository": "https://github.com/abxian/Clash.git",
-    "revision": "4b7d5f53cff448f01cd5012b5e3f7eddc7d43e33"
+    "revision": "a7034e94062d649b344611f13bf16947f3818725"
   },
   "adapter": {
     "repository": "https://github.com/abxian/Clash-Adapter.git",
