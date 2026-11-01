@@ -41,7 +41,6 @@ struct ShenxianyunHomeView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var previewConnected = false
     @State private var previewNode = "自动选择"
-    @State private var previewTested = false
     @State private var showsNodes = false
     @State private var showsImport = false
     @State private var isWorking = false
@@ -469,28 +468,7 @@ struct ShenxianyunHomeView: View {
     }
 
     private var previewNodes: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    Text("演示节点 · 不进行真实连接或测速").font(.caption)
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        ForEach(["自动选择", "香港测试 A", "香港测试 B", "日本测试 C"], id: \.self) { name in
-                            Button { previewNode = name } label: {
-                                VStack(spacing: 8) {
-                                    Text(name).font(.headline)
-                                    Text(previewNode == name ? "已选择" : "点击选择").font(.caption)
-                                    if previewTested { Text("演示结果").font(.caption2) }
-                                }.frame(maxWidth: .infinity, minHeight: 92)
-                                    .background(previewNode == name ? SXYTheme.purple.opacity(0.18) : Color.white.opacity(0.4))
-                                    .clipShape(RoundedRectangle(cornerRadius: 18))
-                            }.buttonStyle(.plain)
-                        }
-                    }
-                    Button("测试连通性（演示）") { previewTested = true }
-                }.padding(20)
-            }.navigationTitle("选择节点")
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showsNodes = false } } }
-        }.navigationViewStyle(.stack).shenxianyunLight()
+        SXYPreviewNodesView(selection: $previewNode)
     }
 
     private func openPayment() {
@@ -499,6 +477,69 @@ struct ShenxianyunHomeView: View {
                 ? client.purchaseURL() : client.renewURL())
             await UIApplication.shared.open(url)
         }
+    }
+}
+
+/// Isolated synthetic data; this view never calls the proxy runtime.
+private struct SXYPreviewNodesView: View {
+    @Binding var selection: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var completed = 0
+    @State private var testTask: Task<Void, Never>?
+    private let names = ["自动选择", "香港测试 A", "香港测试 B", "日本测试 C"]
+        + (1...36).map { "演示节点 \($0)" }
+
+    var body: some View {
+        NavigationView {
+            VStack(spacing: 12) {
+                VStack(spacing: 8) {
+                    HStack {
+                        Button("测试连通性（演示）") {
+                            completed = 0
+                            testTask = Task { @MainActor in
+                                for _ in names {
+                                    do { try await Task.sleep(nanoseconds: 180_000_000) }
+                                    catch { return }
+                                    guard !Task.isCancelled else { return }
+                                    completed += 1
+                                }
+                                testTask = nil
+                            }
+                        }.buttonStyle(.bordered).disabled(testTask != nil)
+                        Spacer()
+                        if testTask != nil {
+                            Button("取消") { cancelTest() }.buttonStyle(.bordered)
+                        }
+                    }
+                    if testTask != nil || completed > 0 {
+                        ProgressView(value: Double(completed), total: Double(names.count))
+                        Text("演示进度 \(completed) / \(names.count)").font(.caption)
+                    }
+                    Text("演示节点 · 不进行真实连接或测速").font(.caption)
+                }
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(names, id: \.self) { name in
+                            Button { selection = name } label: {
+                                VStack(spacing: 8) {
+                                    Text(name).font(.headline)
+                                    Text(selection == name ? "已选择" : "点击选择").font(.caption)
+                                }.frame(maxWidth: .infinity, minHeight: 92)
+                                    .background(selection == name ? SXYTheme.purple.opacity(0.18) : Color.white.opacity(0.4))
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                }
+            }.padding(20).navigationTitle("选择节点")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+        }.navigationViewStyle(.stack).shenxianyunLight()
+            .onDisappear { cancelTest() }
+    }
+
+    private func cancelTest() {
+        testTask?.cancel()
+        testTask = nil
     }
 }
 

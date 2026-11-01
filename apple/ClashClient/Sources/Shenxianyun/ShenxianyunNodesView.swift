@@ -6,6 +6,8 @@ struct ShenxianyunNodesView: View {
     @ObservedObject var nodes: NodesModel
     @Environment(\.dismiss) private var dismiss
 
+    @State private var testTask: Task<Void, Never>?
+
     private var group: ProxyGroup? {
         let selectable = nodes.groups.filter { !$0.hidden && $0.acceptsMemberChoice }
         return selectable.first { $0.name == "节点选择" }
@@ -29,6 +31,37 @@ struct ShenxianyunNodesView: View {
                 SXYTheme.canvas
                 if let group {
                     VStack(spacing: 12) {
+                        VStack(spacing: 8) {
+                            HStack {
+                                Button {
+                                    testTask = Task {
+                                        await nodes.test(group: group)
+                                        testTask = nil
+                                    }
+                                } label: {
+                                    Label("测试连通性", systemImage: "speedometer")
+                                        .frame(maxWidth: .infinity).padding(.vertical, 8)
+                                }.buttonStyle(.bordered)
+                                    .disabled(testTask != nil || nodes.isTestingLatency)
+                                if testTask != nil || nodes.isTestingLatency {
+                                    Button("取消") {
+                                        testTask?.cancel()
+                                        Task {
+                                            await nodes.cancelLatencyTests(reason: .requested)
+                                            testTask = nil
+                                        }
+                                    }.buttonStyle(.bordered)
+                                }
+                            }
+                            if nodes.isTestingLatency {
+                                ProgressView(value: Double(nodes.latencyCompletedCount),
+                                             total: Double(max(1, nodes.latencyTotalCount)))
+                                Text("已测试 \(nodes.latencyCompletedCount) / \(nodes.latencyTotalCount)")
+                                    .font(.caption).foregroundStyle(SXYTheme.textSoft)
+                            } else if testTask != nil {
+                                ProgressView("正在准备测试")
+                            }
+                        }
                         ScrollView {
                             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                                 ForEach(members(group), id: \.self) { name in
@@ -62,12 +95,6 @@ struct ShenxianyunNodesView: View {
                         if nodes.actionRefusals[group.name] != nil {
                             Text("切换未成功，请重试或测试连通性").font(.caption).foregroundStyle(SXYTheme.textSoft)
                         }
-                        Button { Task { await nodes.test(group: group) } } label: {
-                            HStack {
-                                if nodes.isTestingLatency { ProgressView() }
-                                Text("测试连通性").font(.headline)
-                            }.frame(maxWidth: .infinity).padding(14)
-                        }.buttonStyle(.bordered).disabled(nodes.isTestingLatency)
                     }.padding(16)
                     .task(id: group.name) { await nodes.loadRemainingMembers(of: group.name) }
                 } else {
