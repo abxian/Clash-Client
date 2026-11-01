@@ -1006,39 +1006,20 @@ struct AppShellView: View {
     }
 
     private var debugGateShell: some View {
-        ZStack {
-            // Retain the same home/monitor owner while advanced pages are open.
-            // Hiding it must not cancel a managed subscription save transaction.
-            ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command, nodes: nodes,
-                client: shenxianyunClient, session: shenxianyunHomeSession,
-                openUpstream: { showsShenxianyunSettings = true },
-                openNodes: {
-                    showsShenxianyunSettings = true
-                    pendingSessionPage = .proxies
-                })
-                .opacity(showsShenxianyunSettings && vpn.status == "connected" ? 0 : 1)
-                .allowsHitTesting(!(showsShenxianyunSettings && vpn.status == "connected"))
-                .accessibilityHidden(showsShenxianyunSettings && vpn.status == "connected")
-            if showsShenxianyunSettings && vpn.status == "connected" {
-                VStack(spacing: 0) {
-                    Button { showsShenxianyunSettings = false } label: {
-                        HStack {
-                            Image(systemName: "chevron.left")
-                            Text("神仙云")
-                            Spacer()
-                        }.padding(12).foregroundStyle(SXYTheme.purple).background(SXYTheme.surface)
-                    }.buttonStyle(.plain)
-                    goldenFlowShell
-                }
+        // Keep one persistent Home/monitor owner behind the maintenance sheet.
+        ShenxianyunHomeView(vpn: vpn, profiles: profiles, command: command, nodes: nodes,
+            client: shenxianyunClient, session: shenxianyunHomeSession,
+            openUpstream: { showsShenxianyunSettings = true },
+            openNodes: { })
+            .sheet(isPresented: $showsShenxianyunSettings) {
+                ShenxianyunMaintenanceView(vpn: vpn, profiles: profiles, command: command)
+                    .shenxianyunLight()
             }
-        }
-        .onChange(of: vpn.status) { status in
-            shenxianyunHomeSession.observe(status)
-            if status != "connected" { showsShenxianyunSettings = false }
-        }
-        .onAppear { shenxianyunHomeSession.observe(vpn.status) }
+            .onChange(of: vpn.status) { status in
+                shenxianyunHomeSession.observe(status)
+            }
+            .onAppear { shenxianyunHomeSession.observe(vpn.status) }
     }
-
 
     private var goldenFlowShell: some View {
         Group {

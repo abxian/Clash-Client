@@ -1,5 +1,6 @@
 import ShenxianyunKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// AppShell 持有，页面切换不会重复消费启动刷新，也不会丢失断开刷新。
 @MainActor
@@ -465,6 +466,94 @@ private enum SXYImportError: LocalizedError {
         case .busy: return "当前配置操作尚未完成，请稍后重试"
         case .stopFirst: return "请先断开连接，再切换提取码"
         case .installFailed: return "订阅未能安装或设为当前配置，原提取码已保留"
+        }
+    }
+}
+
+/// A deliberately small maintenance surface. Upstream feature implementations
+/// remain intact for merges; its broad navigation is not reachable from Home.
+struct ShenxianyunMaintenanceView: View {
+    @ObservedObject var vpn: VPNController
+    @ObservedObject var profiles: ProfilesViewModel
+    @ObservedObject var command: ClashCommandClient
+    @Environment(\.dismiss) private var dismiss
+    @State private var closeConnections = NodeSwitchSettings.autoCloseOnSwitch()
+    @State private var link = ""
+    @State private var importingFile = false
+    @State private var busy = false
+    @State private var message: String?
+    private var stopped: Bool { !["connected", "connecting", "disconnecting"].contains(vpn.status) }
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("连接") {
+                    Text(vpn.status == "connected" ? "运行中" : "已停止")
+                    if !stopped {
+                        Button("断开连接") { Task { await vpn.stop() } }
+                    }
+                }
+                Section("配置维护") {
+                    Text("点击已有配置可选择并启动。这里的本机配置不会替换已绑定的提取码。")
+                    if !stopped { Text("先断开连接，再导入或切换本机配置。") }
+                    ForEach(profiles.profiles) { profile in
+                        Button {
+                            run {
+                                guard await profiles.selectAndWait(profile) else { return false }
+                                return await profiles.connectFromHome(profile)
+                            }
+                        } label: {
+                            HStack {
+                                Text(profile.label)
+                                Spacer()
+                                if profiles.activeProfileID == profile.id { Image(systemName: "checkmark") }
+                            }
+                        }.disabled(!stopped || busy || profiles.busyProfileID != nil)
+                    }
+                    TextField("订阅链接", text: $link)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    Button("导入链接") {
+                        guard let url = URL(string: link.trimmingCharacters(in: .whitespacesAndNewlines)),
+                              ["http", "https"].contains(url.scheme?.lowercased() ?? ""), url.host != nil else {
+                            message = "请输入有效的订阅链接"; return
+                        }
+                        run { _ = try await profiles.quickCreate(.link(url.absoluteString), preservingRouting: true); return true }
+                    }.disabled(!stopped || busy || profiles.busyProfileID != nil)
+                    Button("导入配置文件") { importingFile = true }
+                        .disabled(!stopped || busy || profiles.busyProfileID != nil)
+                }
+                Section("基础设置") {
+                    Toggle("切换节点时关闭旧连接", isOn: $closeConnections)
+                        .onChange(of: closeConnections) { NodeSwitchSettings.setAutoCloseOnSwitch($0) }
+                    Text(command.isConnected ? "核心连接正常" : "核心尚未连接")
+                    Text("版本 " + ShenxianyunProfile.appVersion)
+                }
+                if let message { Section { Text(message) } }
+            }
+            .navigationTitle("设置")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } } }
+        }
+        .navigationViewStyle(.stack)
+        .fileImporter(isPresented: $importingFile, allowedContentTypes: [.data], allowsMultipleSelection: false) { result in
+            guard stopped, !busy, profiles.busyProfileID == nil else { return }
+            do {
+                guard let file = try result.get().first else { return }
+                let permitted = file.startAccessingSecurityScopedResource()
+                defer { if permitted { file.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: file)
+                let name = file.lastPathComponent
+                run { _ = try await profiles.quickCreate(.document(fileName: name, data: data), preservingRouting: true); return true }
+            } catch { message = "文件未能导入，原配置已保留" }
+        }
+    }
+
+    private func run(_ operation: @escaping @MainActor () async throws -> Bool) {
+        guard stopped, !busy, profiles.busyProfileID == nil else { return }
+        busy = true
+        Task { @MainActor in
+            defer { busy = false }
+            do { message = try await operation() ? "操作完成" : "操作未完成，原配置已保留" }
+            catch { message = "操作失败，原配置已保留，请重试" }
         }
     }
 }
