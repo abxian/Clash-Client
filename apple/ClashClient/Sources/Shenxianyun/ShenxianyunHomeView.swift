@@ -39,6 +39,9 @@ struct ShenxianyunHomeView: View {
     private var installedProfileID = ""
 
     @Environment(\.scenePhase) private var scenePhase
+    @State private var previewConnected = false
+    @State private var previewNode = "自动选择"
+    @State private var previewTested = false
     @State private var showsNodes = false
     @State private var showsImport = false
     @State private var isWorking = false
@@ -48,12 +51,13 @@ struct ShenxianyunHomeView: View {
     @State private var accessCode: String?
     @State private var expiresAt: String?
 
-    private var isConnected: Bool { vpn.status == "connected" }
+    private var isConnected: Bool { DevelopmentBootstrap.uiPreview ? previewConnected : vpn.status == "connected" }
     private var isTransitioning: Bool {
         vpn.status == "connecting" || vpn.status == "disconnecting"
     }
 
     private var statusText: String {
+        if DevelopmentBootstrap.uiPreview { return previewConnected ? "页面预览中" : "已停止" }
         switch vpn.status {
         case "connected": return "运行中"
         case "connecting": return "连接中"
@@ -79,7 +83,10 @@ struct ShenxianyunHomeView: View {
                 Task { _ = await checkRecovery(force: true) }
             }
         }
-        .sheet(isPresented: $showsNodes) { ShenxianyunNodesView(nodes: nodes) }
+        .sheet(isPresented: $showsNodes) {
+            if DevelopmentBootstrap.uiPreview { previewNodes }
+            else { ShenxianyunNodesView(nodes: nodes) }
+        }
         .task(id: session.refreshGeneration) { await loadState() }
         .task(id: scenePhase) {
             guard scenePhase == .active else { return }
@@ -130,6 +137,10 @@ struct ShenxianyunHomeView: View {
     private func brandColumn(powerSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             header
+            if DevelopmentBootstrap.uiPreview {
+                Text("页面预览 · 未开启 VPN")
+                    .font(.caption).foregroundStyle(SXYTheme.purple).padding(.top, 8)
+            }
             if !isConnected {
                 SXYActionRow(
                     icon: "key.fill",
@@ -298,6 +309,12 @@ struct ShenxianyunHomeView: View {
     }
 
     private func togglePower() {
+        if DevelopmentBootstrap.uiPreview {
+            guard accessCode != nil else { showsImport = true; return }
+            previewConnected.toggle()
+            notice = nil
+            return
+        }
         // A background subscription save must never disable the user's stop.
         if isConnected {
             guard !isTransitioning else { return }
@@ -438,6 +455,7 @@ struct ShenxianyunHomeView: View {
     /// 模式切换直接下到内核。失败时把原因显示出来——静默失败会让用户
     /// 以为切过去了，实际流量还走着旧模式。
     private func setMode(_ mode: String) {
+        if DevelopmentBootstrap.uiPreview { notice = "页面预览未改变真实代理模式"; return }
         guard command.mode.lowercased() != mode else { return }
         Task {
             let ok = await command.setMode(mode)
@@ -448,6 +466,31 @@ struct ShenxianyunHomeView: View {
                 notice = nil
             }
         }
+    }
+
+    private var previewNodes: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 16) {
+                    Text("演示节点 · 不进行真实连接或测速").font(.caption)
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                        ForEach(["自动选择", "香港测试 A", "香港测试 B", "日本测试 C"], id: \.self) { name in
+                            Button { previewNode = name } label: {
+                                VStack(spacing: 8) {
+                                    Text(name).font(.headline)
+                                    Text(previewNode == name ? "已选择" : "点击选择").font(.caption)
+                                    if previewTested { Text("演示结果").font(.caption2) }
+                                }.frame(maxWidth: .infinity, minHeight: 92)
+                                    .background(previewNode == name ? SXYTheme.purple.opacity(0.18) : Color.white.opacity(0.4))
+                                    .clipShape(RoundedRectangle(cornerRadius: 18))
+                            }.buttonStyle(.plain)
+                        }
+                    }
+                    Button("测试连通性（演示）") { previewTested = true }
+                }.padding(20)
+            }.navigationTitle("选择节点")
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { showsNodes = false } } }
+        }.navigationViewStyle(.stack).shenxianyunLight()
     }
 
     private func openPayment() {
@@ -548,6 +591,7 @@ struct ShenxianyunMaintenanceView: View {
     }
 
     private func run(_ operation: @escaping @MainActor () async throws -> Bool) {
+        if DevelopmentBootstrap.uiPreview { message = "页面预览不导入真实配置，也不启动 VPN"; return }
         guard stopped, !busy, profiles.busyProfileID == nil else { return }
         busy = true
         Task { @MainActor in

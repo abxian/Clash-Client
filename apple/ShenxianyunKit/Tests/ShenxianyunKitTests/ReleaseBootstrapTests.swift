@@ -11,6 +11,7 @@ final class ReleaseBootstrapTests: XCTestCase {
             throw XCTSkip("Set SXY_TEST_API_BASE to exercise the Release boundary")
         }
         XCTAssertFalse(DevelopmentBootstrap.isolated)
+        XCTAssertFalse(DevelopmentBootstrap.uiPreview)
         XCTAssertEqual(DevelopmentBootstrap.api, ShenxianyunProfile.bootstrapAPI)
         #endif
     }

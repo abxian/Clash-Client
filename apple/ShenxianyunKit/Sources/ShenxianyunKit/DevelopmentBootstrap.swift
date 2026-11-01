@@ -11,6 +11,15 @@ public enum DevelopmentBootstrap {
         #endif
     }
 
+    /// Explicit Simulator-only UI preview; never available in signed Release.
+    public static var uiPreview: Bool {
+        #if DEBUG && targetEnvironment(simulator)
+        return isolated && ProcessInfo.processInfo.environment["SXY_TEST_UI_PREVIEW"] == "1"
+        #else
+        return false
+        #endif
+    }
+
     public static var api: URL {
         #if DEBUG
         if let raw = ProcessInfo.processInfo.environment["SXY_TEST_API_BASE"] {

@@ -1,3 +1,4 @@
+import ShenxianyunKit
 import Combine
 import Foundation
 import Clash
@@ -1908,6 +1909,10 @@ final class VPNController: ObservableObject {
         userInitiated: Bool? = nil,
         ticket: StartTicket? = nil
     ) async -> Bool {
+        if DevelopmentBootstrap.uiPreview {
+            lastError = "页面预览不会启动 VPN"
+            return false
+        }
         let person = userInitiated ?? (origin == .gesture)
          
          
