@@ -136,10 +136,6 @@ struct ShenxianyunHomeView: View {
     private func brandColumn(powerSize: CGFloat) -> some View {
         VStack(spacing: 0) {
             header
-            if DevelopmentBootstrap.uiPreview {
-                Text("页面预览 · 未开启 VPN")
-                    .font(.caption).foregroundStyle(SXYTheme.purple).padding(.top, 8)
-            }
             if !isConnected {
                 SXYActionRow(
                     icon: "key.fill",
